@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Plus_Jakarta_Sans as FontSans } from "next/font/google";
+import { Plus_Jakarta_Sans as FontSans, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 
 import { cn } from "@/lib/utils";
+
+const jetbrainsMono = JetBrains_Mono({subsets:['latin'],variable:'--font-mono'});
 
 const fontSans = FontSans({
   subsets: ["latin"],
@@ -26,7 +28,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={cn("font-mono", jetbrainsMono.variable)}>
       <body
         className={cn(
           "min-h-screen bg-dark-300 font-sans antialiased",
