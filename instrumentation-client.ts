@@ -12,7 +12,7 @@ Sentry.init({
   tracesSampleRate: 1.0,
 
   // Setting this option to true will print useful information to the console while you're setting up Sentry.
-  debug: false,
+  debug: process.env.NODE_ENV === 'development',
 
   replaysOnErrorSampleRate: 1.0,
 
@@ -28,7 +28,10 @@ Sentry.init({
 
   // Next.js 15 optimization: Ensure we don't capture noise from the dev server
   enabled: process.env.NODE_ENV === 'production',
+  webpack: {
+    treeshake: {
+      removeDebugLogging: true, // Replaces disableLogger
+    },
+    automaticVercelMonitors: true, // Replaces automaticVercelMonitors
+  },
 });
-
-// Note: For Next.js 15+, Sentry recommends renaming this file to 
-// instrumentation-client.ts if you plan on using Turbopack.

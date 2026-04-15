@@ -53,7 +53,7 @@ export default function CheckInPage() {
           title="Waiting"
           value="12"
           subtitle="In waiting room"
-          color="orange"
+          color="yellow"
           icon={Clock}
         />
         <KPICard

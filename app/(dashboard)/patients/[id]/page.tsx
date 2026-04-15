@@ -1,15 +1,14 @@
 "use client";
 import { usePatients } from "@/hooks/use-queries";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 
-export default function PatientDetailPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default function PatientDetailPage() {
+  const params = useParams();
+  const id = params.id as string;
   // In real app, fetch specific patient
   const { data: patients } = usePatients();
-  const patient = patients?.find((p: any) => p.id === params.id);
+  const patient = patients?.find((p: any) => p.id === id);
 
   return (
     <div>

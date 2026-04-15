@@ -25,7 +25,7 @@ import {
 
 export default function Dashboard() {
   const { user } = useAuthStore();
-  const role = user?.role || "doctor";
+  const role = user?.role as string || "doctor";
 
   // Mock data for data cards
   const mockAppointments: DataCardItem[] = [
@@ -386,7 +386,7 @@ export default function Dashboard() {
               <KPICard
                 title="Lab Tests Pending"
                 value="34"
-                color="orange"
+                color="yellow"
                 icon={TestTube}
               />
               <KPICard
@@ -547,7 +547,7 @@ export default function Dashboard() {
                 title="Waiting Patients"
                 value="3"
                 subtitle="In queue"
-                color="orange"
+                color="yellow"
                 icon={Users}
                 trend={{
                   value: 1,
@@ -650,7 +650,7 @@ export default function Dashboard() {
                 title="Vitals Due"
                 value="3"
                 subtitle="In next 30 min"
-                color="orange"
+                color="yellow"
                 icon={Heart}
                 trend={{ value: 1, label: "overdue", isPositive: false }}
               />
@@ -759,7 +759,7 @@ export default function Dashboard() {
                 title="Tests Pending"
                 value="18"
                 subtitle="Awaiting processing"
-                color="orange"
+                color="yellow"
                 icon={TestTube}
                 trend={{ value: 5, label: "new today", isPositive: false }}
               />
@@ -879,7 +879,7 @@ export default function Dashboard() {
                 title="Prescriptions Pending"
                 value="28"
                 subtitle="Awaiting dispensing"
-                color="orange"
+                color="yellow"
                 icon={Pill}
                 trend={{ value: 7, label: "new", isPositive: false }}
               />
@@ -1013,7 +1013,7 @@ export default function Dashboard() {
                 title="Outstanding Payments"
                 value="$12,850"
                 subtitle="Awaiting settlement"
-                color="orange"
+                color="yellow"
                 icon={AlertTriangle}
                 trend={{ value: 5, label: "vs yesterday", isPositive: false }}
               />
@@ -1123,7 +1123,7 @@ export default function Dashboard() {
                 title="Walk-ins"
                 value="8"
                 subtitle="So far today"
-                color="orange"
+                color="yellow"
                 icon={Users}
               />
               <KPICard
@@ -1242,7 +1242,7 @@ export default function Dashboard() {
                 title="Lab Results"
                 value="1"
                 subtitle="Awaiting review"
-                color="orange"
+                color="yellow"
                 icon={TestTube}
               />
             </div>
@@ -1425,7 +1425,7 @@ export default function Dashboard() {
                 title="Health Alerts"
                 value="1"
                 subtitle="Requires attention"
-                color="orange"
+                color="yellow"
                 icon={AlertTriangle}
               />
             </div>

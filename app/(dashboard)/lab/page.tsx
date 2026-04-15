@@ -81,7 +81,7 @@ export default function LabPage() {
           title="Tests Pending"
           value="18"
           subtitle="Awaiting processing"
-          color="orange"
+          color="yellow"
           icon={TestTube}
           trend={{ value: 5, label: "new today", isPositive: false }}
         />
