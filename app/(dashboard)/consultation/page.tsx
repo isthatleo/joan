@@ -7,7 +7,7 @@ import { DataCard, DataCardItem } from "@/components/DataCard";
 import { Users, FileText, Clock, AlertCircle, Save, Plus, Heart } from "lucide-react";
 
 export default function DoctorConsultationPage() {
-  const [selectedPatient, setSelectedPatient] = useState(null);
+  const [selectedPatient, setSelectedPatient] = useState<string | null>(null);
   const [consultation, setConsultation] = useState({
     symptoms: "",
     diagnosis: "",

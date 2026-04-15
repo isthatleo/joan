@@ -2,7 +2,7 @@
 import { useState } from "react";
 
 export default function MessagesPage() {
-  const [activeConversation, setActiveConversation] = useState(null);
+  const [activeConversation, setActiveConversation] = useState<number | null>(null);
 
   const conversations = [
     { id: 1, name: "Dr. Smith", lastMessage: "Results are ready", unread: 2 },

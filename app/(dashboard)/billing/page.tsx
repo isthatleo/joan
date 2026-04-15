@@ -89,7 +89,7 @@ export default function BillingPage() {
           title="Outstanding Payments"
           value="$12,850"
           subtitle="Awaiting settlement"
-          color="orange"
+          color="yellow"
           icon={AlertCircle}
         />
         <KPICard
@@ -163,7 +163,7 @@ export default function BillingPage() {
             </div>
             <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Outstanding</h3>
-              <p className="text-3xl font-bold text-orange-600">$2,300</p>
+              <p className="text-3xl font-bold text-yellow-600">$2,300</p>
               <p className="text-sm text-gray-600 mt-2">8% pending</p>
             </div>
           </div>

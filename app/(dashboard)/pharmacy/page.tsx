@@ -88,7 +88,7 @@ export default function PharmacyPage() {
           title="Prescriptions Pending"
           value="28"
           subtitle="Awaiting dispensing"
-          color="orange"
+          color="yellow"
           icon={Pill}
           trend={{ value: 7, label: "new", isPositive: false }}
         />

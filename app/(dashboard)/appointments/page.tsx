@@ -86,7 +86,7 @@ export default function AppointmentsPage() {
           title="Waiting Patients"
           value="3"
           subtitle="In queue"
-          color="orange"
+          color="yellow"
           icon={Clock}
           trend={{
             value: 1,

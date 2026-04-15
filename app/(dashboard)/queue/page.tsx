@@ -84,7 +84,7 @@ export default function QueuePage() {
           title="Waiting Patients"
           value={waitingCount}
           subtitle="In queue"
-          color="orange"
+          color="yellow"
           icon={Clock}
         />
         <KPICard

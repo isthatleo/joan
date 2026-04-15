@@ -68,7 +68,7 @@ export default function PatientsPage() {
           title="At Risk"
           value={Math.floor((patients?.length || 0) * 0.1)}
           subtitle="Monitoring needed"
-          color="orange"
+          color="yellow"
           icon={AlertCircle}
         />
         <KPICard
