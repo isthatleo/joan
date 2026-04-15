@@ -2,8 +2,6 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Plus_Jakarta_Sans as FontSans, JetBrains_Mono } from "next/font/google";
 import { ThemeProvider } from "next-themes";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
 import { cn } from "@/lib/utils";
 
 const jetbrainsMono = JetBrains_Mono({subsets:['latin'],variable:'--font-mono'});
@@ -23,8 +21,6 @@ export const metadata: Metadata = {
   },
 };
 
-const queryClient = new QueryClient();
-
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -39,9 +35,7 @@ export default function RootLayout({
         )}
       >
         <ThemeProvider attribute="class" defaultTheme="dark">
-          <QueryClientProvider client={queryClient}>
-            {children}
-          </QueryClientProvider>
+          {children}
         </ThemeProvider>
       </body>
     </html>

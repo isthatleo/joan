@@ -1,8 +1,7 @@
-/* eslint-disable no-unused-vars */
 import { E164Number } from "libphonenumber-js/core";
 import Image from "next/image";
 import ReactDatePicker from "react-datepicker";
-import { Control } from "react-hook-form";
+import { Control, FieldValues, Path } from "react-hook-form";
 import PhoneInput from "react-phone-number-input";
 
 import { Checkbox } from "./ui/checkbox";
@@ -27,9 +26,9 @@ export enum FormFieldType {
   SKELETON = "skeleton",
 }
 
-interface CustomProps {
-  control: Control<any>;
-  name: string;
+interface CustomProps<T extends FieldValues> {
+  control: Control<T>;
+  name: Path<T>;
   label?: string;
   placeholder?: string;
   iconSrc?: string;
@@ -42,7 +41,7 @@ interface CustomProps {
   fieldType: FormFieldType;
 }
 
-const RenderInput = ({ field, props }: { field: any; props: CustomProps }) => {
+const RenderInput = ({ field, props }: { field: any; props: CustomProps<any> }) => {
   switch (props.fieldType) {
     case FormFieldType.INPUT:
       return (
@@ -149,7 +148,7 @@ const RenderInput = ({ field, props }: { field: any; props: CustomProps }) => {
   }
 };
 
-const CustomFormField = (props: CustomProps) => {
+const CustomFormField = <T extends FieldValues>(props: CustomProps<T>) => {
   const { control, name, label } = props;
 
   return (
