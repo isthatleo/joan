@@ -1,22 +1,13 @@
 "use client";
-import { useState } from "react";
-import {
-  Bell,
-  MessageSquare,
-  User,
-  Settings,
-  LogOut,
-  Sun,
-  Moon,
-  ChevronRight,
-  Home,
-  Clock,
-  CheckCircle,
-} from "lucide-react";
-import { useTheme } from "next-themes";
-import { useRouter, usePathname } from "next/navigation";
-import { useNotificationStore } from "@/stores/notification";
+
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { Bell, ChevronDown, Home, LogOut, Settings, User } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
+import { authClient } from "@/lib/auth-client";
+import { ThemeToggle } from "./theme/ThemeToggle";
+import { cn } from "@/lib/utils";
 
 interface BreadcrumbItem {
   label: string;
@@ -27,260 +18,154 @@ interface TopbarProps {
   breadcrumbs?: BreadcrumbItem[];
 }
 
-export function Topbar({ breadcrumbs = [] }: TopbarProps) {
-  const { theme, setTheme } = useTheme();
-  const router = useRouter();
-  const pathname = usePathname();
-  const { notifications, markAsRead } = useNotificationStore();
-  const { user } = useAuthStore();
-  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
+/**
+ * Auto-derive breadcrumbs from the current pathname when none are passed.
+ * "/admin/schools" → [Admin, Schools]
+ * "/" → [Dashboard]
+ */
+function deriveBreadcrumbs(pathname: string): BreadcrumbItem[] {
+  if (pathname === "/" || pathname === "") return [{ label: "Dashboard" }];
+  const parts = pathname.split("/").filter(Boolean);
+  return parts.map((seg, i) => {
+    const href = "/" + parts.slice(0, i + 1).join("/");
+    const label = seg
+      .split("-")
+      .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+      .join(" ");
+    return i === parts.length - 1 ? { label } : { label, href };
+  });
+}
 
-  const unreadNotifications = notifications.filter((n) => !n.read).length;
+export function Topbar({ breadcrumbs }: TopbarProps) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { user, logout } = useAuthStore();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  const crumbs = useMemo(
+    () => (breadcrumbs && breadcrumbs.length ? breadcrumbs : deriveBreadcrumbs(pathname)),
+    [breadcrumbs, pathname]
+  );
 
   const handleLogout = async () => {
-    setShowProfileDropdown(false);
-    // Implement logout logic
+    try {
+      await authClient.signOut();
+    } catch (e) {
+      // ignore
+    }
+    logout();
     router.push("/login");
   };
 
-  const handleNotificationClick = (id: string) => {
-    markAsRead(id);
-  };
-
-  // Generate breadcrumbs from pathname if not provided
-  const generatedBreadcrumbs = breadcrumbs.length > 0 ? breadcrumbs : [
-    { label: "Dashboard", href: "/" },
-    {
-      label: pathname
-        .split("/")
-        .filter((p) => p)
-        .pop()
-        ?.replace(/-/g, " ")
-        .charAt(0)
-        .toUpperCase() +
-        pathname
-          .split("/")
-          .filter((p) => p)
-          .pop()
-          ?.slice(1)
-          .replace(/-/g, " ") ||
-        "Dashboard",
-    },
-  ];
-
   return (
-    <div className="h-16 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between px-6 sticky top-0 z-40 backdrop-blur-sm bg-opacity-95">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-border bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       {/* Breadcrumbs */}
-      <div className="flex items-center space-x-1">
-        {generatedBreadcrumbs.map((crumb, index) => (
-          <div key={index} className="flex items-center">
-            {index > 0 && (
-              <ChevronRight className="w-4 h-4 text-gray-400 mx-2" />
-            )}
-            {crumb.href ? (
-              <a
-                href={crumb.href}
-                className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
-              >
-                {crumb.label}
-              </a>
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
+        <Link href="/" className="text-muted-foreground hover:text-foreground">
+          <Home className="h-4 w-4" />
+        </Link>
+        {crumbs.map((c, i) => (
+          <div key={`${c.label}-${i}`} className="flex items-center gap-1.5">
+            <span className="text-muted-foreground/60">/</span>
+            {c.href ? (
+              <Link href={c.href} className="text-muted-foreground hover:text-foreground">
+                {c.label}
+              </Link>
             ) : (
-              <span className="text-sm text-gray-900 dark:text-white font-medium">
-                {crumb.label}
-              </span>
+              <span className="font-medium text-foreground">{c.label}</span>
             )}
           </div>
         ))}
-      </div>
+      </nav>
 
-      {/* Right side actions */}
-      <div className="flex items-center gap-2">
-        {/* Theme Toggle */}
-        <button
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
-          title="Toggle theme"
-        >
-          {theme === "dark" ? (
-            <Sun className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-          ) : (
-            <Moon className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-          )}
-        </button>
-
-        {/* Messages */}
-        <button
-          onClick={() => {
-            router.push("/messages");
-          }}
-          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors relative"
-          title="Messages"
-        >
-          <MessageSquare className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-        </button>
+      {/* Right cluster */}
+      <div className="flex items-center gap-1">
+        <ThemeToggle />
 
         {/* Notifications */}
         <div className="relative">
           <button
-            onClick={() => setShowNotifications(!showNotifications)}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors relative"
-            title="Notifications"
+            type="button"
+            onClick={() => setNotifOpen((v) => !v)}
+            aria-label="Notifications"
+            className="relative flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
-            <Bell className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-            {unreadNotifications > 0 && (
-              <span className="absolute top-1 right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-                {unreadNotifications}
-              </span>
-            )}
+            <Bell className="h-4 w-4" />
+            <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-primary" />
           </button>
-
-          {showNotifications && (
-            <div className="absolute right-0 mt-2 w-96 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-700 z-50">
-              {/* Header */}
-              <div className="p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
-                <h3 className="font-semibold text-gray-900 dark:text-white">
-                  Notifications
-                </h3>
-                {unreadNotifications > 0 && (
-                  <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200 px-2 py-1 rounded-full">
-                    {unreadNotifications} new
-                  </span>
-                )}
-              </div>
-
-              {/* Notifications List */}
-              <div className="max-h-80 overflow-y-auto">
-                {notifications.length === 0 ? (
-                  <div className="p-8 text-center">
-                    <Bell className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-                    <p className="text-gray-500 dark:text-gray-400">
-                      No notifications yet
-                    </p>
-                  </div>
-                ) : (
-                  notifications.slice(0, 8).map((n) => (
-                    <button
-                      key={n.id}
-                      onClick={() => handleNotificationClick(n.id)}
-                      className={`w-full text-left p-4 border-b border-gray-100 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors ${
-                        !n.read
-                          ? "bg-blue-50 dark:bg-blue-900 bg-opacity-20"
-                          : ""
-                      }`}
-                    >
-                      <div className="flex gap-3">
-                        <div
-                          className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
-                            !n.read
-                              ? "bg-blue-600"
-                              : "bg-gray-300 dark:bg-gray-600"
-                          }`}
-                        />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-gray-900 dark:text-white">
-                            {n.message}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {new Date().toLocaleTimeString()}
-                          </p>
-                        </div>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-
-              {/* Footer */}
-              {notifications.length > 0 && (
-                <div className="p-4 border-t border-gray-200 dark:border-slate-700 text-center">
-                  <button
-                    onClick={() => {
-                      setShowNotifications(false);
-                      router.push("/notifications");
-                    }}
-                    className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
-                  >
-                    View all notifications
-                  </button>
+          {notifOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
+              <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
+                <div className="border-b border-border px-4 py-3">
+                  <p className="text-sm font-semibold">Notifications</p>
                 </div>
-              )}
-            </div>
+                <div className="max-h-80 overflow-y-auto p-2 text-sm text-muted-foreground">
+                  <div className="rounded-lg px-3 py-2 hover:bg-muted">
+                    <p className="font-medium text-foreground">Welcome to Joan Healthcare OS</p>
+                    <p className="text-xs">You're all set. Explore your dashboard.</p>
+                  </div>
+                </div>
+              </div>
+            </>
           )}
         </div>
 
-        {/* Profile Dropdown */}
-        <div className="relative">
+        {/* Profile */}
+        <div className="relative ml-2">
           <button
-            onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
-            title="Profile"
+            type="button"
+            onClick={() => setProfileOpen((v) => !v)}
+            className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted"
           >
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center shadow-sm">
-              <User className="w-4 h-4 text-white" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+              {(user?.fullName || user?.email || "U").charAt(0).toUpperCase()}
             </div>
-            <div className="text-left hidden sm:block">
-              <p className="text-sm font-medium text-gray-900 dark:text-white">
+            <div className="hidden text-left sm:block">
+              <p className="text-sm font-medium leading-tight text-foreground">
                 {user?.fullName || "User"}
               </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-                {user?.role || "Staff"}
+              <p className="text-[11px] capitalize leading-tight text-muted-foreground">
+                {(user?.role || "staff").replace(/_/g, " ")}
               </p>
             </div>
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
           </button>
 
-          {showProfileDropdown && (
-            <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-gray-200 dark:border-slate-700 z-50">
-              {/* User Info */}
-              <div className="p-4 border-b border-gray-200 dark:border-slate-700">
-                <p className="font-semibold text-gray-900 dark:text-white">
-                  {user?.fullName || "User"}
-                </p>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  {user?.email}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 capitalize">
-                  {user?.role || "Staff"}
-                </p>
-              </div>
-
-              {/* Menu Items */}
-              <div className="py-2">
-                <button
-                  onClick={() => {
-                    setShowProfileDropdown(false);
-                    router.push("/profile");
-                  }}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-3 transition-colors text-gray-700 dark:text-gray-300"
+          {profileOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setProfileOpen(false)} />
+              <div className="absolute right-0 top-full z-50 mt-2 w-52 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg">
+                <Link
+                  href="/profile"
+                  className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted"
+                  onClick={() => setProfileOpen(false)}
                 >
-                  <User className="w-4 h-4" />
-                  <span>My Profile</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setShowProfileDropdown(false);
-                    router.push("/settings");
-                  }}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-3 transition-colors text-gray-700 dark:text-gray-300"
+                  <User className="h-4 w-4" /> My Profile
+                </Link>
+                <Link
+                  href="/settings"
+                  className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted"
+                  onClick={() => setProfileOpen(false)}
                 >
-                  <Settings className="w-4 h-4" />
-                  <span>Settings</span>
-                </button>
-
-                <hr className="my-2 border-gray-200 dark:border-slate-600" />
-
+                  <Settings className="h-4 w-4" /> Settings
+                </Link>
+                <div className="my-1 border-t border-border" />
                 <button
+                  type="button"
                   onClick={handleLogout}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 dark:hover:bg-red-900 dark:hover:bg-opacity-20 flex items-center gap-3 transition-colors text-red-600 dark:text-red-400"
+                  className={cn(
+                    "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-muted"
+                  )}
                 >
-                  <LogOut className="w-4 h-4" />
-                  <span>Logout</span>
+                  <LogOut className="h-4 w-4" /> Sign out
                 </button>
               </div>
-            </div>
+            </>
           )}
         </div>
       </div>
-    </div>
+    </header>
   );
 }

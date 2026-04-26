@@ -1,114 +1,178 @@
-"use client";
+import { cn } from "@/lib/utils";
+import type { ReactNode } from "react";
+import { StatusPill } from "./StatusPill";
 
-import React from "react";
-import { ChevronRight } from "lucide-react";
+/* ----------------------------------------------------------------- *
+ * DataCard — supports BOTH:                                         *
+ *  (A) Legacy "list container" API used by existing pages:          *
+ *      <DataCard title="..." items={DataCardItem[]} onItemClick=.. >*
+ *  (B) New "row" API used by new screens:                           *
+ *      <DataCard title meta description value status onClick href />*
+ * ----------------------------------------------------------------- */
 
 export interface DataCardItem {
   id: string;
   title: string;
   subtitle?: string;
-  value?: string;
-  status?: "pending" | "completed" | "in-progress" | "urgent" | "normal";
-  avatar?: string;
-  badge?: string;
-  metadata?: Record<string, string>;
+  status?: "completed" | "pending" | "in-progress" | "active" | "inactive" | string;
+  value?: string | number;
+  meta?: ReactNode;
 }
 
-interface DataCardProps {
+interface DataCardRowProps {
+  /** Single row mode */
+  title: string;
+  meta?: ReactNode;
+  description?: ReactNode;
+  value?: ReactNode;
+  status?: ReactNode;
+  onClick?: () => void;
+  href?: string;
+  className?: string;
+  /** Not used in row mode */
+  items?: undefined;
+  onItemClick?: undefined;
+  emptyMessage?: undefined;
+}
+
+interface DataCardListProps {
+  /** List container mode */
+  title?: string;
   items: DataCardItem[];
   onItemClick?: (item: DataCardItem) => void;
-  title?: string;
   emptyMessage?: string;
-  columns?: ("title" | "status" | "value" | "metadata")[];
+  className?: string;
 }
 
-const statusColors = {
-  pending: "bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-200",
-  completed:
-    "bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200",
-  "in-progress":
-    "bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-200",
-  urgent: "bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-200",
-  normal: "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200",
-};
+export type DataCardProps = DataCardRowProps | DataCardListProps;
 
-export function DataCard({
-  items,
-  onItemClick,
-  title,
-  emptyMessage = "No items found",
-  columns = ["title", "status", "value"],
-}: DataCardProps) {
-  return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 overflow-hidden">
-      {title && (
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-slate-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {title}
-          </h3>
-        </div>
-      )}
+/** Map legacy status strings → semantic StatusPill tones */
+function toneForStatus(s?: string): "success" | "warning" | "info" | "destructive" | "neutral" {
+  switch (s) {
+    case "completed":
+    case "active":
+    case "paid":
+    case "success":
+      return "success";
+    case "pending":
+    case "warning":
+      return "warning";
+    case "in-progress":
+    case "scheduled":
+    case "info":
+      return "info";
+    case "cancelled":
+    case "failed":
+    case "inactive":
+    case "error":
+      return "destructive";
+    default:
+      return "neutral";
+  }
+}
 
-      <div className="divide-y divide-gray-200 dark:divide-slate-700">
-        {items.length === 0 ? (
-          <div className="px-6 py-8 text-center">
-            <p className="text-gray-500 dark:text-gray-400">{emptyMessage}</p>
+function isListMode(p: DataCardProps): p is DataCardListProps {
+  return Array.isArray((p as DataCardListProps).items);
+}
+
+export function DataCard(props: DataCardProps) {
+  // ----- LIST MODE -----
+  if (isListMode(props)) {
+    const { title, items, onItemClick, emptyMessage = "No items.", className } = props;
+    return (
+      <div
+        className={cn(
+          "overflow-hidden rounded-xl border border-border bg-card shadow-sm",
+          className
+        )}
+      >
+        {title && (
+          <div className="border-b border-border px-5 py-4">
+            <h3 className="text-base font-semibold text-foreground">{title}</h3>
           </div>
-        ) : (
-          items.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => onItemClick?.(item)}
-              className="w-full px-6 py-4 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors text-left flex items-center justify-between group"
-            >
-              <div className="flex-1">
-                <div className="flex items-center gap-3">
-                  {item.avatar && (
-                    <img
-                      src={item.avatar}
-                      alt={item.title}
-                      className="w-10 h-10 rounded-full object-cover"
-                    />
-                  )}
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-white">
+        )}
+        <div className="divide-y divide-border">
+          {items.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+              {emptyMessage}
+            </div>
+          ) : (
+            items.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={onItemClick ? () => onItemClick(item) : undefined}
+                className={cn(
+                  "flex w-full items-center justify-between gap-3 px-5 py-3 text-left transition-colors",
+                  onItemClick && "hover:bg-muted/40"
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-semibold text-foreground">
                       {item.title}
                     </p>
-                    {item.subtitle && (
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {item.subtitle}
-                      </p>
-                    )}
+                    {item.meta}
                   </div>
+                  {item.subtitle && (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {item.subtitle}
+                    </p>
+                  )}
                 </div>
-              </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  {item.value !== undefined && (
+                    <span className="text-sm font-semibold text-foreground">
+                      {item.value}
+                    </span>
+                  )}
+                  {item.status && (
+                    <StatusPill tone={toneForStatus(item.status)} withDot>
+                      {item.status}
+                    </StatusPill>
+                  )}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
 
-              <div className="flex items-center gap-3">
-                {item.status && (
-                  <span
-                    className={`text-xs font-medium px-3 py-1 rounded-full ${
-                      statusColors[item.status]
-                    }`}
-                  >
-                    {item.status.replace("-", " ")}
-                  </span>
-                )}
-
-                {item.value && (
-                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                    {item.value}
-                  </span>
-                )}
-
-                {onItemClick && (
-                  <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
-                )}
-              </div>
-            </button>
-          ))
+  // ----- ROW MODE -----
+  const { title, meta, description, value, status, onClick, href, className } = props;
+  const content = (
+    <>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="truncate text-sm font-semibold text-foreground">{title}</p>
+          {meta}
+        </div>
+        {description && (
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">{description}</p>
         )}
       </div>
-    </div>
+      {(value || status) && (
+        <div className="flex shrink-0 items-center gap-3">
+          {value && <span className="text-sm font-semibold text-foreground">{value}</span>}
+          {status}
+        </div>
+      )}
+    </>
   );
-}
 
+  const baseClass = cn(
+    "flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 transition-colors",
+    (onClick || href) && "cursor-pointer hover:bg-muted/40",
+    className
+  );
+
+  if (href) return <a href={href} className={baseClass}>{content}</a>;
+  if (onClick) return (
+    <button type="button" onClick={onClick} className={cn(baseClass, "w-full text-left")}>
+      {content}
+    </button>
+  );
+  return <div className={baseClass}>{content}</div>;
+}

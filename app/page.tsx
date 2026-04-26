@@ -1,14 +1,10 @@
-import { SearchParamProps } from "@/types"; // Assuming SearchParamProps is defined elsewhere
+import { redirect } from "next/navigation";
 
-// Make the component async to properly handle dynamic searchParams
-const Home = async ({ searchParams }: SearchParamProps) => {
-  const isAdmin = searchParams?.admin === "true";
-
-  return (
-    <div className="flex h-screen max-h-screen">
-      {/* Your existing content */}
-      <h1>Welcome to Joan Healthcare OS</h1>
-    </div>
-  );
-};
-export default Home;
+/**
+ * Root route. The actual role-aware dashboard lives under (dashboard)/page.tsx.
+ * Unauthenticated users land at /login (the AuthProvider in the dashboard
+ * layout will redirect anyway, but this gives a clean default).
+ */
+export default function RootRedirect() {
+  redirect("/login");
+}

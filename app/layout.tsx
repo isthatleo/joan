@@ -1,12 +1,23 @@
-rt { Inter, JetBrains_Mono } from "next/font/google"; // Assuming these imports
-import { cn } from "@/lib/utils"; // Assuming cn utility
+import { Inter } from "next/font/google";
+import "./globals.css";
 
-const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+export const metadata = {
+  title: "Joan Healthcare OS",
+  description: "Multi-tenant Hospital Management System",
+};
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={cn("font-mono", jetbrainsMono.variable)} suppressHydrationWarning>
-      <body>{children}</body>
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
+      <body className="font-sans antialiased bg-subtle text-foreground">
+        {children}
+      </body>
     </html>
   );
 }

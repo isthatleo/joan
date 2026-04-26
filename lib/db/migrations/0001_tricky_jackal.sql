@@ -1,0 +1,1 @@
+CREATE INDEX "tenant_slug_idx" ON "tenants" USING btree ("slug");
