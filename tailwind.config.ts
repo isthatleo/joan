@@ -10,6 +10,16 @@ const config = {
     "./app/**/*.{ts,tsx}",
     "./src/**/*.{ts,tsx}",
   ],
+  // Safelist tones used dynamically in dashboard pages so Tailwind keeps them.
+  safelist: [
+    ...["primary", "success", "warning", "info", "destructive"].flatMap((t) => [
+      `bg-${t}`,
+      `bg-${t}-soft`,
+      `text-${t}`,
+      `text-${t}-soft-foreground`,
+      `border-${t}`,
+    ]),
+  ],
   prefix: "",
   theme: {
     container: {
@@ -29,6 +39,8 @@ const config = {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          soft: "hsl(var(--primary-soft))",
+          "soft-foreground": "hsl(var(--primary-soft-foreground))",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
@@ -37,6 +49,8 @@ const config = {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+          soft: "hsl(var(--destructive-soft))",
+          "soft-foreground": "hsl(var(--destructive-soft-foreground))",
         },
         muted: {
           DEFAULT: "hsl(var(--muted))",
@@ -57,12 +71,64 @@ const config = {
         sidebar: {
           DEFAULT: "hsl(var(--sidebar))",
           foreground: "hsl(var(--sidebar-foreground))",
-          primary: "hsl(var(--sidebar-primary))",
-          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
-          accent: "hsl(var(--sidebar-accent))",
-          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
+          muted: "hsl(var(--sidebar-muted))",
+          active: "hsl(var(--sidebar-active))",
+          "active-foreground": "hsl(var(--sidebar-active-foreground))",
           border: "hsl(var(--sidebar-border))",
-          ring: "hsl(var(--sidebar-ring))",
+        },
+        subtle: {
+          DEFAULT: "hsl(var(--subtle))",
+          foreground: "hsl(var(--subtle-foreground))",
+        },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+          soft: "hsl(var(--success-soft))",
+          "soft-foreground": "hsl(var(--success-soft-foreground))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+          soft: "hsl(var(--warning-soft))",
+          "soft-foreground": "hsl(var(--warning-soft-foreground))",
+        },
+        info: {
+          DEFAULT: "hsl(var(--info))",
+          foreground: "hsl(var(--info-foreground))",
+          soft: "hsl(var(--info-soft))",
+          "soft-foreground": "hsl(var(--info-soft-foreground))",
+        },
+        chart: {
+          1: "hsl(var(--chart-1))",
+          2: "hsl(var(--chart-2))",
+          3: "hsl(var(--chart-3))",
+          4: "hsl(var(--chart-4))",
+          5: "hsl(var(--chart-5))",
+        },
+        // Custom colors for the design system
+        orange: {
+          50: "#FFF7ED",
+          100: "#FFEDD5",
+          200: "#FED7AA",
+          300: "#FDBA74",
+          400: "#FB923C",
+          500: "#F97316",
+          600: "#EA580C",
+          700: "#C2410C",
+          800: "#9A3412",
+          900: "#7C2D12",
+        },
+        gray: {
+          50: "#f7f8fa",
+          100: "#f3f4f6",
+          200: "#e5e7eb",
+          300: "#d1d5db",
+          400: "#9ca3af",
+          500: "#6b7280",
+          600: "#4b5563",
+          700: "#374151",
+          800: "#1f2937",
+          900: "#111827",
         },
         green: {
           500: "#24AE7C",

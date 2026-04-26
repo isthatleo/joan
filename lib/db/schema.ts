@@ -15,7 +15,9 @@ export const tenants = pgTable("tenants", {
   plan: text("plan").notNull(),
   isActive: boolean("is_active").default(true),
   metadata: jsonb("metadata"),
-});
+}, (table) => ({
+  tenantSlugIdx: index("tenant_slug_idx").on(table.slug),
+}));
 
 export const branches = pgTable("branches", {
   ...baseColumns,
@@ -38,7 +40,9 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash"),
   fullName: text("full_name"),
   isActive: boolean("is_active").default(true),
-});
+}, (table) => ({
+  userEmailIdx: index("user_email_idx").on(table.email),
+}));
 
 export const roles = pgTable("roles", {
   ...baseColumns,
@@ -85,7 +89,9 @@ export const patients = pgTable("patients", {
   phone: text("phone"),
   email: text("email"),
   address: text("address"),
-});
+}, (table) => ({
+  patientTenantIdx: index("patient_tenant_idx").on(table.tenantId),
+}));
 
 export const patientAllergies = pgTable("patient_allergies", {
   ...baseColumns,
@@ -107,7 +113,9 @@ export const appointments = pgTable("appointments", {
   doctorId: uuid("doctor_id").references(() => users.id),
   scheduledAt: timestamp("scheduled_at"),
   status: text("status"),
-});
+}, (table) => ({
+  appointmentPatientIdx: index("appointment_patient_idx").on(table.patientId),
+}));
 
 export const queues = pgTable("queues", {
   ...baseColumns,
@@ -132,7 +140,9 @@ export const visits = pgTable("visits", {
   appointmentId: uuid("appointment_id").references(() => appointments.id),
   reason: text("reason"),
   notes: text("notes"),
-});
+}, (table) => ({
+  visitPatientIdx: index("visit_patient_idx").on(table.patientId),
+}));
 
 // Medical Records
 export const diagnoses = pgTable("diagnoses", {
@@ -194,7 +204,9 @@ export const invoices = pgTable("invoices", {
   patientId: uuid("patient_id").references(() => patients.id),
   totalAmount: text("total_amount"),
   status: text("status"),
-});
+}, (table) => ({
+  invoicePatientIdx: index("invoice_patient_idx").on(table.patientId),
+}));
 
 export const invoiceItems = pgTable("invoice_items", {
   ...baseColumns,
@@ -243,7 +255,9 @@ export const auditLogs = pgTable("audit_logs", {
   entityId: uuid("entity_id"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  auditUserIdx: index("audit_user_idx").on(table.userId),
+}));
 
 // Events
 export const events = pgTable("events", {
@@ -251,7 +265,9 @@ export const events = pgTable("events", {
   tenantId: uuid("tenant_id"),
   type: text("type"),
   payload: jsonb("payload"),
-});
+}, (table) => ({
+  eventTenantIdx: index("event_tenant_idx").on(table.tenantId),
+}));
 
 // AI Logs
 export const aiLogs = pgTable("ai_logs", {
@@ -299,11 +315,11 @@ export const messages = pgTable("messages", {
 });
 
 // Indexes
-export const tenantIndex = index("tenant_slug_idx").on(tenants.slug);
-export const userEmailIndex = index("user_email_idx").on(users.email);
-export const patientTenantIndex = index("patient_tenant_idx").on(patients.tenantId);
-export const appointmentPatientIndex = index("appointment_patient_idx").on(appointments.patientId);
-export const visitPatientIndex = index("visit_patient_idx").on(visits.patientId);
-export const invoicePatientIndex = index("invoice_patient_idx").on(invoices.patientId);
-export const auditUserIndex = index("audit_user_idx").on(auditLogs.userId);
-export const eventTenantIndex = index("event_tenant_idx").on(events.tenantId);
+// export const tenantIndex = index("tenant_name_idx").on(tenants.name);
+// export const userEmailIndex = index("user_email_idx").on(users.email);
+// export const patientTenantIndex = index("patient_tenant_idx").on(patients.tenantId);
+// export const appointmentPatientIndex = index("appointment_patient_idx").on(appointments.patientId);
+// export const visitPatientIndex = index("visit_patient_idx").on(visits.patientId);
+// export const invoicePatientIndex = index("invoice_patient_idx").on(invoices.patientId);
+// export const auditUserIndex = index("audit_user_idx").on(auditLogs.userId);
+// export const eventTenantIndex = index("event_tenant_idx").on(events.tenantId);

@@ -1,1547 +1,574 @@
 "use client";
 
 import { useAuthStore } from "@/stores/auth";
-import { KPICard } from "@/components/KPICard";
-import { DataCard, DataCardItem } from "@/components/DataCard";
+import { PageHeader, StatCard, SectionCard } from "@/components/ui";
 import {
-  Users,
-  DollarSign,
-  AlertTriangle,
-  TrendingUp,
-  Clock,
-  Activity,
-  Pill,
-  TestTube,
-  Heart,
-  Zap,
-  BarChart3,
-  Building2,
-  PhoneOff,
-  UserCheck,
-  Package,
-  Calendar,
-  CheckCircle,
+  Users, Calendar, Activity, DollarSign, BedDouble, FlaskConical,
+  Pill, Receipt, ClipboardList, HeartPulse, Microscope, Stethoscope,
+  AlertOctagon, MessageSquare, Baby, ShieldCheck, FileText, Hospital,
+  TrendingUp, Building2, History, ServerCog,
 } from "lucide-react";
+import SuperAdminDashboard from "./super-admin/page";
 
 export default function Dashboard() {
   const { user } = useAuthStore();
-  const role = user?.role as string || "doctor";
+  const role = (user?.role as string) || "doctor";
 
-  // Mock data for data cards
-  const mockAppointments: DataCardItem[] = [
-    {
-      id: "1",
-      title: "John Doe",
-      subtitle: "General Checkup",
-      status: "pending",
-      value: "10:30 AM",
-    },
-    {
-      id: "2",
-      title: "Jane Smith",
-      subtitle: "Follow-up",
-      status: "in-progress",
-      value: "11:00 AM",
-    },
-    {
-      id: "3",
-      title: "Bob Johnson",
-      subtitle: "Lab Results",
-      status: "completed",
-      value: "2:00 PM",
-    },
-  ];
+  switch (role) {
+    case "super_admin":
+      return <SuperAdminDashboard />;
 
-  const mockPatients: DataCardItem[] = [
-    {
-      id: "1",
-      title: "Alice Wilson",
-      subtitle: "ID: 12345",
-      status: "normal",
-      badge: "Active",
-    },
-    {
-      id: "2",
-      title: "Charlie Brown",
-      subtitle: "ID: 12346",
-      status: "normal",
-      badge: "Monitored",
-    },
-    {
-      id: "3",
-      title: "Diana Prince",
-      subtitle: "ID: 12347",
-      status: "urgent",
-      badge: "Critical",
-    },
-  ];
+    case "hospital_admin":
+      return <HospitalAdminDashboard />;
 
-  const mockQueue: DataCardItem[] = [
-    {
-      id: "1",
-      title: "Q-001",
-      subtitle: "John Doe",
-      status: "in-progress",
-      value: "Dr. Smith",
-    },
-    {
-      id: "2",
-      title: "Q-002",
-      subtitle: "Jane Wilson",
-      status: "pending",
-      value: "Waiting",
-    },
-    {
-      id: "3",
-      title: "Q-003",
-      subtitle: "Bob Harris",
-      status: "pending",
-      value: "Waiting",
-    },
-  ];
+    case "doctor":
+      return <DoctorDashboard />;
 
-  const mockPrescriptions: DataCardItem[] = [
-    {
-      id: "1",
-      title: "Amoxicillin 500mg",
-      subtitle: "John Doe",
-      status: "pending",
-      value: "Dispense",
-    },
-    {
-      id: "2",
-      title: "Metformin 1000mg",
-      subtitle: "Jane Smith",
-      status: "completed",
-      value: "Dispensed",
-    },
-    {
-      id: "3",
-      title: "Aspirin 100mg",
-      subtitle: "Bob Johnson",
-      status: "in-progress",
-      value: "Processing",
-    },
-  ];
+    case "nurse":
+      return <NurseDashboard />;
 
-  const mockLabResults: DataCardItem[] = [
-    {
-      id: "1",
-      title: "CBC Test",
-      subtitle: "Patient: John Doe",
-      status: "completed",
-      value: "Ready",
-    },
-    {
-      id: "2",
-      title: "Blood Glucose",
-      subtitle: "Patient: Jane Smith",
-      status: "in-progress",
-      value: "Processing",
-    },
-    {
-      id: "3",
-      title: "Lipid Panel",
-      subtitle: "Patient: Bob Johnson",
-      status: "pending",
-      value: "Pending",
-    },
-  ];
+    case "lab_technician":
+      return <LabTechDashboard />;
 
-  const mockBilling: DataCardItem[] = [
-    {
-      id: "1",
-      title: "INV-001",
-      subtitle: "John Doe - Consultation",
-      status: "completed",
-      value: "$150",
-    },
-    {
-      id: "2",
-      title: "INV-002",
-      subtitle: "Jane Smith - Lab",
-      status: "pending",
-      value: "$200",
-    },
-    {
-      id: "3",
-      title: "INV-003",
-      subtitle: "Bob Johnson - Procedure",
-      status: "pending",
-      value: "$450",
-    },
-  ];
+    case "pharmacist":
+      return <PharmacistDashboard />;
 
-  const renderDashboard = () => {
-    switch (role) {
-      case "super_admin":
-        return (
-          <div className="space-y-6">
-            {/* Header */}
-            <div>
-              <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-                Global Command Center
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Platform-wide healthcare intelligence
-              </p>
-            </div>
+    case "accountant":
+      return <AccountantDashboard />;
 
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <KPICard
-                title="Total Hospitals"
-                value="47"
-                subtitle="Active tenants"
-                color="blue"
-                icon={Building2}
-                trend={{ value: 12, label: "vs last month", isPositive: true }}
-              />
-              <KPICard
-                title="Total Patients"
-                value="124,850"
-                subtitle="Across all hospitals"
-                color="green"
-                icon={Users}
-                trend={{
-                  value: 8,
-                  label: "weekly growth",
-                  isPositive: true,
-                }}
-              />
-              <KPICard
-                title="Daily Revenue"
-                value="$287,450"
-                subtitle="Platform-wide"
-                color="indigo"
-                icon={DollarSign}
-                trend={{
-                  value: 15,
-                  label: "vs last week",
-                  isPositive: true,
-                }}
-              />
-              <KPICard
-                title="System Health"
-                value="99.98%"
-                subtitle="All services operational"
-                color="green"
-                icon={Zap}
-                trend={{ value: 0, label: "no incidents", isPositive: true }}
-              />
-            </div>
+    case "receptionist":
+      return <ReceptionistDashboard />;
 
-            {/* Secondary KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <KPICard
-                title="Active API Calls"
-                value="1.2M"
-                subtitle="24h average"
-                color="purple"
-                icon={Activity}
-              />
-              <KPICard
-                title="Database Load"
-                value="62%"
-                subtitle="Healthy range"
-                color="blue"
-                icon={BarChart3}
-              />
-              <KPICard
-                title="HIPAA Compliance"
-                value="100%"
-                subtitle="All standards met"
-                color="green"
-                icon={CheckCircle}
-              />
-            </div>
+    case "patient":
+      return <PatientDashboard />;
 
-            {/* Data Cards */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <DataCard
-                title="Top Hospitals by Revenue"
-                items={[
-                  {
-                    id: "1",
-                    title: "City Medical Center",
-                    subtitle: "$45,230 today",
-                    value: "24 patients",
-                    status: "normal",
-                  },
-                  {
-                    id: "2",
-                    title: "County Hospital",
-                    subtitle: "$38,950 today",
-                    value: "18 patients",
-                    status: "normal",
-                  },
-                  {
-                    id: "3",
-                    title: "Private Clinic",
-                    subtitle: "$12,340 today",
-                    value: "8 patients",
-                    status: "normal",
-                  },
-                ]}
-              />
-              <DataCard
-                title="System Alerts"
-                items={[
-                  {
-                    id: "1",
-                    title: "High Database Load",
-                    subtitle: "Hospital A - detected 2m ago",
-                    status: "urgent",
-                    value: "Investigate",
-                  },
-                  {
-                    id: "2",
-                    title: "Backup Successful",
-                    subtitle: "All tenant data backed up",
-                    status: "completed",
-                    value: "2 hours ago",
-                  },
-                  {
-                    id: "3",
-                    title: "Security Scan Complete",
-                    subtitle: "No vulnerabilities found",
-                    status: "completed",
-                    value: "1 hour ago",
-                  },
-                ]}
-              />
-            </div>
+    case "guardian":
+      return <GuardianDashboard />;
+
+    default:
+      return <DoctorDashboard />;
+  }
+}
+
+/* -------------------- HOSPITAL ADMIN -------------------- */
+function HospitalAdminDashboard() {
+  return (
+    <div>
+      <PageHeader title="Hospital Control Tower" subtitle="Operational overview of your hospital." />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <StatCard title="Patients (Active)" value="1,247" subtitle="In care today" icon={Users} tone="primary" trend={{ value: "+4%", direction: "up" }} />
+        <StatCard title="Appointments" value="284" subtitle="Today across staff" icon={Calendar} tone="info" />
+        <StatCard title="Bed Occupancy" value="78%" subtitle="47 of 60 beds" icon={BedDouble} tone="warning" />
+        <StatCard title="MTD Revenue" value="$487K" subtitle="Operations to date" icon={DollarSign} tone="success" trend={{ value: "+11%", direction: "up" }} />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <StatCard title="Staff On Duty" value="142" subtitle="Across all shifts" icon={Stethoscope} tone="info" />
+        <StatCard title="Active Lab Orders" value="58" subtitle="In progress" icon={FlaskConical} tone="primary" />
+        <StatCard title="Open Insurance Claims" value="34" subtitle="Pending payer" icon={Receipt} tone="warning" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <SectionCard title="Department Activity" description="Today's encounters">
+          <div className="space-y-3">
+            {[
+              { name: "Cardiology", encounters: 38, tone: "primary" as const },
+              { name: "Emergency", encounters: 52, tone: "destructive" as const },
+              { name: "Surgery", encounters: 14, tone: "info" as const },
+              { name: "Pediatrics", encounters: 22, tone: "success" as const },
+              { name: "Radiology", encounters: 28, tone: "warning" as const },
+            ].map((d, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className={`flex h-9 w-9 items-center justify-center rounded-lg bg-${d.tone}-soft text-${d.tone}-soft-foreground`}>
+                    <Hospital className="h-4 w-4" />
+                  </div>
+                  <p className="text-sm font-medium text-foreground">{d.name}</p>
+                </div>
+                <p className="text-sm font-semibold text-foreground">{d.encounters} encounters</p>
+              </div>
+            ))}
           </div>
-        );
+        </SectionCard>
 
-      case "hospital_admin":
-        return (
-          <div className="space-y-6">
-            {/* Header */}
-            <div>
-              <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-                Hospital Control Tower
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Real-time operational overview
-              </p>
-            </div>
+        <SectionCard title="Operational Alerts" description="Live notifications">
+          <div className="space-y-3">
+            {[
+              { title: "ICU at capacity", time: "10m ago", tone: "destructive" as const },
+              { title: "Lab QC failed — Coag", time: "1h ago", tone: "warning" as const },
+              { title: "New staff onboarded — Dr. Park", time: "3h ago", tone: "success" as const },
+              { title: "Pharmacy stock alert: Insulin Glargine", time: "4h ago", tone: "warning" as const },
+              { title: "Insurance claim approved — $42K", time: "5h ago", tone: "success" as const },
+            ].map((a, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <span className={`h-2 w-2 rounded-full bg-${a.tone}`} />
+                  <p className="text-sm text-foreground">{a.title}</p>
+                </div>
+                <span className="text-xs text-muted-foreground">{a.time}</span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      </div>
+    </div>
+  );
+}
 
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <KPICard
-                title="Patients Today"
-                value="342"
-                subtitle="Active in hospital"
-                color="blue"
-                icon={Users}
-                trend={{
-                  value: 12,
-                  label: "vs yesterday",
-                  isPositive: true,
-                }}
-              />
-              <KPICard
-                title="Revenue Today"
-                value="$28,450"
-                subtitle="All departments"
-                color="green"
-                icon={DollarSign}
-                trend={{
-                  value: 8,
-                  label: "vs target",
-                  isPositive: true,
-                }}
-              />
-              <KPICard
-                title="Bed Occupancy"
-                value="87%"
-                subtitle="120/140 beds"
-                color="yellow"
-                icon={Activity}
-                trend={{
-                  value: 3,
-                  label: "vs yesterday",
-                  isPositive: false,
-                }}
-              />
-              <KPICard
-                title="Staff On Duty"
-                value="58"
-                subtitle="All departments"
-                color="purple"
-                icon={UserCheck}
-                trend={{ value: 2, label: "vs expected", isPositive: true }}
-              />
-            </div>
+/* -------------------- DOCTOR -------------------- */
+function DoctorDashboard() {
+  return (
+    <div>
+      <PageHeader title="Clinical Command" subtitle="Your patient panel and today's schedule." />
 
-            {/* Secondary Metrics */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <KPICard
-                title="Appointments Today"
-                value="156"
-                color="indigo"
-                icon={Calendar}
-              />
-              <KPICard
-                title="Lab Tests Pending"
-                value="34"
-                color="yellow"
-                icon={TestTube}
-              />
-              <KPICard
-                title="Open Invoices"
-                value="$45,200"
-                color="red"
-                icon={AlertTriangle}
-              />
-            </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <StatCard title="My Patients" value="247" subtitle="Active panel" icon={Users} tone="primary" />
+        <StatCard title="Today's Visits" value="12" subtitle="Scheduled" icon={Calendar} tone="info" />
+        <StatCard title="Pending Lab Reviews" value="8" subtitle="Awaiting your sign-off" icon={Microscope} tone="warning" />
+        <StatCard title="Open Prescriptions" value="34" subtitle="Active Rx" icon={Pill} tone="success" />
+      </div>
 
-            {/* Data Cards */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <DataCard
-                title="Department Performance"
-                items={[
-                  {
-                    id: "1",
-                    title: "Emergency",
-                    subtitle: "45 patients today",
-                    value: "98% on-time",
-                    status: "normal",
-                  },
-                  {
-                    id: "2",
-                    title: "Surgery",
-                    subtitle: "12 procedures",
-                    value: "100% completed",
-                    status: "completed",
-                  },
-                  {
-                    id: "3",
-                    title: "Lab",
-                    subtitle: "234 tests",
-                    value: "92% on-time",
-                    status: "normal",
-                  },
-                ]}
-              />
-              <DataCard
-                title="Critical Alerts"
-                items={[
-                  {
-                    id: "1",
-                    title: "High Bed Occupancy",
-                    subtitle: "ICU at 95%",
-                    status: "urgent",
-                    value: "Action needed",
-                  },
-                  {
-                    id: "2",
-                    title: "Medication Stock Low",
-                    subtitle: "Amoxicillin running low",
-                    status: "urgent",
-                    value: "Order pending",
-                  },
-                  {
-                    id: "3",
-                    title: "Payment Overdue",
-                    subtitle: "Insurance claim INV-0456",
-                    status: "pending",
-                    value: "Follow up",
-                  },
-                ]}
-              />
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <SectionCard title="Today's Schedule" description="Upcoming appointments">
+          <div className="space-y-2">
+            {[
+              { time: "09:00", patient: "Sarah Johnson", reason: "Hypertension follow-up", tone: "primary" as const },
+              { time: "09:30", patient: "Michael Chen", reason: "Annual physical", tone: "info" as const },
+              { time: "10:15", patient: "Emma Davis", reason: "Lab review", tone: "info" as const },
+              { time: "11:00", patient: "James Wilson", reason: "Post-op care", tone: "success" as const },
+              { time: "11:45", patient: "Linda Garcia", reason: "Diabetes mgmt", tone: "warning" as const },
+            ].map((v, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className={`flex h-9 w-9 items-center justify-center rounded-lg bg-${v.tone}-soft text-${v.tone}-soft-foreground text-xs font-semibold`}>
+                    {v.time}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{v.patient}</p>
+                    <p className="text-xs text-muted-foreground">{v.reason}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
 
-            {/* Recent Activity and Quick Actions */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                  Recent Activity
-                </h3>
-                <div className="space-y-3">
-                  {[
-                    { action: "New patient registered", time: "2 min ago" },
-                    { action: "Lab results uploaded", time: "5 min ago" },
-                    { action: "Appointment scheduled", time: "10 min ago" },
-                    { action: "Payment processed", time: "15 min ago" },
-                  ].map((item, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-700 rounded-lg"
-                    >
-                      <span className="text-sm text-gray-700 dark:text-gray-300">
-                        {item.action}
-                      </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                        {item.time}
-                      </span>
+        <SectionCard title="Pending Tasks" description="Action items">
+          <div className="space-y-2">
+            {[
+              { title: "Sign 8 lab results", tone: "warning" as const, icon: Microscope },
+              { title: "3 prescription refill requests", tone: "primary" as const, icon: Pill },
+              { title: "2 patient messages awaiting reply", tone: "info" as const, icon: MessageSquare },
+              { title: "1 referral letter to draft", tone: "info" as const, icon: FileText },
+              { title: "Review queue: 5 patients", tone: "primary" as const, icon: ClipboardList },
+            ].map((t, i) => {
+              const Icon = t.icon;
+              return (
+                <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`flex h-9 w-9 items-center justify-center rounded-lg bg-${t.tone}-soft text-${t.tone}-soft-foreground`}>
+                      <Icon className="h-4 w-4" />
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                  Quick Actions
-                </h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <button className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800 rounded-lg hover:shadow-md transition-all">
-                    <Users className="w-6 h-6 text-blue-600 dark:text-blue-400 mx-auto mb-2" />
-                    <p className="text-sm font-medium text-blue-700 dark:text-blue-200">
-                      New Patient
-                    </p>
-                  </button>
-                  <button className="p-4 bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900 dark:to-green-800 rounded-lg hover:shadow-md transition-all">
-                    <Calendar className="w-6 h-6 text-green-600 dark:text-green-400 mx-auto mb-2" />
-                    <p className="text-sm font-medium text-green-700 dark:text-green-200">
-                      Schedule
-                    </p>
-                  </button>
-                  <button className="p-4 bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900 dark:to-purple-800 rounded-lg hover:shadow-md transition-all">
-                    <DollarSign className="w-6 h-6 text-purple-600 dark:text-purple-400 mx-auto mb-2" />
-                    <p className="text-sm font-medium text-purple-700 dark:text-purple-200">
-                      Invoice
-                    </p>
-                  </button>
-                  <button className="p-4 bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-900 dark:to-orange-800 rounded-lg hover:shadow-md transition-all">
-                    <AlertTriangle className="w-6 h-6 text-orange-600 dark:text-orange-400 mx-auto mb-2" />
-                    <p className="text-sm font-medium text-orange-700 dark:text-orange-200">
-                      Alerts
-                    </p>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case "doctor":
-        return (
-          <div className="space-y-6">
-            {/* Header */}
-            <div>
-              <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-                Clinical Command
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Your day at a glance
-              </p>
-            </div>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <KPICard
-                title="Today's Appointments"
-                value="12"
-                subtitle="7 remaining"
-                color="blue"
-                icon={Calendar}
-                trend={{
-                  value: 3,
-                  label: "completed",
-                  isPositive: true,
-                }}
-              />
-              <KPICard
-                title="Waiting Patients"
-                value="3"
-                subtitle="In queue"
-                color="yellow"
-                icon={Users}
-                trend={{
-                  value: 1,
-                  label: "urgent",
-                  isPositive: false,
-                }}
-              />
-              <KPICard
-                title="Critical Alerts"
-                value="1"
-                subtitle="Requires attention"
-                color="red"
-                icon={AlertTriangle}
-              />
-              <KPICard
-                title="Pending Lab Results"
-                value="4"
-                subtitle="Awaiting review"
-                color="purple"
-                icon={TestTube}
-              />
-            </div>
-
-            {/* Queue and Appointments */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <DataCard
-                title="Patient Queue"
-                items={mockQueue}
-                onItemClick={(item) => console.log("View queue", item)}
-              />
-              <DataCard
-                title="Today's Appointments"
-                items={mockAppointments}
-                onItemClick={(item) => console.log("View appointment", item)}
-              />
-            </div>
-
-            {/* Clinical Insights */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <KPICard
-                title="Average Consultation"
-                value="18 min"
-                color="indigo"
-                icon={Clock}
-              />
-              <KPICard
-                title="Patient Satisfaction"
-                value="4.8/5"
-                color="green"
-                icon={Heart}
-              />
-              <KPICard
-                title="Prescriptions Issued"
-                value="6"
-                subtitle="Today"
-                color="blue"
-                icon={Pill}
-              />
-            </div>
-
-            {/* Lab Orders and Prescriptions */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <DataCard
-                title="Lab Orders"
-                items={mockLabResults}
-                onItemClick={(item) => console.log("View lab", item)}
-              />
-              <DataCard
-                title="Recent Prescriptions"
-                items={mockPrescriptions}
-                onItemClick={(item) => console.log("View prescription", item)}
-              />
-            </div>
-          </div>
-        );
-
-      case "nurse":
-        return (
-          <div className="space-y-6">
-            {/* Header */}
-            <div>
-              <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-                Care Station
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Patient care overview
-              </p>
-            </div>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <KPICard
-                title="Assigned Patients"
-                value="8"
-                subtitle="Active care"
-                color="blue"
-                icon={Users}
-              />
-              <KPICard
-                title="Vitals Due"
-                value="3"
-                subtitle="In next 30 min"
-                color="yellow"
-                icon={Heart}
-                trend={{ value: 1, label: "overdue", isPositive: false }}
-              />
-              <KPICard
-                title="Medications Due"
-                value="12"
-                subtitle="Next 2 hours"
-                color="purple"
-                icon={Pill}
-              />
-              <KPICard
-                title="Alerts"
-                value="2"
-                subtitle="Requires attention"
-                color="red"
-                icon={AlertTriangle}
-              />
-            </div>
-
-            {/* Patient and Vitals */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <DataCard
-                title="Assigned Patients"
-                items={mockPatients}
-                onItemClick={(item) => console.log("View patient", item)}
-              />
-              <DataCard
-                title="Vitals Schedule"
-                items={[
-                  {
-                    id: "1",
-                    title: "Room 101 - John Doe",
-                    subtitle: "Vitals due",
-                    status: "pending",
-                    value: "Due now",
-                  },
-                  {
-                    id: "2",
-                    title: "Room 102 - Jane Smith",
-                    subtitle: "Vitals recorded",
-                    status: "completed",
-                    value: "10 min ago",
-                  },
-                  {
-                    id: "3",
-                    title: "Room 103 - Bob Wilson",
-                    subtitle: "Vitals due",
-                    status: "pending",
-                    value: "In 15 min",
-                  },
-                ]}
-              />
-            </div>
-
-            {/* Ward Management */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                Ward Status
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Occupied Beds
-                  </p>
-                  <p className="text-3xl font-bold text-blue-600 dark:text-blue-400 mt-1">
-                    8/10
-                  </p>
-                </div>
-                <div className="p-4 bg-green-50 dark:bg-green-900 rounded-lg">
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Available Beds
-                  </p>
-                  <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-1">
-                    2
-                  </p>
-                </div>
-                <div className="p-4 bg-purple-50 dark:bg-purple-900 rounded-lg">
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Pending Discharges
-                  </p>
-                  <p className="text-3xl font-bold text-purple-600 dark:text-purple-400 mt-1">
-                    1
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case "lab_technician":
-        return (
-          <div className="space-y-6">
-            {/* Header */}
-            <div>
-              <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-                Lab Pipeline
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Test queue and results
-              </p>
-            </div>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <KPICard
-                title="Tests Pending"
-                value="18"
-                subtitle="Awaiting processing"
-                color="yellow"
-                icon={TestTube}
-                trend={{ value: 5, label: "new today", isPositive: false }}
-              />
-              <KPICard
-                title="In Progress"
-                value="5"
-                subtitle="Being analyzed"
-                color="blue"
-                icon={Activity}
-              />
-              <KPICard
-                title="Completed Today"
-                value="42"
-                subtitle="Ready for review"
-                color="green"
-                icon={CheckCircle}
-                trend={{ value: 8, label: "vs average", isPositive: true }}
-              />
-              <KPICard
-                title="Avg Turnaround"
-                value="2h 15m"
-                subtitle="Today's average"
-                color="purple"
-                icon={Clock}
-              />
-            </div>
-
-            {/* Lab Orders and Results */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <DataCard
-                title="Lab Orders Queue"
-                items={[
-                  {
-                    id: "1",
-                    title: "CBC + Differential",
-                    subtitle: "Patient: Alice Wilson",
-                    status: "pending",
-                    value: "High priority",
-                  },
-                  {
-                    id: "2",
-                    title: "Blood Glucose",
-                    subtitle: "Patient: Bob Harris",
-                    status: "in-progress",
-                    value: "Processing",
-                  },
-                  {
-                    id: "3",
-                    title: "Lipid Panel",
-                    subtitle: "Patient: Carol Davis",
-                    status: "completed",
-                    value: "Ready",
-                  },
-                ]}
-              />
-              <DataCard
-                title="Test Results"
-                items={mockLabResults}
-                onItemClick={(item) => console.log("View result", item)}
-              />
-            </div>
-
-            {/* Lab Inventory */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                Lab Inventory Status
-              </h3>
-              <div className="space-y-3">
-                {[
-                  { name: "Blood Collection Tubes", stock: "85%", status: "normal" },
-                  {
-                    name: "Reagents - Type A",
-                    stock: "35%",
-                    status: "urgent",
-                  },
-                  { name: "Culture Media", stock: "60%", status: "normal" },
-                ].map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-700 rounded-lg"
-                  >
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">
-                      {item.name}
-                    </span>
-                    <span
-                      className={`text-sm font-semibold ${
-                        item.status === "urgent"
-                          ? "text-red-600"
-                          : "text-green-600"
-                      }`}
-                    >
-                      {item.stock}
-                    </span>
+                    <p className="text-sm font-medium text-foreground">{t.title}</p>
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
+              );
+            })}
           </div>
-        );
+        </SectionCard>
+      </div>
+    </div>
+  );
+}
 
-      case "pharmacist":
-        return (
-          <div className="space-y-6">
-            {/* Header */}
-            <div>
-              <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-                Dispense Hub
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Pharmacy operations center
-              </p>
-            </div>
+/* -------------------- NURSE -------------------- */
+function NurseDashboard() {
+  return (
+    <div>
+      <PageHeader title="Care Station" subtitle="Your assigned patients and today's tasks." />
 
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <KPICard
-                title="Prescriptions Pending"
-                value="28"
-                subtitle="Awaiting dispensing"
-                color="yellow"
-                icon={Pill}
-                trend={{ value: 7, label: "new", isPositive: false }}
-              />
-              <KPICard
-                title="Inventory Alerts"
-                value="7"
-                subtitle="Require action"
-                color="red"
-                icon={AlertTriangle}
-              />
-              <KPICard
-                title="Expiring Drugs"
-                value="3"
-                subtitle="In next 30 days"
-                color="yellow"
-                icon={Clock}
-              />
-              <KPICard
-                title="Dispensed Today"
-                value="156"
-                subtitle="Medications"
-                color="green"
-                icon={CheckCircle}
-              />
-            </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <StatCard title="Assigned Patients" value="14" subtitle="On your unit" icon={Users} tone="primary" />
+        <StatCard title="Pending Vitals" value="6" subtitle="Due this round" icon={HeartPulse} tone="warning" />
+        <StatCard title="Medications Due" value="11" subtitle="Next 2 hours" icon={Pill} tone="info" />
+        <StatCard title="Beds Occupied" value="14/15" subtitle="93% capacity" icon={BedDouble} tone="destructive" />
+      </div>
 
-            {/* Prescriptions and Inventory */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <DataCard
-                title="Prescription Queue"
-                items={mockPrescriptions}
-                onItemClick={(item) => console.log("Dispense", item)}
-              />
-              <DataCard
-                title="Low Stock Items"
-                items={[
-                  {
-                    id: "1",
-                    title: "Amoxicillin 500mg",
-                    subtitle: "Only 12 units left",
-                    status: "urgent",
-                    value: "Order",
-                  },
-                  {
-                    id: "2",
-                    title: "Metformin 1000mg",
-                    subtitle: "35 units available",
-                    status: "pending",
-                    value: "Monitor",
-                  },
-                  {
-                    id: "3",
-                    title: "Aspirin 100mg",
-                    subtitle: "150 units in stock",
-                    status: "normal",
-                    value: "Good",
-                  },
-                ]}
-              />
-            </div>
-
-            {/* Drug Interaction Checker */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                Recent Drug Interactions Detected
-              </h3>
-              <div className="space-y-3">
-                {[
-                  {
-                    drugs: "Warfarin + Aspirin",
-                    risk: "High",
-                    status: "urgent",
-                  },
-                  {
-                    drugs: "Metformin + Contrast",
-                    risk: "Medium",
-                    status: "pending",
-                  },
-                ].map((interaction, idx) => (
-                  <div
-                    key={idx}
-                    className={`flex items-center justify-between p-3 rounded-lg ${
-                      interaction.status === "urgent"
-                        ? "bg-red-50 dark:bg-red-900"
-                        : "bg-yellow-50 dark:bg-yellow-900"
-                    }`}
-                  >
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {interaction.drugs}
-                    </span>
-                    <span
-                      className={`text-sm font-semibold ${
-                        interaction.status === "urgent"
-                          ? "text-red-600"
-                          : "text-yellow-600"
-                      }`}
-                    >
-                      {interaction.risk} Risk
-                    </span>
-                  </div>
-                ))}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <SectionCard title="Care Tasks" description="Next actions">
+          <div className="space-y-2">
+            {[
+              { task: "Bed 12 — Wound care, q4h", due: "14:00", tone: "warning" as const },
+              { task: "Bed 7 — IV antibiotics", due: "15:30", tone: "primary" as const },
+              { task: "Bed 3 — Vitals check", due: "14:30", tone: "info" as const },
+              { task: "Bed 19 — PT session prep", due: "16:00", tone: "primary" as const },
+              { task: "Bed 5 — Discharge paperwork", due: "Today", tone: "success" as const },
+            ].map((t, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <span className={`h-2 w-2 rounded-full bg-${t.tone}`} />
+                  <p className="text-sm font-medium text-foreground">{t.task}</p>
+                </div>
+                <span className={`rounded-md bg-${t.tone}-soft px-2 py-0.5 text-xs font-medium text-${t.tone}-soft-foreground`}>{t.due}</span>
               </div>
-            </div>
+            ))}
           </div>
-        );
+        </SectionCard>
 
-      case "accountant":
-        return (
-          <div className="space-y-6">
-            {/* Header */}
-            <div>
-              <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-                Finance Grid
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Financial overview and insights
-              </p>
-            </div>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <KPICard
-                title="Revenue Today"
-                value="$5,240"
-                subtitle="All services"
-                color="green"
-                icon={DollarSign}
-                trend={{ value: 8, label: "vs target", isPositive: true }}
-              />
-              <KPICard
-                title="Outstanding Payments"
-                value="$12,850"
-                subtitle="Awaiting settlement"
-                color="yellow"
-                icon={AlertTriangle}
-                trend={{ value: 5, label: "vs yesterday", isPositive: false }}
-              />
-              <KPICard
-                title="Insurance Claims"
-                value="18"
-                subtitle="Pending review"
-                color="blue"
-                icon={Package}
-              />
-              <KPICard
-                title="Collection Rate"
-                value="92%"
-                subtitle="This month"
-                color="green"
-                icon={TrendingUp}
-              />
-            </div>
-
-            {/* Billing and Payments */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <DataCard
-                title="Recent Invoices"
-                items={mockBilling}
-                onItemClick={(item) => console.log("View invoice", item)}
-              />
-              <DataCard
-                title="Payment Tracking"
-                items={[
-                  {
-                    id: "1",
-                    title: "PAY-001",
-                    subtitle: "John Doe - $150",
-                    status: "completed",
-                    value: "Received",
-                  },
-                  {
-                    id: "2",
-                    title: "PAY-002",
-                    subtitle: "Insurance - $2,400",
-                    status: "in-progress",
-                    value: "Processing",
-                  },
-                  {
-                    id: "3",
-                    title: "PAY-003",
-                    subtitle: "Jane Smith - $200",
-                    status: "pending",
-                    value: "Waiting",
-                  },
-                ]}
-              />
-            </div>
-
-            {/* Financial Summary */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <KPICard
-                title="Monthly Revenue"
-                value="$145,230"
-                color="green"
-                icon={DollarSign}
-              />
-              <KPICard
-                title="Operating Costs"
-                value="$52,100"
-                color="red"
-                icon={AlertTriangle}
-              />
-              <KPICard
-                title="Net Profit"
-                value="$93,130"
-                color="blue"
-                icon={TrendingUp}
-              />
-            </div>
-          </div>
-        );
-
-      case "receptionist":
-        return (
-          <div className="space-y-6">
-            {/* Header */}
-            <div>
-              <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-                Front Desk Flow
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Appointment and queue management
-              </p>
-            </div>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <KPICard
-                title="Appointments Today"
-                value="34"
-                subtitle="Scheduled"
-                color="blue"
-                icon={Calendar}
-                trend={{
-                  value: 6,
-                  label: "vs average",
-                  isPositive: true,
-                }}
-              />
-              <KPICard
-                title="Walk-ins"
-                value="8"
-                subtitle="So far today"
-                color="yellow"
-                icon={Users}
-              />
-              <KPICard
-                title="Queue Status"
-                value="Active"
-                subtitle="22 checked in"
-                color="green"
-                icon={Activity}
-              />
-              <KPICard
-                title="Avg Wait Time"
-                value="12 min"
-                subtitle="Current average"
-                color="purple"
-                icon={Clock}
-              />
-            </div>
-
-            {/* Queue and Appointments */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <DataCard
-                title="Today's Queue"
-                items={mockQueue}
-                onItemClick={(item) => console.log("View queue item", item)}
-              />
-              <DataCard
-                title="Scheduled Appointments"
-                items={mockAppointments}
-                onItemClick={(item) => console.log("View appointment", item)}
-              />
-            </div>
-
-            {/* Check-in Status */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Checked In
-                </p>
-                <p className="text-4xl font-bold text-green-600 mt-2">22</p>
-              </div>
-              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Pending Check-in
-                </p>
-                <p className="text-4xl font-bold text-orange-600 mt-2">12</p>
-              </div>
-              <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  No-shows
-                </p>
-                <p className="text-4xl font-bold text-red-600 mt-2">2</p>
-              </div>
-            </div>
-
-            {/* Emergency Access */}
-            <div className="bg-gradient-to-r from-red-50 to-red-100 dark:from-red-900 dark:to-red-800 rounded-2xl p-6 border border-red-200 dark:border-red-700">
-              <div className="flex items-center justify-between">
+        <SectionCard title="Patient Watch List" description="Needs close monitoring">
+          <div className="space-y-2">
+            {[
+              { name: "Bed 3 — J. Doe", note: "BP elevated 158/95", tone: "warning" as const },
+              { name: "Bed 9 — M. Chen", note: "Post-op day 1", tone: "info" as const },
+              { name: "Bed 14 — S. Johnson", note: "Fall risk — yellow", tone: "warning" as const },
+              { name: "Bed 17 — E. Davis", note: "NPO for procedure", tone: "primary" as const },
+            ].map((p, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
                 <div>
-                  <h3 className="text-lg font-semibold text-red-900 dark:text-red-100">
-                    Emergency Access
-                  </h3>
-                  <p className="text-sm text-red-700 dark:text-red-200 mt-1">
-                    For critical cases requiring immediate admission
-                  </p>
+                  <p className="text-sm font-medium text-foreground">{p.name}</p>
+                  <p className="text-xs text-muted-foreground">{p.note}</p>
                 </div>
-                <button className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors">
-                  Open Emergency
-                </button>
+                <span className={`h-2 w-2 rounded-full bg-${p.tone}`} />
               </div>
-            </div>
+            ))}
           </div>
-        );
+        </SectionCard>
+      </div>
+    </div>
+  );
+}
 
-      case "patient":
-        return (
-          <div className="space-y-6">
-            {/* Header */}
-            <div>
-              <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-                My Health
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Your personal health dashboard
-              </p>
-            </div>
+/* -------------------- LAB TECH -------------------- */
+function LabTechDashboard() {
+  return (
+    <div>
+      <PageHeader title="Lab Management" subtitle="Today's orders, results, and instruments." />
 
-            {/* Health KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <KPICard
-                title="Health Score"
-                value="85%"
-                subtitle="Excellent"
-                color="green"
-                icon={Heart}
-                trend={{
-                  value: 2,
-                  label: "improvement",
-                  isPositive: true,
-                }}
-              />
-              <KPICard
-                title="Upcoming Appointments"
-                value="2"
-                subtitle="Next 30 days"
-                color="blue"
-                icon={Calendar}
-              />
-              <KPICard
-                title="Active Prescriptions"
-                value="4"
-                subtitle="Current medications"
-                color="purple"
-                icon={Pill}
-              />
-              <KPICard
-                title="Lab Results"
-                value="1"
-                subtitle="Awaiting review"
-                color="yellow"
-                icon={TestTube}
-              />
-            </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <StatCard title="Pending Orders" value="42" subtitle="Awaiting processing" icon={FlaskConical} tone="warning" />
+        <StatCard title="Completed Today" value="187" subtitle="Tests resulted" icon={Microscope} tone="success" />
+        <StatCard title="Avg TAT" value="42m" subtitle="Routine tests" icon={Activity} tone="info" />
+        <StatCard title="QC Score" value="98.4%" subtitle="Above threshold" icon={ShieldCheck} tone="primary" />
+      </div>
 
-            {/* Appointments and Health Data */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <DataCard
-                title="My Appointments"
-                items={mockAppointments}
-                onItemClick={(item) => console.log("View appointment", item)}
-              />
-              <DataCard
-                title="My Prescriptions"
-                items={mockPrescriptions}
-                onItemClick={(item) => console.log("View prescription", item)}
-              />
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <SectionCard title="Order Queue" description="Next to process">
+          <div className="space-y-2">
+            {[
+              { order: "LAB-4521 — CBC", urgency: "STAT", tone: "destructive" as const },
+              { order: "LAB-4522 — BMP", urgency: "Routine", tone: "info" as const },
+              { order: "LAB-4523 — Lipid Panel", urgency: "Routine", tone: "info" as const },
+              { order: "LAB-4524 — Coag", urgency: "STAT", tone: "destructive" as const },
+              { order: "LAB-4525 — Urinalysis", urgency: "Routine", tone: "primary" as const },
+            ].map((o, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <p className="text-sm font-medium text-foreground">{o.order}</p>
+                <span className={`rounded-md bg-${o.tone}-soft px-2 py-0.5 text-xs font-medium text-${o.tone}-soft-foreground`}>{o.urgency}</span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
 
-            {/* Health Summary */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                Health Summary
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Blood Pressure
-                  </p>
-                  <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-2">
-                    120/80
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Normal range
-                  </p>
+        <SectionCard title="Instrument Status" description="Operational health">
+          <div className="space-y-2">
+            {[
+              { name: "Hematology Analyzer", status: "Operational", tone: "success" as const },
+              { name: "Chemistry Panel", status: "Operational", tone: "success" as const },
+              { name: "Coag Analyzer", status: "QC Failed", tone: "destructive" as const },
+              { name: "Urine Analyzer", status: "Operational", tone: "success" as const },
+              { name: "Microbiology", status: "Maintenance", tone: "warning" as const },
+            ].map((s, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <p className="text-sm font-medium text-foreground">{s.name}</p>
+                <span className={`rounded-md bg-${s.tone}-soft px-2 py-0.5 text-xs font-medium text-${s.tone}-soft-foreground`}>{s.status}</span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------- PHARMACIST -------------------- */
+function PharmacistDashboard() {
+  return (
+    <div>
+      <PageHeader title="Pharmacy Management" subtitle="Dispensing, inventory, and safety." />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <StatCard title="Rx Queue" value="42" subtitle="Awaiting fill" icon={Pill} tone="warning" />
+        <StatCard title="Dispensed Today" value="187" subtitle="Completed" icon={ClipboardList} tone="success" />
+        <StatCard title="Stock Alerts" value="12" subtitle="Below reorder point" icon={AlertOctagon} tone="destructive" />
+        <StatCard title="Interaction Alerts" value="8" subtitle="Need review" icon={ShieldCheck} tone="warning" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <SectionCard title="Dispensing Queue" description="Next to fill">
+          <div className="space-y-2">
+            {[
+              { rx: "Rx #4521 — Amoxicillin 500mg", patient: "J. Doe", tone: "warning" as const },
+              { rx: "Rx #4522 — Lisinopril 10mg", patient: "M. Chen", tone: "primary" as const },
+              { rx: "Rx #4523 — Metformin 1000mg", patient: "S. Johnson", tone: "primary" as const },
+              { rx: "Rx #4524 — Atorvastatin 20mg", patient: "E. Davis", tone: "info" as const },
+              { rx: "Rx #4525 — Albuterol Inhaler", patient: "J. Wilson", tone: "warning" as const },
+            ].map((r, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{r.rx}</p>
+                  <p className="text-xs text-muted-foreground">{r.patient}</p>
                 </div>
-                <div className="p-4 bg-green-50 dark:bg-green-900 rounded-lg">
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Heart Rate
-                  </p>
-                  <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-2">
-                    72 bpm
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Healthy
-                  </p>
+                <span className={`h-2 w-2 rounded-full bg-${r.tone}`} />
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Critical Alerts" description="Stock & interactions">
+          <div className="space-y-2">
+            {[
+              { title: "EpiPen — OUT OF STOCK", tone: "destructive" as const },
+              { title: "Insulin Glargine — 3 units left", tone: "destructive" as const },
+              { title: "Warfarin + Aspirin interaction (J. Doe)", tone: "destructive" as const },
+              { title: "Amoxicillin 500mg — below threshold", tone: "warning" as const },
+              { title: "Cephalexin — expires in 14 days", tone: "warning" as const },
+            ].map((a, i) => (
+              <div key={i} className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
+                <span className={`h-2 w-2 rounded-full bg-${a.tone}`} />
+                <p className="text-sm text-foreground">{a.title}</p>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------- ACCOUNTANT -------------------- */
+function AccountantDashboard() {
+  return (
+    <div>
+      <PageHeader title="Financial Management" subtitle="Billing, revenue, and claims." />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <StatCard title="Today's Revenue" value="$28,450" subtitle="Processed today" icon={DollarSign} tone="success" />
+        <StatCard title="Outstanding" value="$145,230" subtitle="Unpaid invoices" icon={Receipt} tone="warning" />
+        <StatCard title="Payments Today" value="$18,900" subtitle="Cash + card + ACH" icon={DollarSign} tone="info" />
+        <StatCard title="Open Claims" value="34" subtitle="Pending payer" icon={FileText} tone="primary" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <SectionCard title="Recent Invoices" description="Last 5 issued">
+          <div className="space-y-2">
+            {[
+              { invoice: "INV-2026-001", patient: "John Doe", amount: "$2,450", status: "paid", tone: "success" as const },
+              { invoice: "INV-2026-002", patient: "Jane Smith", amount: "$1,890", status: "pending", tone: "warning" as const },
+              { invoice: "INV-2026-003", patient: "Bob Wilson", amount: "$3,200", status: "overdue", tone: "destructive" as const },
+              { invoice: "INV-2026-004", patient: "Carol Davis", amount: "$1,560", status: "pending", tone: "warning" as const },
+              { invoice: "INV-2026-005", patient: "Dan Brown", amount: "$2,890", status: "paid", tone: "success" as const },
+            ].map((inv, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{inv.invoice} — {inv.patient}</p>
+                  <p className="text-xs text-muted-foreground">{inv.amount}</p>
                 </div>
-                <div className="p-4 bg-purple-50 dark:bg-purple-900 rounded-lg">
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Blood Glucose
-                  </p>
-                  <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-2">
-                    95 mg/dL
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Normal range
-                  </p>
+                <span className={`rounded-md bg-${inv.tone}-soft px-2 py-0.5 text-xs font-medium text-${inv.tone}-soft-foreground`}>{inv.status}</span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Revenue Tracking" description="Last 3 months">
+          <div className="space-y-4">
+            {[
+              { month: "April 2026", revenue: "$287,450", pct: 96 },
+              { month: "March 2026", revenue: "$245,120", pct: 82 },
+              { month: "February 2026", revenue: "$312,890", pct: 104 },
+            ].map((item, i) => (
+              <div key={i}>
+                <div className="mb-1 flex items-center justify-between">
+                  <p className="text-sm font-medium text-foreground">{item.month}</p>
+                  <p className="text-sm font-semibold text-foreground">{item.revenue}</p>
                 </div>
-                <div className="p-4 bg-orange-50 dark:bg-orange-900 rounded-lg">
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    BMI
-                  </p>
-                  <p className="text-2xl font-bold text-orange-600 dark:text-orange-400 mt-2">
-                    23.5
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Healthy weight
-                  </p>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, item.pct)}%` }} />
                 </div>
               </div>
-            </div>
+            ))}
+          </div>
+        </SectionCard>
+      </div>
+    </div>
+  );
+}
 
-            {/* Recent Lab Results */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                Recent Lab Results
-              </h3>
-              <div className="space-y-3">
-                {[
-                  {
-                    test: "Complete Blood Count",
-                    date: "2 days ago",
-                    status: "Normal",
-                  },
-                  {
-                    test: "Thyroid Panel",
-                    date: "1 week ago",
-                    status: "Normal",
-                  },
-                  {
-                    test: "Lipid Panel",
-                    date: "2 weeks ago",
-                    status: "Normal",
-                  },
-                ].map((result, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-700 rounded-lg"
-                  >
-                    <div>
-                      <p className="font-medium text-gray-900 dark:text-white">
-                        {result.test}
-                      </p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {result.date}
-                      </p>
-                    </div>
-                    <span className="px-3 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 rounded-full text-sm font-medium">
-                      {result.status}
-                    </span>
+/* -------------------- RECEPTIONIST -------------------- */
+function ReceptionistDashboard() {
+  return (
+    <div>
+      <PageHeader title="Front Desk" subtitle="Today's check-ins, queue, and registrations." />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <StatCard title="Today's Appointments" value="142" subtitle="Booked" icon={Calendar} tone="primary" />
+        <StatCard title="Checked-in" value="68" subtitle="Currently waiting" icon={ClipboardList} tone="info" />
+        <StatCard title="New Registrations" value="18" subtitle="Today" icon={Users} tone="success" />
+        <StatCard title="Avg Wait Time" value="18m" subtitle="Across providers" icon={Activity} tone="warning" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <SectionCard title="Currently Waiting" description="In the lobby">
+          <div className="space-y-2">
+            {[
+              { patient: "Sarah Johnson", provider: "Dr. Smith", wait: "22m", tone: "warning" as const },
+              { patient: "Michael Chen", provider: "Dr. Lee", wait: "18m", tone: "warning" as const },
+              { patient: "Emma Davis", provider: "Dr. Patel", wait: "14m", tone: "info" as const },
+              { patient: "James Wilson", provider: "Dr. Kim", wait: "8m", tone: "info" as const },
+              { patient: "Linda Garcia", provider: "Dr. Smith", wait: "5m", tone: "success" as const },
+            ].map((p, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{p.patient}</p>
+                  <p className="text-xs text-muted-foreground">{p.provider}</p>
+                </div>
+                <span className={`rounded-md bg-${p.tone}-soft px-2 py-0.5 text-xs font-medium text-${p.tone}-soft-foreground`}>{p.wait}</span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Quick Actions" description="Common front-desk tasks">
+          <div className="space-y-2">
+            {[
+              { title: "Register new patient", tone: "primary" as const, icon: Users },
+              { title: "Check in next arrival", tone: "info" as const, icon: ClipboardList },
+              { title: "Reschedule appointment", tone: "warning" as const, icon: Calendar },
+              { title: "Trigger emergency call", tone: "destructive" as const, icon: AlertOctagon },
+              { title: "Print today's schedule", tone: "info" as const, icon: FileText },
+            ].map((a, i) => {
+              const Icon = a.icon;
+              return (
+                <div key={i} className="flex items-center gap-3 rounded-lg border border-border px-4 py-3 hover:bg-muted/40 cursor-pointer transition">
+                  <div className={`flex h-9 w-9 items-center justify-center rounded-lg bg-${a.tone}-soft text-${a.tone}-soft-foreground`}>
+                    <Icon className="h-4 w-4" />
                   </div>
-                ))}
-              </div>
-            </div>
+                  <p className="text-sm font-medium text-foreground">{a.title}</p>
+                </div>
+              );
+            })}
           </div>
-        );
+        </SectionCard>
+      </div>
+    </div>
+  );
+}
 
-      case "guardian":
-        return (
-          <div className="space-y-6">
-            {/* Header */}
-            <div>
-              <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-                Family Hub
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Manage your family's health
-              </p>
-            </div>
+/* -------------------- PATIENT -------------------- */
+function PatientDashboard() {
+  return (
+    <div>
+      <PageHeader title="Patient Portal" subtitle="Your health at a glance." />
 
-            {/* Family Overview */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                Family Members
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {[
-                  { name: "Sarah (8)", status: "Healthy" },
-                  { name: "Michael (12)", status: "Monitored" },
-                  { name: "Emma (5)", status: "Healthy" },
-                ].map((member, idx) => (
-                  <div
-                    key={idx}
-                    className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800 rounded-lg"
-                  >
-                    <p className="font-semibold text-gray-900 dark:text-white">
-                      {member.name}
-                    </p>
-                    <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-                      {member.status}
-                    </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <StatCard title="Next Appointment" value="May 12" subtitle="Annual checkup" icon={Calendar} tone="primary" />
+        <StatCard title="Active Prescriptions" value="3" subtitle="Current Rx" icon={Pill} tone="info" />
+        <StatCard title="New Lab Results" value="2" subtitle="Awaiting your review" icon={Microscope} tone="warning" />
+        <StatCard title="Outstanding Balance" value="$140" subtitle="Due in 14 days" icon={Receipt} tone="destructive" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <SectionCard title="Health Summary" description="Most recent">
+          <div className="space-y-2">
+            {[
+              { label: "Heart Rate", value: "72 bpm", tone: "success" as const },
+              { label: "Blood Pressure", value: "118/76", tone: "success" as const },
+              { label: "Weight", value: "168 lbs", tone: "info" as const },
+              { label: "HbA1c", value: "6.8% (stable)", tone: "warning" as const },
+            ].map((v, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <p className="text-sm text-foreground">{v.label}</p>
+                <span className={`rounded-md bg-${v.tone}-soft px-2 py-0.5 text-xs font-medium text-${v.tone}-soft-foreground`}>{v.value}</span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Recent Activity" description="Your records">
+          <div className="space-y-2">
+            {[
+              { title: "Lab results posted — Lipid Panel", time: "2h ago", tone: "warning" as const },
+              { title: "Rx refill ready for pickup", time: "Yesterday", tone: "success" as const },
+              { title: "Visit summary — Annual physical", time: "2 weeks ago", tone: "info" as const },
+              { title: "Message from Dr. Smith", time: "3 weeks ago", tone: "primary" as const },
+            ].map((a, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <span className={`h-2 w-2 rounded-full bg-${a.tone}`} />
+                  <p className="text-sm text-foreground">{a.title}</p>
+                </div>
+                <span className="text-xs text-muted-foreground">{a.time}</span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------- GUARDIAN -------------------- */
+function GuardianDashboard() {
+  return (
+    <div>
+      <PageHeader title="Guardian Portal" subtitle="Manage your dependents' health." />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <StatCard title="Children" value="2" subtitle="On your account" icon={Baby} tone="primary" />
+        <StatCard title="Upcoming Visits" value="3" subtitle="Next 30 days" icon={Calendar} tone="info" />
+        <StatCard title="Vaccinations" value="2/2" subtitle="All up-to-date" icon={ShieldCheck} tone="success" />
+        <StatCard title="Active Alerts" value="4" subtitle="Need attention" icon={AlertOctagon} tone="warning" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <SectionCard title="Your Children" description="Profile summary">
+          <div className="space-y-2">
+            {[
+              { name: "Emma Doe — Age 7", note: "Last visit: Mar 14, 2026", tone: "success" as const },
+              { name: "Liam Doe — Age 4", note: "Last visit: Apr 02, 2026", tone: "success" as const },
+            ].map((c, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-soft text-primary-soft-foreground">
+                    <Baby className="h-4 w-4" />
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <KPICard
-                title="Family Members"
-                value="3"
-                subtitle="All active"
-                color="blue"
-                icon={Users}
-              />
-              <KPICard
-                title="Upcoming Appointments"
-                value="2"
-                subtitle="Next 7 days"
-                color="green"
-                icon={Calendar}
-              />
-              <KPICard
-                title="Active Medications"
-                value="5"
-                subtitle="Total across family"
-                color="purple"
-                icon={Pill}
-              />
-              <KPICard
-                title="Health Alerts"
-                value="1"
-                subtitle="Requires attention"
-                color="yellow"
-                icon={AlertTriangle}
-              />
-            </div>
-
-            {/* Family Appointments */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <DataCard
-                title="Family Appointments"
-                items={[
-                  {
-                    id: "1",
-                    title: "Sarah - Pediatrician",
-                    subtitle: "Annual Checkup",
-                    status: "pending",
-                    value: "Tomorrow",
-                  },
-                  {
-                    id: "2",
-                    title: "Michael - Dentist",
-                    subtitle: "Cleaning & Check",
-                    status: "pending",
-                    value: "Next week",
-                  },
-                  {
-                    id: "3",
-                    title: "Emma - Vaccination",
-                    subtitle: "Due vaccines",
-                    status: "pending",
-                    value: "This month",
-                  },
-                ]}
-              />
-              <DataCard
-                title="Family Medications"
-                items={[
-                  {
-                    id: "1",
-                    title: "Sarah - Allergy Med",
-                    subtitle: "Antihistamine",
-                    status: "normal",
-                    value: "Daily",
-                  },
-                  {
-                    id: "2",
-                    title: "Michael - Asthma Inhaler",
-                    subtitle: "As needed",
-                    status: "normal",
-                    value: "On hand",
-                  },
-                  {
-                    id: "3",
-                    title: "Emma - Multivitamins",
-                    subtitle: "Daily supplement",
-                    status: "normal",
-                    value: "Daily",
-                  },
-                ]}
-              />
-            </div>
-
-            {/* Family Health Overview */}
-            <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                Quick Health Check
-              </h3>
-              <div className="space-y-3">
-                {[
-                  {
-                    member: "Sarah",
-                    status: "All vitals normal",
-                    icon: "✓",
-                  },
-                  {
-                    member: "Michael",
-                    status: "Monitor asthma triggers",
-                    icon: "⚠",
-                  },
-                  {
-                    member: "Emma",
-                    status: "Ready for next vaccine",
-                    icon: "→",
-                  },
-                ].map((check, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-700 rounded-lg"
-                  >
-                    <div>
-                      <p className="font-medium text-gray-900 dark:text-white">
-                        {check.member}
-                      </p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {check.status}
-                      </p>
-                    </div>
-                    <span className="text-xl">{check.icon}</span>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{c.name}</p>
+                    <p className="text-xs text-muted-foreground">{c.note}</p>
                   </div>
-                ))}
+                </div>
+                <span className={`h-2 w-2 rounded-full bg-${c.tone}`} />
               </div>
-            </div>
+            ))}
           </div>
-        );
+        </SectionCard>
 
-      default:
-        return (
-          <div className="space-y-6">
-            <h1 className="text-3xl font-bold">Welcome to Joan Healthcare OS</h1>
-            <div className="bg-blue-50 dark:bg-blue-900 p-6 rounded-lg">
-              <p className="text-gray-700 dark:text-gray-200">
-                Healthcare management system designed for all healthcare providers.
-              </p>
-            </div>
+        <SectionCard title="Upcoming Reminders" description="Next 30 days">
+          <div className="space-y-2">
+            {[
+              { title: "Liam — Pediatric dental visit", date: "May 8, 2026", tone: "info" as const },
+              { title: "Emma — Eye exam follow-up", date: "May 14, 2026", tone: "info" as const },
+              { title: "Liam — Growth check", date: "May 22, 2026", tone: "primary" as const },
+              { title: "Emma — Asthma plan review", date: "May 28, 2026", tone: "warning" as const },
+            ].map((r, i) => (
+              <div key={i} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                <p className="text-sm text-foreground">{r.title}</p>
+                <span className={`rounded-md bg-${r.tone}-soft px-2 py-0.5 text-xs font-medium text-${r.tone}-soft-foreground`}>{r.date}</span>
+              </div>
+            ))}
           </div>
-        );
-    }
-  };
-
-  return <>{renderDashboard()}</>;
+        </SectionCard>
+      </div>
+    </div>
+  );
 }
