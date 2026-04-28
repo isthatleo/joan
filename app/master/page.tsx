@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { ROLE_HOME } from "@/lib/rbac";
 
 /**
  * Master / Super Admin login. Same Better Auth call — the only difference
@@ -48,7 +49,7 @@ export default function MasterLoginPage() {
         setLoading(false);
         return;
       }
-      router.push("/");
+      window.location.assign(ROLE_HOME.super_admin);
     } catch (err: any) {
       setError(err?.message || "Sign-in failed");
     } finally {

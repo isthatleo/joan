@@ -8,6 +8,7 @@ import {
   Users, UserCheck, ShieldCheck, Baby, Building2, GraduationCap,
 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { ROLE_HOME, type AppRole } from "@/lib/rbac";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -127,7 +128,7 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      router.push("/");
+      window.location.assign(ROLE_HOME[role as AppRole] ?? "/");
     } catch (err: any) {
       setError(err?.message || "Sign-in failed");
     } finally {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, ChevronDown, Home, LogOut, Settings, User } from "lucide-react";
@@ -8,6 +8,10 @@ import { useAuthStore } from "@/stores/auth";
 import { authClient } from "@/lib/auth-client";
 import { ThemeToggle } from "./theme/ThemeToggle";
 import { cn } from "@/lib/utils";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { format } from "date-fns";
+import { NotificationDialog } from "./NotificationDialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui";
 
 interface BreadcrumbItem {
   label: string;
@@ -42,11 +46,51 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
   const { user, logout } = useAuthStore();
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [selectedNotification, setSelectedNotification] = useState<any>(null);
+  const [notificationDialogOpen, setNotificationDialogOpen] = useState(false);
+  const queryClient = useQueryClient();
 
   const crumbs = useMemo(
     () => (breadcrumbs && breadcrumbs.length ? breadcrumbs : deriveBreadcrumbs(pathname)),
     [breadcrumbs, pathname]
   );
+
+  // Fetch notification count
+  const { data: notificationData } = useQuery({
+    queryKey: ["notification-count", user?.id],
+    queryFn: async () => {
+      const response = await fetch(`/api/notifications?userId=${user?.id}&countOnly=true`);
+      if (!response.ok) throw new Error("Failed to fetch notification count");
+      return response.json();
+    },
+    enabled: !!user?.id,
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  // Fetch notifications for dropdown
+  const { data: notificationsData } = useQuery({
+    queryKey: ["notifications", user?.id],
+    queryFn: async () => {
+      const response = await fetch(`/api/notifications?userId=${user?.id}`);
+      if (!response.ok) throw new Error("Failed to fetch notifications");
+      return response.json();
+    },
+    enabled: !!user?.id,
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+
+  const unreadCount = notificationData?.unreadCount || 0;
+
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+
+    if (diffInMinutes < 1) return "Just now";
+    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
+    return format(date, "MMM dd");
+  };
 
   const handleLogout = async () => {
     try {
@@ -57,6 +101,27 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
     logout();
     router.push("/login");
   };
+
+  // Close dropdowns when clicking outside
+  const notifRef = useRef<HTMLDivElement>(null);
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (notifOpen && notifRef.current && !notifRef.current.contains(target)) {
+        setNotifOpen(false);
+      }
+      if (profileOpen && profileRef.current && !profileRef.current.contains(target)) {
+        setProfileOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [notifOpen, profileOpen]);
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-border bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/80">
@@ -84,7 +149,7 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
         <ThemeToggle />
 
         {/* Notifications */}
-        <div className="relative">
+        <div className="relative" ref={notifRef}>
           <button
             type="button"
             onClick={() => setNotifOpen((v) => !v)}
@@ -92,7 +157,9 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
             className="relative flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <Bell className="h-4 w-4" />
-            <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-primary" />
+            {unreadCount > 0 && (
+              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-primary" />
+            )}
           </button>
           {notifOpen && (
             <>
@@ -100,12 +167,49 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
               <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
                 <div className="border-b border-border px-4 py-3">
                   <p className="text-sm font-semibold">Notifications</p>
+                  {unreadCount > 0 && (
+                    <p className="text-xs text-muted-foreground">{unreadCount} unread</p>
+                  )}
                 </div>
                 <div className="max-h-80 overflow-y-auto p-2 text-sm text-muted-foreground">
-                  <div className="rounded-lg px-3 py-2 hover:bg-muted">
-                    <p className="font-medium text-foreground">Welcome to Joan Healthcare OS</p>
-                    <p className="text-xs">You're all set. Explore your dashboard.</p>
-                  </div>
+                  {notificationsData?.notifications?.slice(0, 5).map((notification: any) => (
+                    <div
+                      key={notification.id}
+                      className={cn(
+                        "rounded-lg px-3 py-2 hover:bg-muted cursor-pointer",
+                        !notification.read && "bg-primary/5"
+                      )}
+                      onClick={() => {
+                        setSelectedNotification(notification);
+                        setNotificationDialogOpen(true);
+                        setNotifOpen(false);
+                      }}
+                    >
+                      <p className="font-medium text-foreground text-sm line-clamp-1">
+                        {notification.title}
+                      </p>
+                      <p className="text-xs text-muted-foreground line-clamp-2">
+                        {notification.message}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {formatTime(notification.createdAt)}
+                      </p>
+                    </div>
+                  )) || (
+                    <div className="rounded-lg px-3 py-2">
+                      <p className="font-medium text-foreground">Welcome to Joan Healthcare OS</p>
+                      <p className="text-xs">You're all set. Explore your dashboard.</p>
+                    </div>
+                  )}
+                </div>
+                <div className="border-t border-border p-2">
+                  <Link
+                    href="/notifications"
+                    className="block w-full text-center text-sm text-primary hover:underline"
+                    onClick={() => setNotifOpen(false)}
+                  >
+                    View all notifications
+                  </Link>
                 </div>
               </div>
             </>
@@ -113,15 +217,18 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
         </div>
 
         {/* Profile */}
-        <div className="relative ml-2">
+        <div className="relative ml-2" ref={profileRef}>
           <button
             type="button"
             onClick={() => setProfileOpen((v) => !v)}
             className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-              {(user?.fullName || user?.email || "U").charAt(0).toUpperCase()}
-            </div>
+            <Avatar className="h-8 w-8">
+              <AvatarImage src={user?.avatar} alt={user?.fullName || "User"} />
+              <AvatarFallback className="text-xs font-semibold">
+                {(user?.fullName || user?.email || "U").charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
             <div className="hidden text-left sm:block">
               <p className="text-sm font-medium leading-tight text-foreground">
                 {user?.fullName || "User"}
@@ -166,6 +273,24 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
           )}
         </div>
       </div>
+
+      {/* Notification Dialog - Moved outside to avoid portal issues */}
+      {selectedNotification && (
+        <NotificationDialog
+          open={notificationDialogOpen}
+          onOpenChange={setNotificationDialogOpen}
+          notification={selectedNotification}
+          onMarkAsRead={(notificationId) => {
+            fetch(`/api/notifications/${notificationId}/read`, {
+              method: "POST",
+            }).then(() => {
+              queryClient.invalidateQueries({ queryKey: ["notification-count"] });
+              queryClient.invalidateQueries({ queryKey: ["notifications"] });
+              setSelectedNotification((prev: any) => (prev ? { ...prev, read: true } : null));
+            });
+          }}
+        />
+      )}
     </header>
   );
 }

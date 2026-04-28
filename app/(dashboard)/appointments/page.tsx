@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAppointments } from "@/hooks/use-queries";
 import { Topbar } from "@/components/Topbar";
 import { KPICard } from "@/components/KPICard";
@@ -10,6 +11,7 @@ import { Calendar, Clock, Users, Plus, AlertCircle, CheckCircle } from "lucide-r
 export default function AppointmentsPage() {
   const { data: appointments, isLoading } = useAppointments();
   const [filter, setFilter] = useState("upcoming");
+  const searchParams = useSearchParams();
 
   // Mock appointments data
   const mockAppointments: DataCardItem[] = [
@@ -42,6 +44,14 @@ export default function AppointmentsPage() {
       value: "3:30 PM",
     },
   ];
+
+  useEffect(() => {
+    const appointmentId = searchParams.get("appointmentId");
+    if (appointmentId) {
+      // Handle opening appointment details
+      console.log("Open appointment details for ID:", appointmentId);
+    }
+  }, [searchParams]);
 
   return (
     <div className="space-y-6">

@@ -39,9 +39,22 @@ export const users = pgTable("users", {
   email: text("email").unique().notNull(),
   passwordHash: text("password_hash"),
   fullName: text("full_name"),
+  phone: text("phone"),
+  address: text("address"),
+  dateOfBirth: timestamp("date_of_birth"),
+  bio: text("bio"),
+  avatar: text("avatar"),
   isActive: boolean("is_active").default(true),
 }, (table) => ({
   userEmailIdx: index("user_email_idx").on(table.email),
+}));
+
+export const userSettings = pgTable("user_settings", {
+  ...baseColumns,
+  userId: uuid("user_id").references(() => users.id).unique().notNull(),
+  settings: jsonb("settings").notNull(),
+}, (table) => ({
+  userSettingsUserIdx: index("user_settings_user_idx").on(table.userId),
 }));
 
 export const roles = pgTable("roles", {
@@ -242,7 +255,9 @@ export const notifications = pgTable("notifications", {
   ...baseColumns,
   userId: uuid("user_id").references(() => users.id),
   type: text("type"),
+  title: text("title"),
   message: text("message"),
+  metadata: jsonb("metadata"),
   read: boolean("read").default(false),
 });
 

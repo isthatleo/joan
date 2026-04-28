@@ -34,16 +34,16 @@ export const ROLE_LABELS: Record<AppRole, string> = {
  * Sub-routes are then navigated to from the sidebar.
  */
 export const ROLE_HOME: Record<AppRole, string> = {
-  super_admin: "/",
-  hospital_admin: "/",
-  doctor: "/",
-  nurse: "/",
-  lab_technician: "/",
-  pharmacist: "/",
-  accountant: "/",
-  receptionist: "/",
-  patient: "/",
-  guardian: "/",
+  super_admin: "/super-admin",
+  hospital_admin: "/hospital-admin",
+  doctor: "/doctor",
+  nurse: "/nurse",
+  lab_technician: "/lab-technician",
+  pharmacist: "/pharmacist",
+  accountant: "/accountant",
+  receptionist: "/reception",
+  patient: "/patient",
+  guardian: "/guardian",
 };
 
 export const PUBLIC_ROUTES = ["/login", "/master", "/signup"];

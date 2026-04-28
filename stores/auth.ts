@@ -19,6 +19,7 @@ interface User {
   role?: AppRole;
   hospitalId?: string;
   hospitalName?: string;
+  avatar?: string;
 }
 
 interface AuthState {

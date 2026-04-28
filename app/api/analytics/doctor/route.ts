@@ -4,7 +4,7 @@ import { z } from "zod";
 interface DoctorStats {
   totalPatients: number;
   appointmentsToday: number;
-  pending Orders: number;
+  pendingOrders: number;
   completedToday: number;
   averageConsultationTime: number;
   patientSatisfaction: number;
