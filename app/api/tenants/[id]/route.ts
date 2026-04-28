@@ -5,10 +5,11 @@ const service = new TenantService();
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const tenant = await service.getTenant(params.id);
+    const { id } = await params;
+    const tenant = await service.getTenant(id);
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
@@ -21,11 +22,12 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const data = await request.json();
-    const tenant = await service.updateTenant(params.id, data);
+    const tenant = await service.updateTenant(id, data);
     if (!tenant.length) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
@@ -38,10 +40,11 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await service.deleteTenant(params.id);
+    const { id } = await params;
+    await service.deleteTenant(id);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error deleting tenant:", error);
@@ -52,17 +55,18 @@ export async function DELETE(
 // Handle PATCH for specific actions
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const { action } = await request.json();
 
     switch (action) {
       case "suspend":
-        const suspended = await service.suspendTenant(params.id);
+        const suspended = await service.suspendTenant(id);
         return NextResponse.json(suspended[0]);
       case "activate":
-        const activated = await service.activateTenant(params.id);
+        const activated = await service.activateTenant(id);
         return NextResponse.json(activated[0]);
       default:
         return NextResponse.json({ error: "Invalid action" }, { status: 400 });

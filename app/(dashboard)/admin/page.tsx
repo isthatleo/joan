@@ -1,4 +1,18 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+
 export default function AdminDashboard() {
+  const searchParams = useSearchParams();
+  const appointmentId = searchParams.get("appointmentId");
+
+  useEffect(() => {
+    if (appointmentId) {
+      // Logic to open appointment details
+    }
+  }, [appointmentId]);
+
   return (
     <div className="grid grid-cols-4 gap-4">
       <Card title="Total Hospitals" value="5" />

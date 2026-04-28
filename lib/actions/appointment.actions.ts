@@ -25,6 +25,11 @@ export const createAppointment = async (
       appointment
     );
 
+    // Send notifications to all parties involved
+    if (newAppointment) {
+      await sendAppointmentNotifications(newAppointment);
+    }
+
     revalidatePath("/admin");
     return parseStringify(newAppointment);
   } catch (error) {
@@ -113,6 +118,50 @@ export const sendSMSNotification = async (userId: string, content: string) => {
     return parseStringify(message);
   } catch (error) {
     console.error("An error occurred while sending sms:", error);
+  }
+};
+
+// SEND APPOINTMENT NOTIFICATIONS TO ALL PARTIES
+export const sendAppointmentNotifications = async (appointment: any) => {
+  try {
+    // Send notification to patient
+    const patientMessage = `Your appointment with Dr. ${appointment.primaryPhysician} has been scheduled for ${formatDateTime(appointment.schedule).dateTime}. Reason: ${appointment.reason || 'General consultation'}`;
+    await sendSMSNotification(appointment.userId, patientMessage);
+
+    // Send notification to doctor (assuming we can get doctor ID from primaryPhysician name)
+    // In a real implementation, you'd look up the doctor's user ID
+    // For now, we'll send a generic notification
+    const doctorMessage = `New appointment scheduled: ${appointment.userId} at ${formatDateTime(appointment.schedule).dateTime}`;
+
+    // Send in-app notifications as well
+    // Create notification for patient
+    await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: appointment.userId,
+        type: 'appointment_scheduled',
+        title: 'Appointment Scheduled',
+        message: `Your appointment with Dr. ${appointment.primaryPhysician} is confirmed for ${formatDateTime(appointment.schedule).dateTime}`,
+        metadata: { appointmentId: appointment.$id }
+      })
+    });
+
+    // Create notification for doctor (placeholder - would need actual doctor user ID)
+    // await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/notifications`, {
+    //   method: 'POST',
+    //   headers: { 'Content-Type': 'application/json' },
+    //   body: JSON.stringify({
+    //     userId: doctorUserId,
+    //     type: 'new_appointment',
+    //     title: 'New Appointment',
+    //     message: `New patient appointment scheduled for ${formatDateTime(appointment.schedule).dateTime}`,
+    //     metadata: { appointmentId: appointment.$id }
+    //   })
+    // });
+
+  } catch (error) {
+    console.error("An error occurred while sending appointment notifications:", error);
   }
 };
 

@@ -157,6 +157,14 @@ export default function SuperAdminUsers() {
     setOpenEditDialog(true);
   };
 
+  // Filter users based on search
+  const filtered = useMemo(() => {
+    return users.filter(user =>
+      user.email.toLowerCase().includes(search.toLowerCase()) ||
+      (user.fullName && user.fullName.toLowerCase().includes(search.toLowerCase()))
+    );
+  }, [users, search]);
+
   return (
     <div>
       <PageHeader

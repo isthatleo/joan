@@ -8,11 +8,13 @@ import {
   FileText, Bell, Settings, BarChart3, FlaskConical, AlertOctagon, Boxes,
   TrendingUp, Receipt, MessageSquare, UserCheck, Baby, History, Wallet,
   Layers, Briefcase, ShieldAlert, ServerCog, ChevronLeft, GraduationCap,
+  Megaphone,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui";
 
 interface SidebarItem {
   label: string;
@@ -34,6 +36,8 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Users", path: "/super-admin/users", icon: Users, category: "Admin" },
     { label: "Global Analytics", path: "/global-analytics", icon: BarChart3, category: "Admin" },
     { label: "Roles & Permissions", path: "/roles", icon: ShieldCheck, category: "Admin" },
+    { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
+    { label: "Broadcasts", path: "/broadcasts", icon: Megaphone, category: "Communication" },
     { label: "Compliance", path: "/compliance", icon: ShieldAlert, category: "Security" },
     { label: "Audit Logs", path: "/compliance/audit", icon: History, category: "Security" },
     { label: "System Health", path: "/system-health", icon: ServerCog, category: "System" },
@@ -47,6 +51,8 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Staff Management", path: "/staff-management", icon: Briefcase, category: "Management" },
     { label: "Departments", path: "/departments", icon: Layers, category: "Management" },
     { label: "Roles & Permissions", path: "/roles", icon: ShieldCheck, category: "Management" },
+    { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
+    { label: "Broadcasts", path: "/broadcasts", icon: Megaphone, category: "Communication" },
     { label: "Lab", path: "/lab", icon: FlaskConical, category: "Services" },
     { label: "Pharmacy", path: "/pharmacy", icon: Pill, category: "Services" },
     { label: "Billing", path: "/billing", icon: Wallet, category: "Finance" },
@@ -75,6 +81,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Care Plans", path: "/care-plans", icon: ClipboardList, category: "Care" },
     { label: "Beds", path: "/beds", icon: BedDouble, category: "Ward" },
     { label: "Queue", path: "/queue", icon: ClipboardList, category: "Ward" },
+    { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
     { label: "Reports", path: "/analytics/nursing", icon: BarChart3, category: "Reports" },
   ],
   lab_technician: [
@@ -83,6 +90,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Results", path: "/lab-results", icon: Microscope, category: "Lab" },
     { label: "Inventory", path: "/lab-inventory", icon: Boxes, category: "Lab" },
     { label: "Quality Control", path: "/lab-qc", icon: ShieldCheck, category: "Lab" },
+    { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
     { label: "Analytics", path: "/lab-analytics", icon: BarChart3, category: "Reports" },
     { label: "Performance", path: "/analytics/lab-performance", icon: TrendingUp, category: "Reports" },
   ],
@@ -94,6 +102,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Drug Interactions", path: "/drug-interactions", icon: AlertOctagon, category: "Safety" },
     { label: "Stock Alerts", path: "/pharmacy-inventory/alerts", icon: Bell, category: "Inventory" },
     { label: "Suppliers", path: "/pharmacy/suppliers", icon: Building2, category: "Inventory" },
+    { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
     { label: "Analytics", path: "/analytics", icon: BarChart3, category: "Reports" },
     { label: "Reports", path: "/analytics/pharmacy", icon: FileText, category: "Reports" },
   ],
@@ -106,6 +115,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Revenue Tracking", path: "/analytics/revenue", icon: TrendingUp, category: "Reports" },
     { label: "Reports", path: "/reports", icon: FileText, category: "Reports" },
     { label: "Financial Analysis", path: "/analytics/financial", icon: BarChart3, category: "Reports" },
+    { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
   ],
   receptionist: [
     { label: "Dashboard", path: "/", icon: LayoutDashboard, category: "Main" },
@@ -114,6 +124,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Queue", path: "/queue", icon: ClipboardList, category: "Front Desk" },
     { label: "Patient Registration", path: "/patients/register", icon: Users, category: "Front Desk" },
     { label: "Waiting Room", path: "/reception/waiting", icon: BedDouble, category: "Front Desk" },
+    { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
     { label: "Emergency", path: "/emergency", icon: AlertOctagon, category: "Emergency" },
   ],
   patient: [
@@ -252,9 +263,12 @@ export function Sidebar() {
           "flex items-center gap-3 rounded-lg px-3 py-2",
           collapsed && "justify-center px-0"
         )}>
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-            {(user?.fullName || user?.email || "U").charAt(0).toUpperCase()}
-          </div>
+          <Avatar className="h-8 w-8 shrink-0">
+            <AvatarImage src={user?.avatar} alt={user?.fullName || "User"} />
+            <AvatarFallback className="text-xs font-semibold">
+              {(user?.fullName || user?.email || "U").charAt(0).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
           {!collapsed && (
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-medium text-sidebar-foreground">

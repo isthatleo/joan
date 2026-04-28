@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/ui";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,8 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Activity, Server, Database, Zap, AlertTriangle, CheckCircle, XCircle, Clock, TrendingUp, TrendingDown, RefreshCw } from "lucide-react";
+import { Activity, Server, Database, Zap, AlertTriangle, CheckCircle, XCircle, Clock, TrendingUp, TrendingDown, RefreshCw, Cpu, ShieldCheck } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface SystemMetrics {
   uptime: number;
@@ -43,6 +44,7 @@ interface Incident {
 }
 
 export default function SystemHealthPage() {
+  const [activeTab, setActiveTab] = useState("overview");
   const { data: systemData, isLoading, refetch } = useQuery({
     queryKey: ["system-health"],
     queryFn: async () => {
@@ -238,75 +240,189 @@ export default function SystemHealthPage() {
         </Button>
       </div>
 
-      {/* System Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">System Uptime</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatUptime(systemData?.metrics?.uptime || 0)}</div>
-            <p className="text-xs text-muted-foreground flex items-center">
-              <TrendingUp className="h-3 w-3 mr-1 text-green-500" />
-              Last 30 days
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">API Response Time</CardTitle>
-            <Zap className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatResponseTime(systemData?.metrics?.responseTime || 0)}</div>
-            <p className="text-xs text-muted-foreground">Average</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Services Status</CardTitle>
-            <Server className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{operationalServices}/{totalServices}</div>
-            <p className="text-xs text-muted-foreground">Operational</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Incidents</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{activeIncidents.length}</div>
-            <p className="text-xs text-muted-foreground">Require attention</p>
-          </CardContent>
-        </Card>
+      {/* Pill Navigation */}
+      <div className="flex justify-center">
+        <div className="inline-flex flex-wrap gap-2 p-1 bg-muted rounded-full">
+          {[
+            { id: "overview", label: "Overview", count: null },
+            { id: "services", label: "Service Status", count: totalServices },
+            { id: "resources", label: "System Resources", count: null },
+            { id: "incidents", label: "Incidents", count: systemData?.incidents?.length || 0 },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "px-4 py-2 text-sm font-medium rounded-full transition-all duration-200",
+                activeTab === tab.id
+                  ? "bg-orange-500 text-white shadow-sm dark:bg-orange-600"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+              )}
+            >
+              {tab.label}
+              {tab.count !== null && tab.count > 0 && (
+                <Badge variant="secondary" className="ml-2 text-xs">
+                  {tab.count}
+                </Badge>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Active Alerts */}
-      {activeIncidents.length > 0 && (
-        <Alert>
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            {activeIncidents.length} active incident{activeIncidents.length > 1 ? 's' : ''} require immediate attention.
-          </AlertDescription>
-        </Alert>
-      )}
+      {/* Content Sections */}
+      <div className="mt-8">
+        {activeTab === "overview" && (
+          <div className="space-y-6">
+            {/* Overview Main Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {/* Service Status Card */}
+              <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => setActiveTab("services")}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-100 dark:bg-blue-900/20 rounded-lg">
+                      <Server className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-sm">Service Status</h3>
+                      <p className="text-xs text-muted-foreground">System services health</p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400 mb-1">
+                    {operationalServices}/{totalServices}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    services operational
+                  </p>
+                </CardContent>
+              </Card>
 
-      {/* System Health Tabs */}
-      <Tabs defaultValue="services" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="services">Service Status</TabsTrigger>
-          <TabsTrigger value="resources">System Resources</TabsTrigger>
-          <TabsTrigger value="incidents">Incidents</TabsTrigger>
-        </TabsList>
+              {/* System Resources Card */}
+              <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => setActiveTab("resources")}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-green-100 dark:bg-green-900/20 rounded-lg">
+                      <Cpu className="h-5 w-5 text-green-600 dark:text-green-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-sm">System Resources</h3>
+                      <p className="text-xs text-muted-foreground">Server performance</p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-600 dark:text-green-400 mb-1">
+                    {systemData?.metrics?.cpuUsage}%
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    CPU utilization
+                  </p>
+                </CardContent>
+              </Card>
 
-        <TabsContent value="services" className="space-y-4">
+              {/* Compliance Card */}
+              <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => setActiveTab("incidents")}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-purple-100 dark:bg-purple-900/20 rounded-lg">
+                      <ShieldCheck className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-sm">Compliance Checks</h3>
+                      <p className="text-xs text-muted-foreground">Audit logs & reports</p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-purple-600 dark:text-purple-400 mb-1">
+                    {systemData?.incidents?.length || 0}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    incidents tracked
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* Global Analytics Card */}
+              <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => setActiveTab("resources")}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-orange-100 dark:bg-orange-900/20 rounded-lg">
+                      <Database className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-sm">Global Analytics</h3>
+                      <p className="text-xs text-muted-foreground">Hospital performance</p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-orange-600 dark:text-orange-400 mb-1">
+                    {systemData?.metrics?.activeConnections || 0}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    active connections
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Quick Actions Section */}
+            <Card className="bg-card dark:bg-card border-border dark:border-border">
+              <CardHeader className="bg-muted/50 dark:bg-muted/10">
+                <h3 className="font-semibold text-foreground dark:text-foreground">Quick Actions</h3>
+                <p className="text-sm text-muted-foreground dark:text-muted-foreground">Common system health tasks</p>
+              </CardHeader>
+              <CardContent className="bg-background dark:bg-background">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <Button
+                    variant="outline"
+                    className="justify-start h-auto p-4 border-border dark:border-border hover:bg-accent dark:hover:bg-accent"
+                    onClick={() => setActiveTab("services")}
+                  >
+                    <Server className="h-5 w-5 mr-3 text-foreground dark:text-foreground" />
+                    <div className="text-left">
+                      <div className="font-medium text-foreground dark:text-foreground">Check Services</div>
+                      <div className="text-xs text-muted-foreground dark:text-muted-foreground">
+                        View service health status
+                      </div>
+                    </div>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="justify-start h-auto p-4 border-border dark:border-border hover:bg-accent dark:hover:bg-accent"
+                    onClick={() => setActiveTab("resources")}
+                  >
+                    <Cpu className="h-5 w-5 mr-3 text-foreground dark:text-foreground" />
+                    <div className="text-left">
+                      <div className="font-medium text-foreground dark:text-foreground">Monitor Resources</div>
+                      <div className="text-xs text-muted-foreground dark:text-muted-foreground">
+                        Check system performance
+                      </div>
+                    </div>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="justify-start h-auto p-4 border-border dark:border-border hover:bg-accent dark:hover:bg-accent"
+                    onClick={() => refetch()}
+                  >
+                    <RefreshCw className="h-5 w-5 mr-3 text-foreground dark:text-foreground" />
+                    <div className="text-left">
+                      <div className="font-medium text-foreground dark:text-foreground">Refresh Data</div>
+                      <div className="text-xs text-muted-foreground dark:text-muted-foreground">
+                        Update all metrics
+                      </div>
+                    </div>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {activeTab === "services" && (
           <Card>
             <CardHeader>
               <CardTitle>Service Health Status</CardTitle>
@@ -314,12 +430,12 @@ export default function SystemHealthPage() {
             <CardContent>
               <div className="space-y-4">
                 {systemData?.services?.map((service) => (
-                  <div key={service.id} className="flex items-center justify-between p-4 border rounded-lg">
+                  <div key={service.id} className="flex items-center justify-between p-4 border border-border rounded-lg bg-card">
                     <div className="flex items-center space-x-3">
                       {getServiceStatusIcon(service.status)}
                       <div>
-                        <h3 className="font-semibold">{service.name}</h3>
-                        <p className="text-sm text-gray-600">
+                        <h3 className="font-semibold text-foreground">{service.name}</h3>
+                        <p className="text-sm text-muted-foreground">
                           {formatUptime(service.uptime)} uptime • {formatResponseTime(service.responseTime)} response
                         </p>
                       </div>
@@ -337,9 +453,9 @@ export default function SystemHealthPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        )}
 
-        <TabsContent value="resources" className="space-y-4">
+        {activeTab === "resources" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
               <CardHeader>
@@ -348,38 +464,38 @@ export default function SystemHealthPage() {
               <CardContent className="space-y-4">
                 <div>
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium">CPU Usage</span>
-                    <span className="text-sm">{systemData?.metrics?.cpuUsage}%</span>
+                    <span className="text-sm font-medium text-foreground">CPU Usage</span>
+                    <span className="text-sm text-foreground">{systemData?.metrics?.cpuUsage}%</span>
                   </div>
                   <Progress value={systemData?.metrics?.cpuUsage} className="mb-1" />
-                  <p className="text-xs text-gray-500">Healthy range: &lt; 80%</p>
+                  <p className="text-xs text-muted-foreground">Healthy range: &lt; 80%</p>
                 </div>
 
                 <div>
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium">Memory Usage</span>
-                    <span className="text-sm">{systemData?.metrics?.memoryUsage}%</span>
+                    <span className="text-sm font-medium text-foreground">Memory Usage</span>
+                    <span className="text-sm text-foreground">{systemData?.metrics?.memoryUsage}%</span>
                   </div>
                   <Progress value={systemData?.metrics?.memoryUsage} className="mb-1" />
-                  <p className="text-xs text-gray-500">Healthy range: &lt; 85%</p>
+                  <p className="text-xs text-muted-foreground">Healthy range: &lt; 85%</p>
                 </div>
 
                 <div>
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium">Disk Usage</span>
-                    <span className="text-sm">{systemData?.metrics?.diskUsage}%</span>
+                    <span className="text-sm font-medium text-foreground">Disk Usage</span>
+                    <span className="text-sm text-foreground">{systemData?.metrics?.diskUsage}%</span>
                   </div>
                   <Progress value={systemData?.metrics?.diskUsage} className="mb-1" />
-                  <p className="text-xs text-gray-500">Healthy range: &lt; 90%</p>
+                  <p className="text-xs text-muted-foreground">Healthy range: &lt; 90%</p>
                 </div>
 
                 <div>
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium">Network I/O</span>
-                    <span className="text-sm">{systemData?.metrics?.networkIO}%</span>
+                    <span className="text-sm font-medium text-foreground">Network I/O</span>
+                    <span className="text-sm text-foreground">{systemData?.metrics?.networkIO}%</span>
                   </div>
                   <Progress value={systemData?.metrics?.networkIO} className="mb-1" />
-                  <p className="text-xs text-gray-500">Healthy range: &lt; 75%</p>
+                  <p className="text-xs text-muted-foreground">Healthy range: &lt; 75%</p>
                 </div>
               </CardContent>
             </Card>
@@ -390,44 +506,44 @@ export default function SystemHealthPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-3 bg-green-50 rounded-lg">
-                    <p className="text-sm font-medium text-green-900">Query Response</p>
-                    <p className="text-lg font-bold text-green-900">35ms</p>
-                    <p className="text-xs text-green-700">Excellent</p>
+                  <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                    <p className="text-sm font-medium text-green-900 dark:text-green-100">Query Response</p>
+                    <p className="text-lg font-bold text-green-900 dark:text-green-100">35ms</p>
+                    <p className="text-xs text-green-700 dark:text-green-300">Excellent</p>
                   </div>
-                  <div className="p-3 bg-blue-50 rounded-lg">
-                    <p className="text-sm font-medium text-blue-900">Connection Pool</p>
-                    <p className="text-lg font-bold text-blue-900">24/32</p>
-                    <p className="text-xs text-blue-700">Good</p>
+                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <p className="text-sm font-medium text-blue-900 dark:text-blue-100">Connection Pool</p>
+                    <p className="text-lg font-bold text-blue-900 dark:text-blue-100">24/32</p>
+                    <p className="text-xs text-blue-700 dark:text-blue-300">Good</p>
                   </div>
-                  <div className="p-3 bg-purple-50 rounded-lg">
-                    <p className="text-sm font-medium text-purple-900">Transaction Rate</p>
-                    <p className="text-lg font-bold text-purple-900">1,245/min</p>
-                    <p className="text-xs text-purple-700">Normal</p>
+                  <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                    <p className="text-sm font-medium text-purple-900 dark:text-purple-100">Transaction Rate</p>
+                    <p className="text-lg font-bold text-purple-900 dark:text-purple-100">1,245/min</p>
+                    <p className="text-xs text-purple-700 dark:text-purple-300">Normal</p>
                   </div>
-                  <div className="p-3 bg-green-50 rounded-lg">
-                    <p className="text-sm font-medium text-green-900">Cache Hit Rate</p>
-                    <p className="text-lg font-bold text-green-900">87%</p>
-                    <p className="text-xs text-green-700">Excellent</p>
+                  <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                    <p className="text-sm font-medium text-green-900 dark:text-green-100">Cache Hit Rate</p>
+                    <p className="text-lg font-bold text-green-900 dark:text-green-100">87%</p>
+                    <p className="text-xs text-green-700 dark:text-green-300">Excellent</p>
                   </div>
                 </div>
 
-                <div className="pt-4 border-t">
+                <div className="pt-4 border-t border-border">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium">Active Connections</span>
-                    <span className="text-sm">{systemData?.metrics?.activeConnections}</span>
+                    <span className="text-sm font-medium text-foreground">Active Connections</span>
+                    <span className="text-sm text-foreground">{systemData?.metrics?.activeConnections}</span>
                   </div>
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium">Error Rate</span>
-                    <span className="text-sm">{systemData?.metrics?.errorRate}%</span>
+                    <span className="text-sm font-medium text-foreground">Error Rate</span>
+                    <span className="text-sm text-foreground">{systemData?.metrics?.errorRate}%</span>
                   </div>
                 </div>
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
+        )}
 
-        <TabsContent value="incidents" className="space-y-4">
+        {activeTab === "incidents" && (
           <Card>
             <CardHeader>
               <CardTitle>Recent Incidents & Alerts</CardTitle>
@@ -472,9 +588,8 @@ export default function SystemHealthPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
+        )}
+      </div>
     </div>
   );
 }
-
