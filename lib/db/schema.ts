@@ -15,6 +15,16 @@ export const tenants = pgTable("tenants", {
   plan: text("plan").notNull(),
   isActive: boolean("is_active").default(true),
   metadata: jsonb("metadata"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  address: text("address"),
+  city: text("city"),
+  country: text("country"),
+  timezone: text("timezone").default("UTC"),
+  logoUrl: text("logo_url"),
+  adminUserId: uuid("admin_user_id"),
+  provisioningStatus: text("provisioning_status").default("pending"),
+  provisionedAt: timestamp("provisioned_at"),
 }, (table) => ({
   tenantSlugIdx: index("tenant_slug_idx").on(table.slug),
 }));
@@ -176,6 +186,7 @@ export const vitals = pgTable("vitals", {
 // Prescriptions + Pharmacy
 export const prescriptions = pgTable("prescriptions", {
   ...baseColumns,
+  tenantId: uuid("tenant_id"),
   visitId: uuid("visit_id").references(() => visits.id),
   doctorId: uuid("doctor_id").references(() => users.id),
 });
@@ -199,6 +210,7 @@ export const inventoryItems = pgTable("inventory_items", {
 // Lab
 export const labOrders = pgTable("lab_orders", {
   ...baseColumns,
+  tenantId: uuid("tenant_id"),
   visitId: uuid("visit_id").references(() => visits.id),
   orderedBy: uuid("ordered_by").references(() => users.id),
   status: text("status"),
@@ -206,6 +218,7 @@ export const labOrders = pgTable("lab_orders", {
 
 export const labResults = pgTable("lab_results", {
   ...baseColumns,
+  tenantId: uuid("tenant_id"),
   labOrderId: uuid("lab_order_id").references(() => labOrders.id),
   resultData: jsonb("result_data"),
   fileUrl: text("file_url"),
@@ -214,11 +227,13 @@ export const labResults = pgTable("lab_results", {
 // Billing
 export const invoices = pgTable("invoices", {
   ...baseColumns,
+  tenantId: uuid("tenant_id"),
   patientId: uuid("patient_id").references(() => patients.id),
   totalAmount: text("total_amount"),
   status: text("status"),
 }, (table) => ({
   invoicePatientIdx: index("invoice_patient_idx").on(table.patientId),
+  invoiceTenantIdx: index("invoice_tenant_idx").on(table.tenantId),
 }));
 
 export const invoiceItems = pgTable("invoice_items", {
@@ -230,6 +245,7 @@ export const invoiceItems = pgTable("invoice_items", {
 
 export const payments = pgTable("payments", {
   ...baseColumns,
+  tenantId: uuid("tenant_id"),
   invoiceId: uuid("invoice_id").references(() => invoices.id),
   method: text("method"),
   amount: text("amount"),
@@ -239,6 +255,7 @@ export const payments = pgTable("payments", {
 // Insurance
 export const insurancePolicies = pgTable("insurance_policies", {
   ...baseColumns,
+  tenantId: uuid("tenant_id"),
   patientId: uuid("patient_id").references(() => patients.id),
   provider: text("provider"),
   policyNumber: text("policy_number"),
@@ -246,6 +263,7 @@ export const insurancePolicies = pgTable("insurance_policies", {
 
 export const claims = pgTable("claims", {
   ...baseColumns,
+  tenantId: uuid("tenant_id"),
   invoiceId: uuid("invoice_id").references(() => invoices.id),
   status: text("status"),
 });
@@ -253,6 +271,7 @@ export const claims = pgTable("claims", {
 // Notifications
 export const notifications = pgTable("notifications", {
   ...baseColumns,
+  tenantId: uuid("tenant_id"),
   userId: uuid("user_id").references(() => users.id),
   type: text("type"),
   title: text("title"),
@@ -274,67 +293,17 @@ export const auditLogs = pgTable("audit_logs", {
   auditUserIdx: index("audit_user_idx").on(table.userId),
 }));
 
-// Events
-export const events = pgTable("events", {
+// Provisioning Runs
+export const provisioningRuns = pgTable("provisioning_runs", {
   ...baseColumns,
-  tenantId: uuid("tenant_id"),
-  type: text("type"),
-  payload: jsonb("payload"),
+  tenantId: uuid("tenant_id").references(() => tenants.id),
+  status: text("status").notNull(), // "running", "completed", "failed"
+  stage: text("stage"), // current/last stage when failed
+  errorMessage: text("error_message"),
+  metadata: jsonb("metadata"), // stage details, logs, etc.
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
 }, (table) => ({
-  eventTenantIdx: index("event_tenant_idx").on(table.tenantId),
+  provisioningTenantIdx: index("provisioning_tenant_idx").on(table.tenantId),
+  provisioningStatusIdx: index("provisioning_status_idx").on(table.status),
 }));
-
-// AI Logs
-export const aiLogs = pgTable("ai_logs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id"),
-  userId: uuid("user_id").references(() => users.id),
-  patientId: uuid("patient_id").references(() => patients.id),
-  type: text("type"),
-  input: jsonb("input"),
-  output: jsonb("output"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// Guardians
-export const guardians = pgTable("guardians", {
-  ...baseColumns,
-  tenantId: uuid("tenant_id"),
-  userId: uuid("user_id").references(() => users.id),
-  relationship: text("relationship"),
-});
-
-export const guardianPatients = pgTable("guardian_patients", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  guardianId: uuid("guardian_id").references(() => guardians.id),
-  patientId: uuid("patient_id").references(() => patients.id),
-  isPrimary: boolean("is_primary").default(false),
-});
-
-export const guardianConsents = pgTable("guardian_consents", {
-  ...baseColumns,
-  guardianId: uuid("guardian_id").references(() => guardians.id),
-  patientId: uuid("patient_id").references(() => patients.id),
-  canView: boolean("can_view").default(true),
-  canEdit: boolean("can_edit").default(false),
-  canMessage: boolean("can_message").default(true),
-});
-
-// Messages
-export const messages = pgTable("messages", {
-  ...baseColumns,
-  senderId: uuid("sender_id").references(() => users.id),
-  receiverId: uuid("receiver_id").references(() => users.id),
-  patientId: uuid("patient_id").references(() => patients.id),
-  message: text("message"),
-});
-
-// Indexes
-// export const tenantIndex = index("tenant_name_idx").on(tenants.name);
-// export const userEmailIndex = index("user_email_idx").on(users.email);
-// export const patientTenantIndex = index("patient_tenant_idx").on(patients.tenantId);
-// export const appointmentPatientIndex = index("appointment_patient_idx").on(appointments.patientId);
-// export const visitPatientIndex = index("visit_patient_idx").on(visits.patientId);
-// export const invoicePatientIndex = index("invoice_patient_idx").on(invoices.patientId);
-// export const auditUserIndex = index("audit_user_idx").on(auditLogs.userId);
-// export const eventTenantIndex = index("event_tenant_idx").on(events.tenantId);

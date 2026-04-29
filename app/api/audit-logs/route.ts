@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuditService } from "@/lib/services/audit.service";
+import { verifyAuth } from "@/lib/api/auth-middleware";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 const service = new AuditService();
@@ -24,6 +28,21 @@ export async function GET(request: NextRequest) {
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : 100;
     const offset = searchParams.get("offset") ? parseInt(searchParams.get("offset")!) : 0;
 
+    // Get the authenticated user to scope results by their tenant
+    const auth = await verifyAuth(request);
+    let userTenantId: string | undefined;
+
+    if (auth.authenticated && auth.user?.sub) {
+      try {
+        const user = await db.query.users.findFirst({
+          where: eq(users.id, auth.user.sub as string),
+        });
+        userTenantId = user?.tenantId?.toString();
+      } catch {
+        userTenantId = undefined;
+      }
+    }
+
     // Get single audit log
     if (id) {
       const log = await service.getAuditLog(id);
@@ -43,7 +62,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(stats);
     }
 
-    // Get all audit logs
+    // Get all audit logs - attempt to scope by current user's tenant
+    // Note: auditLogs table doesn't have tenantId, so we don't filter here
+    // Future: Add tenantId to auditLogs schema for proper scoping
     const logs = await service.getAuditLogs({
       userId,
       action,

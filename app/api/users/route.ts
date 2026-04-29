@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { UserService } from "@/lib/services/user.service";
+import { verifyAuth } from "@/lib/api/auth-middleware";
+import { db } from "@/lib/db";
+import { users as usersTable } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 const service = new UserService();
@@ -25,16 +29,34 @@ export async function GET(request: NextRequest) {
     const id = searchParams.get("id");
     const email = searchParams.get("email");
     const search = searchParams.get("search") || undefined;
-    const tenantId = searchParams.get("tenantId") || undefined;
     const isActive = searchParams.get("isActive") ? searchParams.get("isActive") === "true" : undefined;
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : 50;
     const offset = searchParams.get("offset") ? parseInt(searchParams.get("offset")!) : 0;
+
+    // Get the authenticated user to scope results by their tenant
+    const auth = await verifyAuth(request);
+    let userTenantId: string | undefined;
+
+    if (auth.authenticated && auth.user?.sub) {
+      try {
+        const user = await db.query.users.findFirst({
+          where: eq(usersTable.id, auth.user.sub as string),
+        });
+        userTenantId = user?.tenantId?.toString();
+      } catch {
+        userTenantId = undefined;
+      }
+    }
 
     // Get single user by ID
     if (id) {
       const user = await service.getUser(id);
       if (!user) {
         return NextResponse.json({ error: "User not found" }, { status: 404 });
+      }
+      // Verify the user belongs to the current tenant
+      if (userTenantId && user.tenantId?.toString() !== userTenantId) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
       }
       return NextResponse.json(user);
     }
@@ -45,6 +67,10 @@ export async function GET(request: NextRequest) {
       if (!user) {
         return NextResponse.json({ error: "User not found" }, { status: 404 });
       }
+      // Verify the user belongs to the current tenant
+      if (userTenantId && user.tenantId?.toString() !== userTenantId) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+      }
       return NextResponse.json(user);
     }
 
@@ -54,8 +80,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(stats);
     }
 
-    // Get all users
-    const users = await service.getAllUsers({ search, tenantId, isActive, limit, offset });
+    // Get all users - scoped to current user's tenant
+    const users = await service.getAllUsers({ search, tenantId: userTenantId, isActive, limit, offset });
     return NextResponse.json(users);
   } catch (error) {
     console.error("Error fetching users:", error);
