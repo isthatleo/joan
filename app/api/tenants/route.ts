@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { TenantService } from "@/lib/services/tenant.service";
+import { verifyAuth } from "@/lib/api/auth-middleware";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 const service = new TenantService();
@@ -42,7 +46,30 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(usage);
     }
 
-    const tenants = await service.getAllTenants({ search, plan, status, limit, offset });
+    // Get the authenticated user to scope results by their tenant
+    const auth = await verifyAuth(request);
+    let userTenantId: string | undefined;
+
+    if (auth.authenticated && auth.user?.sub) {
+      try {
+        const user = await db.query.users.findFirst({
+          where: eq(users.id, auth.user.sub as string),
+        });
+        userTenantId = user?.tenantId?.toString();
+      } catch {
+        // If we can't find the user's tenant, return empty
+        userTenantId = undefined;
+      }
+    }
+
+    const tenants = await service.getAllTenants({
+      search,
+      plan,
+      status,
+      limit,
+      offset,
+      tenantId: userTenantId // Filter by user's tenant
+    });
     return NextResponse.json(tenants);
   } catch (error) {
     console.error("Error fetching tenants:", error);

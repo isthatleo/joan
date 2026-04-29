@@ -1,12 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader, StatCard } from "@/components/ui";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Building, Users, DollarSign, Activity, TrendingUp, TrendingDown, Calendar, BarChart3, PieChart, LineChart } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface GlobalAnalytics {
   totalHospitals: number;
@@ -42,6 +43,7 @@ interface GlobalAnalytics {
 }
 
 export default function GlobalAnalyticsPage() {
+  const [activeTab, setActiveTab] = useState("performance");
   const { data: analytics, isLoading } = useQuery({
     queryKey: ["global-analytics"],
     queryFn: async () => {
@@ -208,14 +210,31 @@ export default function GlobalAnalyticsPage() {
       </div>
 
       {/* Analytics Tabs */}
-      <Tabs defaultValue="performance" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="performance">Hospital Performance</TabsTrigger>
-          <TabsTrigger value="system">System Health</TabsTrigger>
-          <TabsTrigger value="revenue">Revenue Analytics</TabsTrigger>
-        </TabsList>
+      <div className="flex justify-center mb-6">
+        <div className="inline-flex flex-wrap gap-2 p-1 bg-muted rounded-full">
+          {[
+            { id: "performance", label: "Hospital Performance" },
+            { id: "system", label: "System Health" },
+            { id: "revenue", label: "Revenue Analytics" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "px-4 py-2 text-sm font-medium rounded-full transition-all duration-200",
+                activeTab === tab.id
+                  ? "bg-orange-500 text-white shadow-sm dark:bg-orange-600"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        <TabsContent value="performance" className="space-y-4">
+      {activeTab === "performance" && (
+        <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Hospital Performance Rankings</CardTitle>
@@ -244,9 +263,11 @@ export default function GlobalAnalyticsPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value="system" className="space-y-4">
+      {activeTab === "system" && (
+        <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>System Health Metrics</CardTitle>
@@ -265,9 +286,11 @@ export default function GlobalAnalyticsPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value="revenue" className="space-y-4">
+      {activeTab === "revenue" && (
+        <div className="space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
               <CardHeader>
@@ -321,8 +344,8 @@ export default function GlobalAnalyticsPage() {
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
 
       {/* Recent Activity */}
       <Card>

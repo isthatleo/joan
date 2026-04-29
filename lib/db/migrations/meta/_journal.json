@@ -29,6 +29,20 @@
       "when": 1777325517389,
       "tag": "0003_fantastic_leech",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793500000000,
+      "tag": "0004_tenant_provisioning",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777387683855,
+      "tag": "0005_shocking_bruce_banner",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { RoleService } from "@/lib/services/role.service";
+import { verifyAuth } from "@/lib/api/auth-middleware";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 const service = new RoleService();
@@ -18,9 +22,23 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     const search = searchParams.get("search") || undefined;
-    const tenantId = searchParams.get("tenantId") || undefined;
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : 50;
     const offset = searchParams.get("offset") ? parseInt(searchParams.get("offset")!) : 0;
+
+    // Get the authenticated user to scope results by their tenant
+    const auth = await verifyAuth(request);
+    let userTenantId: string | undefined;
+
+    if (auth.authenticated && auth.user?.sub) {
+      try {
+        const user = await db.query.users.findFirst({
+          where: eq(users.id, auth.user.sub as string),
+        });
+        userTenantId = user?.tenantId?.toString();
+      } catch {
+        userTenantId = undefined;
+      }
+    }
 
     // Get single role
     if (id) {
@@ -31,8 +49,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(role);
     }
 
-    // Get all roles
-    const roles = await service.getAllRoles({ search, tenantId, limit, offset });
+    // Get all roles - scoped to current user's tenant
+    const roles = await service.getAllRoles({ search, tenantId: userTenantId, limit, offset });
     return NextResponse.json(roles);
   } catch (error) {
     console.error("Error fetching roles:", error);

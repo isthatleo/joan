@@ -16,10 +16,6 @@ import {
   Textarea,
   Badge,
   Skeleton,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
 } from "@/components/ui";
 import {
   Megaphone,
@@ -32,7 +28,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 interface Broadcast {
   id: string;
@@ -49,6 +45,7 @@ interface Broadcast {
 export default function BroadcastsPage() {
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState("compose");
   const [broadcastData, setBroadcastData] = useState({
     target: "",
     message: "",
@@ -129,14 +126,30 @@ export default function BroadcastsPage() {
         subtitle="Send important messages to your team or organization"
       />
 
-      <Tabs defaultValue="compose" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="compose">Compose Message</TabsTrigger>
-          <TabsTrigger value="history">Message History</TabsTrigger>
-        </TabsList>
+      <div className="flex justify-center mb-6">
+        <div className="inline-flex flex-wrap gap-2 p-1 bg-muted rounded-full">
+          {[
+            { id: "compose", label: "Compose Message" },
+            { id: "history", label: "Message History" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "px-4 py-2 text-sm font-medium rounded-full transition-all duration-200",
+                activeTab === tab.id
+                  ? "bg-orange-500 text-white shadow-sm dark:bg-orange-600"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        <TabsContent value="compose">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {activeTab === "compose" && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Compose Form */}
             <SectionCard title="Send Broadcast" icon={Megaphone}>
               <div className="space-y-6">
@@ -247,10 +260,10 @@ export default function BroadcastsPage() {
               </div>
             </SectionCard>
           </div>
-        </TabsContent>
+      )}
 
-        <TabsContent value="history">
-          <SectionCard title="Broadcast History" icon={Clock}>
+      {activeTab === "history" && (
+        <SectionCard title="Broadcast History" icon={Clock}>
             {broadcastsLoading ? (
               <div className="space-y-4">
                 {[1, 2, 3].map(i => (
@@ -306,8 +319,7 @@ export default function BroadcastsPage() {
               </div>
             )}
           </SectionCard>
-        </TabsContent>
-      </Tabs>
+      )}
     </div>
   );
 }

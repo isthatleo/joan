@@ -44,6 +44,7 @@ import {
   AlertCircle,
   Check,
   X,
+  Mail,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -1730,4 +1731,20 @@ export default function SettingsPage() {
                       <Label className="text-sm font-medium">SendGrid Configuration</Label>
                       <Input
                         placeholder="Enter SendGrid API Key"
+                      />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  }
+
+  return <div className="p-6">{renderContent()}</div>;
+}
 

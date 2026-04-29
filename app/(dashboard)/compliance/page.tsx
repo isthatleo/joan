@@ -1,15 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/ui";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Shield, CheckCircle, AlertTriangle, XCircle, FileText, Calendar, Users, Lock, Eye, Download } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface ComplianceStatus {
   overall: number;
@@ -43,6 +44,7 @@ interface AuditLog {
 }
 
 export default function CompliancePage() {
+  const [activeTab, setActiveTab] = useState("checks");
   const { data: complianceData, isLoading } = useQuery({
     queryKey: ["compliance"],
     queryFn: async () => {
@@ -303,14 +305,31 @@ export default function CompliancePage() {
       )}
 
       {/* Compliance Tabs */}
-      <Tabs defaultValue="checks" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="checks">Compliance Checks</TabsTrigger>
-          <TabsTrigger value="audit">Audit Logs</TabsTrigger>
-          <TabsTrigger value="reports">Reports</TabsTrigger>
-        </TabsList>
+      <div className="flex justify-center mb-6">
+        <div className="inline-flex flex-wrap gap-2 p-1 bg-muted rounded-full">
+          {[
+            { id: "checks", label: "Compliance Checks" },
+            { id: "audit", label: "Audit Logs" },
+            { id: "reports", label: "Reports" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "px-4 py-2 text-sm font-medium rounded-full transition-all duration-200",
+                activeTab === tab.id
+                  ? "bg-orange-500 text-white shadow-sm dark:bg-orange-600"
+                  : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        <TabsContent value="checks" className="space-y-4">
+      {activeTab === "checks" && (
+        <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Regulatory Compliance Checks</CardTitle>
@@ -341,9 +360,11 @@ export default function CompliancePage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value="audit" className="space-y-4">
+      {activeTab === "audit" && (
+        <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Recent Audit Activity</CardTitle>
@@ -391,9 +412,11 @@ export default function CompliancePage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value="reports" className="space-y-4">
+      {activeTab === "reports" && (
+        <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card>
               <CardHeader>
@@ -462,8 +485,8 @@ export default function CompliancePage() {
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
     </div>
   );
 }
