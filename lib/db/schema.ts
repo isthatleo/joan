@@ -1,4 +1,5 @@
 import { pgTable, uuid, text, timestamp, boolean, jsonb, integer, index } from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
 
 export const baseColumns = {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -268,6 +269,20 @@ export const claims = pgTable("claims", {
   status: text("status"),
 });
 
+// Messaging
+export const messages = pgTable("messages", {
+  ...baseColumns,
+  senderId: uuid("sender_id").references(() => users.id),
+  receiverId: uuid("receiver_id").references(() => users.id),
+  patientId: uuid("patient_id").references(() => patients.id),
+  message: text("message"),
+  type: text("type").default("direct"),
+  read: boolean("read").default(false),
+}, (table) => ({
+  messageSenderIdx: index("message_sender_idx").on(table.senderId),
+  messageReceiverIdx: index("message_receiver_idx").on(table.receiverId),
+}));
+
 // Notifications
 export const notifications = pgTable("notifications", {
   ...baseColumns,
@@ -307,3 +322,27 @@ export const provisioningRuns = pgTable("provisioning_runs", {
   provisioningTenantIdx: index("provisioning_tenant_idx").on(table.tenantId),
   provisioningStatusIdx: index("provisioning_status_idx").on(table.status),
 }));
+
+// Relations
+export const messagesRelations = relations(messages, ({ one }) => ({
+  sender: one(users, {
+    fields: [messages.senderId],
+    references: [users.id],
+  }),
+  receiver: one(users, {
+    fields: [messages.receiverId],
+    references: [users.id],
+  }),
+}));
+
+export const userRolesRelations = relations(userRoles, ({ one }) => ({
+  user: one(users, {
+    fields: [userRoles.userId],
+    references: [users.id],
+  }),
+  role: one(roles, {
+    fields: [userRoles.roleId],
+    references: [roles.id],
+  }),
+}));
+
