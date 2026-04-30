@@ -43,6 +43,13 @@
       "when": 1777387683855,
       "tag": "0005_shocking_bruce_banner",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777547990824,
+      "tag": "0006_furry_ricochet",
+      "breakpoints": true
     }
   ]
 }
