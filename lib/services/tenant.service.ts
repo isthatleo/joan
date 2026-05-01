@@ -1,5 +1,39 @@
 import { db } from "@/lib/db";
-import { tenants, users, appointments, visits, patients } from "@/lib/db/schema";
+import {
+  tenants,
+  users,
+  appointments,
+  visits,
+  patients,
+  branches,
+  departments,
+  userSettings,
+  roles,
+  rolePermissions,
+  userRoles,
+  userOverrides,
+  patientAllergies,
+  patientConditions,
+  queues,
+  diagnoses,
+  vitals,
+  prescriptions,
+  prescriptionItems,
+  inventoryItems,
+  labOrders,
+  labResults,
+  invoices,
+  invoiceItems,
+  payments,
+  insurancePolicies,
+  claims,
+  messages,
+  notifications,
+  auditLogs,
+  provisioningRuns,
+  otps,
+  passwordResets,
+} from "@/lib/db/schema";
 import { eq, like, desc, sql, and } from "drizzle-orm";
 
 export class TenantService {
@@ -19,9 +53,25 @@ export class TenantService {
     }).returning();
   }
 
-  async getTenant(id: string) {
+  async getTenant(idOrSlug: string) {
+    // Try to fetch by ID first, then by slug
+    let tenant = await db.query.tenants.findFirst({
+      where: eq(tenants.id, idOrSlug),
+    });
+
+    if (!tenant) {
+      // If not found by ID, try by slug
+      tenant = await db.query.tenants.findFirst({
+        where: eq(tenants.slug, idOrSlug),
+      });
+    }
+
+    return tenant;
+  }
+
+  async getTenantBySlug(slug: string) {
     return db.query.tenants.findFirst({
-      where: eq(tenants.id, id),
+      where: eq(tenants.slug, slug),
     });
   }
 
@@ -102,7 +152,113 @@ export class TenantService {
   }
 
   async deleteTenant(id: string) {
-    return db.delete(tenants).where(eq(tenants.id, id));
+    // Perform cascade delete in correct order to avoid foreign key constraints
+    await db.transaction(async (tx) => {
+      // Delete OTPs and password resets
+      await tx.delete(otps).where(eq(otps.tenantId, id));
+      await tx.delete(passwordResets).where(eq(passwordResets.tenantId, id));
+
+      // Delete audit logs for this tenant's users
+      await tx.delete(auditLogs).where(eq(auditLogs.userId, id));
+
+      // Delete messages involving this tenant's users
+      await tx.delete(messages).where(eq(messages.senderId, id));
+      await tx.delete(messages).where(eq(messages.receiverId, id));
+
+      // Delete claims
+      await tx.delete(claims).where(eq(claims.tenantId, id));
+
+      // Delete insurance policies
+      await tx.delete(insurancePolicies).where(eq(insurancePolicies.tenantId, id));
+
+      // Delete payments
+      await tx.delete(payments).where(eq(payments.tenantId, id));
+
+      // Delete invoice items and invoices
+      const invoiceIds = await tx.select({ id: invoices.id }).from(invoices).where(eq(invoices.tenantId, id));
+      for (const invoice of invoiceIds) {
+        await tx.delete(invoiceItems).where(eq(invoiceItems.invoiceId, invoice.id));
+      }
+      await tx.delete(invoices).where(eq(invoices.tenantId, id));
+
+      // Delete lab results and lab orders
+      const labOrderIds = await tx.select({ id: labOrders.id }).from(labOrders).where(eq(labOrders.tenantId, id));
+      for (const labOrder of labOrderIds) {
+        await tx.delete(labResults).where(eq(labResults.labOrderId, labOrder.id));
+      }
+      await tx.delete(labOrders).where(eq(labOrders.tenantId, id));
+
+      // Delete inventory items
+      await tx.delete(inventoryItems).where(eq(inventoryItems.tenantId, id));
+
+      // Delete prescription items and prescriptions
+      const prescriptionIds = await tx.select({ id: prescriptions.id }).from(prescriptions).where(eq(prescriptions.tenantId, id));
+      for (const prescription of prescriptionIds) {
+        await tx.delete(prescriptionItems).where(eq(prescriptionItems.prescriptionId, prescription.id));
+      }
+      await tx.delete(prescriptions).where(eq(prescriptions.tenantId, id));
+
+      // Delete diagnoses and vitals
+      const visitIds = await tx.select({ id: visits.id }).from(visits).where(eq(visits.tenantId, id));
+      for (const visit of visitIds) {
+        await tx.delete(diagnoses).where(eq(diagnoses.visitId, visit.id));
+        await tx.delete(vitals).where(eq(vitals.visitId, visit.id));
+      }
+
+      // Delete visits
+      await tx.delete(visits).where(eq(visits.tenantId, id));
+
+      // Delete queues
+      await tx.delete(queues).where(eq(queues.tenantId, id));
+
+      // Delete appointments
+      await tx.delete(appointments).where(eq(appointments.tenantId, id));
+
+      // Delete patient allergies and conditions
+      const patientIds = await tx.select({ id: patients.id }).from(patients).where(eq(patients.tenantId, id));
+      for (const patient of patientIds) {
+        await tx.delete(patientAllergies).where(eq(patientAllergies.patientId, patient.id));
+        await tx.delete(patientConditions).where(eq(patientConditions.patientId, patient.id));
+      }
+
+      // Delete patients
+      await tx.delete(patients).where(eq(patients.tenantId, id));
+
+      // Delete user overrides, user roles, and user settings
+      const userIds = await tx.select({ id: users.id }).from(users).where(eq(users.tenantId, id));
+      for (const user of userIds) {
+        await tx.delete(userOverrides).where(eq(userOverrides.userId, user.id));
+        await tx.delete(userSettings).where(eq(userSettings.userId, user.id));
+        await tx.delete(userRoles).where(eq(userRoles.userId, user.id));
+      }
+
+      // Delete notifications
+      await tx.delete(notifications).where(eq(notifications.tenantId, id));
+
+      // Delete role permissions and roles
+      const roleIds = await tx.select({ id: roles.id }).from(roles).where(eq(roles.tenantId, id));
+      for (const role of roleIds) {
+        await tx.delete(rolePermissions).where(eq(rolePermissions.roleId, role.id));
+      }
+      await tx.delete(roles).where(eq(roles.tenantId, id));
+
+      // Delete departments
+      await tx.delete(departments).where(eq(departments.tenantId, id));
+
+      // Delete branches
+      await tx.delete(branches).where(eq(branches.tenantId, id));
+
+      // Delete users
+      await tx.delete(users).where(eq(users.tenantId, id));
+
+      // Delete provisioning runs
+      await tx.delete(provisioningRuns).where(eq(provisioningRuns.tenantId, id));
+
+      // Finally delete the tenant
+      await tx.delete(tenants).where(eq(tenants.id, id));
+    });
+
+    return { success: true };
   }
 
   async getTenantStats() {

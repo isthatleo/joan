@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, userRoles, roles } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 import { z } from "zod";
 
 const createUserSchema = z.object({
@@ -15,6 +15,7 @@ const createUserSchema = z.object({
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+    const search = searchParams.get("search");
     const role = searchParams.get("role");
     const isActive = searchParams.get("isActive");
     const limit = parseInt(searchParams.get("limit") || "50");
@@ -26,26 +27,50 @@ export async function GET(request: NextRequest) {
         email: users.email,
         fullName: users.fullName,
         isActive: users.isActive,
+        avatar: users.avatar,
         createdAt: users.createdAt,
-        role: roles.name,
+        role: sql<string>`string_agg(${roles.name}, ', ')`,
       })
       .from(users)
       .leftJoin(userRoles, eq(users.id, userRoles.userId))
-      .leftJoin(roles, eq(userRoles.roleId, roles.id));
+      .leftJoin(roles, eq(userRoles.roleId, roles.id))
+      .groupBy(users.id, users.email, users.fullName, users.isActive, users.avatar, users.createdAt);
 
-    if (role) {
-      query = query.where(eq(roles.name, role));
+    const conditions = [];
+
+    if (search) {
+      conditions.push(
+        sql`${users.fullName} ILIKE ${`%${search}%`} OR ${users.email} ILIKE ${`%${search}%`}`
+      );
     }
 
-    if (isActive !== null && isActive !== undefined) {
-      query = query.where(eq(users.isActive, isActive === "true"));
+    if (role) {
+      // Since we group by user and aggregate roles, filtering by role needs to ensure the user has that role
+      // A simple way is to use a subquery or a HAVING clause, but here we can just add to WHERE
+      conditions.push(eq(roles.name, role));
+    }
+
+    if (isActive !== null && isActive !== "" && isActive !== undefined) {
+      conditions.push(eq(users.isActive, isActive === "true"));
+    }
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
     }
 
     const result = await query.limit(limit).offset(offset);
 
-    const total = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(users);
+    const totalQuery = db
+      .select({ count: sql<number>`count(distinct ${users.id})` })
+      .from(users)
+      .leftJoin(userRoles, eq(users.id, userRoles.userId))
+      .leftJoin(roles, eq(userRoles.roleId, roles.id));
+
+    if (conditions.length > 0) {
+      totalQuery.where(and(...conditions));
+    }
+
+    const total = await totalQuery;
 
     return NextResponse.json({
       users: result,

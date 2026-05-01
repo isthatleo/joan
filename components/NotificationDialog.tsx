@@ -148,7 +148,11 @@ export function NotificationDialog({
         }
         break;
       case "message":
-        router.push("/messages");
+        if (notification.metadata?.senderId) {
+          router.push(`/messages?userId=${notification.metadata.senderId}`);
+        } else {
+          router.push("/messages");
+        }
         break;
       case "system":
       case "alert":

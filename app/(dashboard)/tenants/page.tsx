@@ -1,40 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  PageHeader,
-  StatCard,
-  SectionCard,
-  StatusPill,
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  Button,
-  Input,
-  Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui";
-import {
-  Plus,
-  Search,
-  Hospital,
-  Building2,
-  CheckCircle,
-  XCircle,
-  DollarSign,
-  Loader2,
-  Check,
-  Copy,
-  AlertCircle,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
+import Link from "next/link";
+import { Search, Filter, Plus, Building2, Loader2, Check, Copy, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { useDebounce } from "@/hooks/use-debounce";
 
 type Tenant = {
   id: string;
@@ -46,938 +15,487 @@ type Tenant = {
   createdAt?: string;
 };
 
-type ProvisioningRun = {
-  id: string;
-  status: "running" | "completed" | "failed";
-  stage?: string;
-  errorMessage?: string;
-  startedAt: string;
-  completedAt?: string;
-  tenant?: {
-    id: string;
-    name: string;
-    slug: string;
-  };
+const orange = "#F97316";
+
+const PLAN_CHIP: Record<string, string> = {
+  Basic: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  Standard: "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400",
+  Premium: "bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400",
 };
 
-const DEFAULT_MODULES = [
-  "Appointments",
-  "Pharmacy",
-  "Laboratory",
-  "Billing",
-  "Inpatient",
-  "Emergency",
-  "Telemedicine",
-];
-
-const DEFAULT_DEPTS = [
-  "Reception",
-  "General Medicine",
-  "Pharmacy",
-  "Laboratory",
-  "Emergency",
-];
-
-type FormState = {
-  name: string;
-  plan: "Basic" | "Standard" | "Premium";
-  contactEmail: string;
-  contactPhone: string;
-  address: string;
-  city: string;
-  country: string;
-  timezone: string;
-  logoUrl: string;
-  adminEmail: string;
-  adminFullName: string;
-  adminPhone: string;
-  seedDepartments: string[];
-  modules: string[];
-};
-
-const initialForm: FormState = {
-  name: "",
-  plan: "Standard",
-  contactEmail: "",
-  contactPhone: "",
-  address: "",
-  city: "",
-  country: "",
-  timezone: "UTC",
-  logoUrl: "",
-  adminEmail: "",
-  adminFullName: "",
-  adminPhone: "",
-  seedDepartments: DEFAULT_DEPTS,
-  modules: ["Appointments", "Pharmacy", "Laboratory", "Billing"],
-};
-
-const STEPS = [
-  "Hospital Identity",
-  "Contact Details",
-  "Address & Timezone",
-  "Branding",
-  "Hospital Admin",
-  "Departments",
-  "Modules",
-  "Review & Provision",
-];
-
-const PROVISION_STAGES = [
-  { key: "validate", label: "Validating configuration" },
+const STAGES = [
+  { key: "validate", label: "Validating details" },
   { key: "slug", label: "Generating unique slug" },
-  { key: "hospital", label: "Creating hospital record" },
-  { key: "admin", label: "Assigning hospital admin" },
-  { key: "role", label: "Configuring role & permissions" },
-  { key: "departments", label: "Seeding departments & data" },
+  { key: "hospital", label: "Creating tenant record" },
+  { key: "admin", label: "Provisioning hospital admin" },
+  { key: "role", label: "Assigning admin role" },
+  { key: "departments", label: "Seeding departments" },
   { key: "modules", label: "Activating modules" },
-  { key: "audit", label: "Writing audit log & finalizing" },
+  { key: "audit", label: "Recording audit log" },
 ];
+
+const DEFAULT_DEPTS = ["Reception", "General Medicine", "Pharmacy", "Laboratory", "Emergency"];
+const DEFAULT_MODULES = ["Appointments", "Pharmacy", "Laboratory", "Billing", "Inpatient", "Emergency", "Telemedicine"];
+
+function Stat({ icon: Icon, label, value }: any) {
+  return (
+    <div className="flex-1 min-w-[200px] bg-card border border-border rounded-xl p-4 flex items-start gap-3 shadow-sm">
+      <div className="size-10 rounded-full bg-orange-50 dark:bg-orange-500/10 flex items-center justify-center text-orange-500 shrink-0">
+        <Icon className="size-5" />
+      </div>
+      <div className="flex-1">
+        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{label}</p>
+        <p className="text-2xl font-semibold text-foreground mt-0.5">{value}</p>
+      </div>
+    </div>
+  );
+}
 
 export default function TenantsPage() {
-  // list state
-  const [search, setSearch] = useState("");
-  const [planFilter, setPlanFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // recent provisions state
-  const [recentRuns, setRecentRuns] = useState<ProvisioningRun[]>([]);
-  const [runsLoading, setRunsLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 500);
+  const [planFilter, setPlanFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   // wizard state
   const [wizardOpen, setWizardOpen] = useState(false);
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<FormState>(initialForm);
-  const [stepError, setStepError] = useState<string | null>(null);
-
-  // provisioning state
-  const [provisionOpen, setProvisionOpen] = useState(false);
-  const [stageStatus, setStageStatus] = useState<Record<string, "pending" | "running" | "done">>({});
-  const [activeStage, setActiveStage] = useState<string | null>(null);
-  const [stageDetails, setStageDetails] = useState<Record<string, any>>({});
+  const [form, setForm] = useState<any>({
+    name: "", contactEmail: "", contactPhone: "",
+    address: "", city: "", country: "", timezone: "UTC",
+    logoUrl: "", plan: "Standard",
+    adminEmail: "", adminFullName: "",
+    departments: [...DEFAULT_DEPTS],
+    modules: [...DEFAULT_MODULES],
+  });
+  const [provisioning, setProvisioning] = useState(false);
+  const [stageStatus, setStageStatus] = useState<Record<string, { status: "pending" | "running" | "done"; meta?: any }>>({});
+  const [provisionResult, setProvisionResult] = useState<{ tenantId: string; slug: string; tempPassword: string } | null>(null);
   const [provisionError, setProvisionError] = useState<string | null>(null);
-  const [result, setResult] = useState<{
-    tenant: Tenant;
-    admin: { email: string; fullName: string; tempPassword: string };
-  } | null>(null);
-  const [copied, setCopied] = useState(false);
-   const [passwordRevealed, setPasswordRevealed] = useState(false);
-   const [passwordVisible, setPasswordVisible] = useState(false);
 
   const fetchTenants = async () => {
-    const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    if (planFilter) params.set("plan", planFilter);
-    if (statusFilter) params.set("status", statusFilter);
     setLoading(true);
     try {
-      const r = await fetch(`/api/tenants?${params.toString()}`);
-      const d = await r.json();
-      setTenants(Array.isArray(d) ? d : []);
-    } catch {
-      setTenants([]);
-    } finally {
-      setLoading(false);
+      const params = new URLSearchParams();
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      if (planFilter !== "all") params.set("plan", planFilter);
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      
+      const res = await fetch(`/api/tenants?${params.toString()}`);
+      const data = await res.json();
+      setTenants(Array.isArray(data) ? data : data.tenants || []);
+    } catch (error) {
+      console.error("Failed to fetch tenants:", error);
+    } finally { 
+      setLoading(false); 
     }
   };
 
-  const fetchRecentRuns = async () => {
-    setRunsLoading(true);
-    try {
-      const r = await fetch(`/api/provisioning-runs`);
-      const d = await r.json();
-      setRecentRuns(Array.isArray(d) ? d : []);
-    } catch {
-      setRecentRuns([]);
-    } finally {
-      setRunsLoading(false);
-    }
-  };
+  useEffect(() => { 
+    fetchTenants(); 
+  }, [debouncedSearch, planFilter, statusFilter]);
 
-  useEffect(() => {
-    fetchTenants();
-    fetchRecentRuns();
-  }, [search, planFilter, statusFilter]);
+  const stats = useMemo(() => {
+    const active = tenants.filter(t => t.isActive).length;
+    return {
+      total: tenants.length,
+      active,
+      premium: tenants.filter(t => t.plan === "Premium").length,
+      newThisMonth: tenants.filter(t => t.createdAt && (Date.now() - new Date(t.createdAt).getTime()) / 86400000 < 30).length,
+    };
+  }, [tenants]);
 
-  const filtered = useMemo(() => tenants, [tenants]);
+  const filtered = useMemo(() => {
+    // Backend already handles filtering. Just returning the tenants from state.
+    return tenants;
+  }, [tenants]);
 
-  const total = tenants.length;
-  const active = tenants.filter((t) => t.isActive).length;
-  const inactive = total - active;
-  const premium = tenants.filter((t) => t.plan === "Premium").length;
-
-  // ---- Wizard helpers ----
-  const update = <K extends keyof FormState>(k: K, v: FormState[K]) =>
-    setForm((f) => ({ ...f, [k]: v }));
-
-  const toggleIn = (key: "seedDepartments" | "modules", v: string) =>
-    setForm((f) => ({
-      ...f,
-      [key]: f[key].includes(v) ? f[key].filter((x) => x !== v) : [...f[key], v],
-    }));
-
-  const validateStep = (): string | null => {
-    switch (step) {
-      case 0:
-        if (!form.name.trim() || form.name.trim().length < 2)
-          return "Hospital name is required (min 2 chars).";
-        if (!form.plan) return "Pick a subscription plan.";
-        return null;
-      case 1:
-        if (!form.contactEmail.trim()) return "Contact email is required.";
-        if (!/^\S+@\S+\.\S+$/.test(form.contactEmail))
-          return "Enter a valid contact email.";
-        return null;
-      case 2:
-        if (!form.timezone.trim()) return "Timezone is required.";
-        return null;
-      case 3:
-        if (form.logoUrl && !/^https?:\/\//.test(form.logoUrl))
-          return "Logo URL must start with http(s)://";
-        return null;
-      case 4:
-        if (!form.adminEmail.trim()) return "Admin email is required.";
-        if (!/^\S+@\S+\.\S+$/.test(form.adminEmail))
-          return "Enter a valid admin email.";
-        if (!form.adminFullName.trim() || form.adminFullName.trim().length < 2)
-          return "Admin full name is required.";
-        return null;
-      case 5:
-        if (form.seedDepartments.length === 0)
-          return "Select at least one department to seed.";
-        return null;
-      case 6:
-        if (form.modules.length === 0) return "Pick at least one module.";
-        return null;
-      default:
-        return null;
-    }
-  };
-
-  const currentStepError = useMemo(() => validateStep(), [step, form]);
-
-  // Update step error when validation changes
-  useEffect(() => {
-    setStepError(currentStepError);
-  }, [currentStepError]);
-
-  const next = () => {
-    const err = validateStep();
-    if (err) {
-      setStepError(err);
-      return;
-    }
-    setStepError(null);
-    setStep((s) => Math.min(STEPS.length - 1, s + 1));
-  };
-
-  const prev = () => {
-    setStepError(null);
-    setStep((s) => Math.max(0, s - 1));
-  };
-
-  const resetWizard = () => {
-    setForm(initialForm);
+  const openWizard = () => {
+    setForm({
+      name: "", contactEmail: "", contactPhone: "",
+      address: "", city: "", country: "", timezone: "UTC",
+      logoUrl: "", plan: "Standard",
+      adminEmail: "", adminFullName: "",
+      departments: [...DEFAULT_DEPTS], modules: [...DEFAULT_MODULES],
+    });
     setStep(0);
-    setStepError(null);
+    setProvisionResult(null);
+    setProvisionError(null);
+    setStageStatus({});
+    setWizardOpen(true);
   };
 
-  // ---- Provision ----
-  const runProvision = async () => {
-    const err = validateStep();
-    if (err) {
-      setStepError(err);
-      return;
-    }
-    setWizardOpen(false);
-    setProvisionOpen(true);
+  const startProvisioning = async () => {
+    setProvisioning(true);
     setProvisionError(null);
-    setResult(null);
-    setActiveStage(null);
-    setStageDetails({});
-    setStageStatus(
-      Object.fromEntries(PROVISION_STAGES.map((s) => [s.key, "pending"])) as Record<
-        string,
-        "pending" | "running" | "done"
-      >
-    );
-
+    setStageStatus(Object.fromEntries(STAGES.map(s => [s.key, { status: "pending" }])));
     try {
       const res = await fetch("/api/tenants/provision", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      if (!res.ok || !res.body) throw new Error(`Request failed (${res.status})`);
-
+      if (!res.ok || !res.body) throw new Error(await res.text());
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
-
-      // Parse SSE events: "event: X\ndata: {...}\n\n"
-      const handleEvent = (evt: string, payload: any) => {
-        if (evt === "stage") {
-          const { key, status, ...rest } = payload;
-          setStageStatus((prev) => ({
-            ...prev,
-            [key]: status === "done" ? "done" : "running",
-          }));
-          setActiveStage(status === "done" ? null : key);
-          if (Object.keys(rest).length > 0) {
-            setStageDetails((d) => ({ ...d, [key]: { ...(d[key] || {}), ...rest } }));
-          }
-        } else if (evt === "done") {
-          setStageStatus((prev) => {
-            const copy = { ...prev };
-            for (const s of PROVISION_STAGES) copy[s.key] = "done";
-            return copy;
-          });
-          setActiveStage(null);
-          setResult({ tenant: payload.tenant, admin: payload.admin });
-          fetchTenants();
-        } else if (evt === "error") {
-          setProvisionError(payload?.error || "Provisioning failed");
-        }
-      };
-
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf("\n\n")) !== -1) {
-          const chunk = buf.slice(0, idx);
-          buf = buf.slice(idx + 2);
-          const lines = chunk.split("\n");
-          let evt = "message";
-          let dataStr = "";
-          for (const ln of lines) {
-            if (ln.startsWith("event:")) evt = ln.slice(6).trim();
-            else if (ln.startsWith("data:")) dataStr += ln.slice(5).trim();
-          }
-          if (!dataStr) continue;
-          try {
-            handleEvent(evt, JSON.parse(dataStr));
-          } catch {
-            // ignore parse failures
+        const events = buf.split("\n\n");
+        buf = events.pop() || "";
+        for (const e of events) {
+          const lines = e.split("\n");
+          const evt = lines.find(l => l.startsWith("event:"))?.slice(6).trim();
+          const data = lines.find(l => l.startsWith("data:"))?.slice(5).trim();
+          if (!evt || !data) continue;
+          const payload = JSON.parse(data);
+          if (evt === "stage") {
+            setStageStatus(prev => ({ ...prev, [payload.key]: { status: payload.status === "start" ? "running" : "done", meta: payload.meta } }));
+          } else if (evt === "done") {
+            setProvisionResult(payload);
+            await fetchTenants();
+          } else if (evt === "error") {
+            setProvisionError(payload.message || "Provisioning failed");
           }
         }
       }
-    } catch (e: any) {
-      setProvisionError(e?.message || "Provisioning failed");
+    } catch (err: any) {
+      setProvisionError(err?.message || "Provisioning failed");
+    } finally {
+      setProvisioning(false);
     }
   };
 
-   const closeProvision = () => {
-     setProvisionOpen(false);
-     setResult(null);
-     setProvisionError(null);
-     setPasswordVisible(false);
-     setPasswordRevealed(false);
-     resetWizard();
-   };
-
-   const togglePasswordVisibility = () => {
-     setPasswordVisible(!passwordVisible);
-   };
-
-   const copyPassword = async () => {
-     if (!result) return;
-     try {
-       await navigator.clipboard.writeText(result.admin.tempPassword);
-       setCopied(true);
-       // Mark as revealed so it can't be copied again
-       setPasswordRevealed(true);
-       // Auto-hide after 3 seconds
-       setTimeout(() => {
-         setPasswordVisible(false);
-         setPasswordRevealed(false);
-         setCopied(false);
-       }, 3000);
-       // Log audit event for password copy
-       await fetch("/api/audit", {
-         method: "POST",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({
-           action: "password.copied",
-           entity: "tenant",
-           entityId: result.tenant.id,
-           metadata: { adminEmail: result.admin.email },
-         }),
-       });
-     } catch {
-       // noop
-     }
-   };
-
-  const retryProvision = async () => {
-    setProvisionError(null);
-    setResult(null);
-    setActiveStage(null);
-    setStageDetails({});
-    setStageStatus(
-      Object.fromEntries(PROVISION_STAGES.map((s) => [s.key, "pending"])) as Record<
-        string,
-        "pending" | "running" | "done"
-      >
-    );
-    await runProvision();
-  };
+  const totalSteps = 8;
+  const stepTitles = ["Identity", "Contact", "Address", "Branding", "Admin", "Departments", "Modules", "Review"];
 
   return (
-    <div>
-      <PageHeader
-        title="Tenant Management"
-        subtitle="Manage all hospital tenants and provision new ones"
-        actions={
-          <Button
-            onClick={() => {
-              resetWizard();
-              setWizardOpen(true);
-            }}
-            className="inline-flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            New Tenant
-          </Button>
-        }
-      />
-
-      {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard title="Total Tenants" value={total} subtitle="Across the platform" icon={Building2} tone="primary" />
-        <StatCard title="Active" value={active} subtitle="Currently operational" icon={CheckCircle} tone="success" />
-        <StatCard title="Inactive" value={inactive} subtitle="Suspended / paused" icon={XCircle} tone="destructive" />
-        <StatCard title="Premium Tier" value={premium} subtitle="High-revenue accounts" icon={DollarSign} tone="info" />
-      </div>
-
-      {/* Recent Provisions */}
-      <SectionCard title="Recent Provisions" description="Latest tenant provisioning attempts" className="mb-6">
-        {runsLoading ? (
-          <div className="p-4 text-center text-sm text-muted-foreground">Loading recent runs…</div>
-        ) : recentRuns.length === 0 ? (
-          <div className="p-4 text-center text-sm text-muted-foreground">
-            No provisioning runs yet.
+    <div className="min-h-screen bg-subtle -m-6 p-4 md:p-8">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">Tenant Registry</h1>
+            <p className="text-muted-foreground text-sm mt-1 font-medium">Provision and manage isolated hospital environments.</p>
           </div>
-        ) : (
-          <div className="space-y-2">
-            {recentRuns.map((run) => (
-              <div key={run.id} className="flex items-center justify-between rounded-lg border border-border p-3">
-                <div className="flex items-center gap-3">
-                  <StatusPill
-                    tone={
-                      run.status === "completed"
-                        ? "success"
-                        : run.status === "failed"
-                        ? "destructive"
-                        : "info"
-                    }
-                  >
-                    {run.status === "running" ? "Running" : run.status === "completed" ? "Success" : "Failed"}
-                  </StatusPill>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">
-                      {run.tenant?.name || "Unknown Tenant"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {run.tenant?.slug || "unknown-slug"} • {new Date(run.startedAt).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-                {run.tenant && (
-                  <Button variant="outline" size="sm" asChild>
-                    <a href={`/dashboard/tenants/${run.tenant.slug}`}>View</a>
-                  </Button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </SectionCard>
-
-      {/* Search & Filter */}
-      <SectionCard className="mb-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search tenants..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
-          <select
-            value={planFilter}
-            onChange={(e) => setPlanFilter(e.target.value)}
-            className="rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            <option value="">All Plans</option>
-            <option value="Premium">Premium</option>
-            <option value="Standard">Standard</option>
-            <option value="Basic">Basic</option>
-          </select>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-lg border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            <option value="">All Status</option>
-            <option value="true">Active</option>
-            <option value="false">Inactive</option>
-          </select>
+          <button onClick={openWizard} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-md hover:opacity-90 transition-all active:scale-95" style={{ backgroundColor: orange }}>
+            <Plus className="size-4" /> Provision New Tenant
+          </button>
         </div>
-      </SectionCard>
 
-      {/* Table */}
-      <SectionCard title="All Tenants" description={`${filtered.length} result${filtered.length === 1 ? "" : "s"}`} flush>
-        {loading ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">Loading tenants…</div>
-        ) : filtered.length === 0 ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">
-            No tenants yet. Click <span className="font-semibold text-foreground">New Tenant</span> to provision one.
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <Stat icon={Building2} label="Total Tenants" value={stats.total} />
+          <Stat icon={Check} label="Active" value={stats.active} />
+          <Stat icon={Plus} label="Premium" value={stats.premium} />
+          <Stat icon={Building2} label="New This Month" value={stats.newThisMonth} />
+        </div>
+
+        <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+          <div className="p-4 md:p-6 border-b border-border">
+            <div className="flex flex-col lg:flex-row gap-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Search tenants by name or slug..."
+                  className="w-full h-10 pl-10 pr-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100 dark:focus:ring-orange-900/20"
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <select value={planFilter} onChange={e => setPlanFilter(e.target.value)} className="h-10 px-4 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300">
+                  <option value="all">All Plans</option>
+                  <option value="Basic">Basic</option>
+                  <option value="Standard">Standard</option>
+                  <option value="Premium">Premium</option>
+                </select>
+                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-10 px-4 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300">
+                  <option value="all">All Status</option>
+                  <option value="true">Active</option>
+                  <option value="false">Inactive</option>
+                </select>
+                <button className="h-10 px-4 rounded-lg border border-border bg-background text-sm text-foreground inline-flex items-center gap-2 hover:bg-muted transition-colors">
+                  <Filter className="size-4" /> More Filters
+                </button>
+              </div>
+            </div>
           </div>
-        ) : (
+
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">Hospital</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">Plan</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">Contact</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase text-muted-foreground">Created</th>
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 border-b border-border">
+                <tr className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
+                  <th className="text-left px-6 py-4">Tenant Name</th>
+                  <th className="text-left px-6 py-4">Slug</th>
+                  <th className="text-left px-6 py-4">Plan</th>
+                  <th className="text-left px-6 py-4">Status</th>
+                  <th className="text-left px-6 py-4">Created</th>
+                  <th className="text-left px-6 py-4">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filtered.map((h) => (
-                  <tr key={h.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-6 py-4">
+                {loading && (
+                  <tr>
+                    <td colSpan={6} className="py-20 text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="size-8 text-orange-500 animate-spin" />
+                        <p className="text-muted-foreground font-medium">Loading tenants...</p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {!loading && filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-20 text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <Building2 className="size-10 text-muted" />
+                        <p className="text-muted-foreground font-medium">No tenants yet — click "Provision New Tenant" to get started.</p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {filtered.map(t => (
+                  <tr key={t.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-soft text-primary-soft-foreground">
-                          <Hospital className="h-5 w-5" />
+                        <div className="size-10 rounded-lg bg-muted flex items-center justify-center text-muted-foreground shadow-sm border border-border shrink-0">
+                          <Building2 className="size-5" />
                         </div>
                         <div>
-                          <p className="font-medium text-foreground">{h.name}</p>
-                          <p className="text-xs text-muted-foreground">{h.slug}</p>
+                          <p className="font-semibold text-foreground">{t.name}</p>
+                          {t.contactEmail && <p className="text-xs text-muted-foreground">{t.contactEmail}</p>}
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <span className="rounded-md bg-info-soft px-2 py-1 text-xs font-medium text-info-soft-foreground">
-                        {h.plan}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="px-2 py-1 rounded bg-muted border border-border text-foreground font-mono text-[10px]">
+                        {t.slug}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-muted-foreground">{h.contactEmail || "—"}</td>
-                    <td className="px-6 py-4">
-                      <StatusPill tone={h.isActive ? "success" : "destructive"}>
-                        {h.isActive ? "Active" : "Inactive"}
-                      </StatusPill>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${PLAN_CHIP[t.plan] ?? "bg-muted text-foreground"}`}>
+                        {t.plan}
+                      </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-muted-foreground">
-                      {h.createdAt ? new Date(h.createdAt).toLocaleDateString() : "—"}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${t.isActive ? "bg-emerald-50 text-emerald-700 border border-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20" : "bg-muted text-muted-foreground border border-border"}`}>
+                        <div className={`size-1.5 rounded-full mr-1.5 ${t.isActive ? "bg-emerald-500" : "bg-slate-400"}`} />
+                        {t.isActive ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-muted-foreground">
+                      {t.createdAt ? new Date(t.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : "—"}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <Link 
+                        href={`/tenants/${t.slug}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-muted-foreground hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-500/10 font-semibold text-xs transition-colors border border-transparent hover:border-orange-100 dark:hover:border-orange-500/20"
+                      >
+                        Config
+                      </Link>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        )}
-      </SectionCard>
+        </div>
+      </div>
 
-      {/* ---- WIZARD DIALOG ---- */}
-      <Dialog open={wizardOpen} onOpenChange={setWizardOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              Provision New Tenant — Step {step + 1} of {STEPS.length}
-            </DialogTitle>
-          </DialogHeader>
-
-          {/* Stepper */}
-          <div className="flex items-center gap-1 mb-2">
-            {STEPS.map((_, i) => (
-              <div
-                key={i}
-                className={`h-1.5 flex-1 rounded-full transition-colors ${
-                  i <= step ? "bg-primary" : "bg-muted"
-                }`}
-              />
-            ))}
-          </div>
-          <p className="text-sm font-medium text-foreground">{STEPS[step]}</p>
-
-          <div className="mt-4 space-y-4 max-h-[55vh] overflow-y-auto pr-1">
-            {step === 0 && (
-              <>
-                <div>
-                  <Label>Hospital Name</Label>
-                  <Input
-                    value={form.name}
-                    onChange={(e) => update("name", e.target.value)}
-                    placeholder="e.g. Nairobi Women's Hospital"
-                  />
-                </div>
-                <div>
-                  <Label>Subscription Plan</Label>
-                  <Select value={form.plan} onValueChange={(v: any) => update("plan", v)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Basic">Basic</SelectItem>
-                      <SelectItem value="Standard">Standard</SelectItem>
-                      <SelectItem value="Premium">Premium</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </>
-            )}
-
-            {step === 1 && (
-              <>
-                <div>
-                  <Label>Hospital Contact Email</Label>
-                  <Input
-                    type="email"
-                    value={form.contactEmail}
-                    onChange={(e) => update("contactEmail", e.target.value)}
-                    placeholder="info@hospital.com"
-                  />
-                </div>
-                <div>
-                  <Label>Hospital Contact Phone</Label>
-                  <Input
-                    value={form.contactPhone}
-                    onChange={(e) => update("contactPhone", e.target.value)}
-                    placeholder="+254 700 000000"
-                  />
-                </div>
-              </>
-            )}
-
-            {step === 2 && (
-              <>
-                <div>
-                  <Label>Street Address</Label>
-                  <Input
-                    value={form.address}
-                    onChange={(e) => update("address", e.target.value)}
-                    placeholder="Street, building"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>City</Label>
-                    <Input value={form.city} onChange={(e) => update("city", e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>Country</Label>
-                    <Input value={form.country} onChange={(e) => update("country", e.target.value)} />
-                  </div>
-                </div>
-                <div>
-                  <Label>Timezone</Label>
-                  <Input
-                    value={form.timezone}
-                    onChange={(e) => update("timezone", e.target.value)}
-                    placeholder="UTC"
-                  />
-                </div>
-              </>
-            )}
-
-            {step === 3 && (
+      {/* Wizard / Loading dialog */}
+      {wizardOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => !provisioning && !provisionResult && setWizardOpen(false)}>
+          <div onClick={e => e.stopPropagation()} className="bg-card border border-border rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <div>
-                <Label>Logo URL (optional)</Label>
-                <Input
-                  value={form.logoUrl}
-                  onChange={(e) => update("logoUrl", e.target.value)}
-                  placeholder="https://…/logo.png"
-                />
-                {form.logoUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={form.logoUrl}
-                    alt="Logo preview"
-                    className="mt-3 h-16 rounded border border-border"
-                    onError={(e) => ((e.target as HTMLImageElement).style.display = "none")}
-                  />
-                )}
+                <h2 className="text-lg font-semibold text-foreground">
+                  {provisionResult ? "Tenant Provisioned" : provisioning ? "Provisioning Tenant" : `Step ${step + 1} of ${totalSteps}: ${stepTitles[step]}`}
+                </h2>
+                {!provisioning && !provisionResult && <p className="text-xs text-muted-foreground mt-0.5">Set up a new isolated hospital environment.</p>}
               </div>
-            )}
+              {!provisioning && !provisionResult && (
+                <button onClick={() => setWizardOpen(false)} className="text-muted-foreground hover:text-foreground">✕</button>
+              )}
+            </div>
 
-            {step === 4 && (
-              <>
-                <div>
-                  <Label>Admin Full Name</Label>
-                  <Input
-                    value={form.adminFullName}
-                    onChange={(e) => update("adminFullName", e.target.value)}
-                    placeholder="Dr. Jane Doe"
-                  />
-                </div>
-                <div>
-                  <Label>Admin Email</Label>
-                  <Input
-                    type="email"
-                    value={form.adminEmail}
-                    onChange={(e) => update("adminEmail", e.target.value)}
-                    placeholder="admin@hospital.com"
-                  />
-                </div>
-                <div>
-                  <Label>Admin Phone (optional)</Label>
-                  <Input
-                    value={form.adminPhone}
-                    onChange={(e) => update("adminPhone", e.target.value)}
-                    placeholder="+254 700 000000"
-                  />
-                </div>
-                <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-                  A temporary password will be generated and shown once at the end. The admin will be asked to reset it on first sign-in.
-                </div>
-              </>
-            )}
-
-            {step === 5 && (
-              <div>
-                <Label className="mb-2 block">Seed Departments</Label>
-                <div className="flex flex-wrap gap-2">
-                  {DEFAULT_DEPTS.concat(["Radiology", "Cardiology", "Pediatrics", "Maternity"]).map(
-                    (d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => toggleIn("seedDepartments", d)}
-                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                          form.seedDepartments.includes(d)
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border bg-background text-foreground hover:bg-muted"
-                        }`}
-                      >
-                        {d}
-                      </button>
-                    )
-                  )}
-                </div>
-              </div>
-            )}
-
-            {step === 6 && (
-              <div>
-                <Label className="mb-2 block">Activate Modules</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  {DEFAULT_MODULES.map((m) => (
-                    <label
-                      key={m}
-                      className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition ${
-                        form.modules.includes(m)
-                          ? "border-primary bg-primary-soft text-primary-soft-foreground"
-                          : "border-border bg-background hover:bg-muted"
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={form.modules.includes(m)}
-                        onChange={() => toggleIn("modules", m)}
-                      />
-                      {m}
-                    </label>
+            {/* Step indicator */}
+            {!provisioning && !provisionResult && (
+              <div className="px-6 pt-4">
+                <div className="flex gap-1">
+                  {Array.from({ length: totalSteps }).map((_, i) => (
+                    <div key={i} className={`h-1 flex-1 rounded-full ${i <= step ? "bg-orange-500" : "bg-muted"}`} />
                   ))}
                 </div>
               </div>
             )}
 
-            {step === 7 && (
-              <div className="space-y-3">
-                <ReviewRow k="Name" v={form.name} />
-                <ReviewRow k="Plan" v={form.plan} />
-                <ReviewRow k="Contact" v={`${form.contactEmail} · ${form.contactPhone || "—"}`} />
-                <ReviewRow
-                  k="Address"
-                  v={[form.address, form.city, form.country].filter(Boolean).join(", ") || "—"}
-                />
-                <ReviewRow k="Timezone" v={form.timezone} />
-                <ReviewRow k="Admin" v={`${form.adminFullName} <${form.adminEmail}>`} />
-                <ReviewRow k="Departments" v={form.seedDepartments.join(", ") || "—"} />
-                <ReviewRow k="Modules" v={form.modules.join(", ") || "—"} />
-              </div>
-            )}
-          </div>
-
-          {stepError && (
-            <div className="mt-3 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive-soft px-3 py-2 text-xs text-destructive-soft-foreground">
-              <AlertCircle className="h-3.5 w-3.5" />
-              {stepError}
-            </div>
-          )}
-
-          <DialogFooter className="mt-4 flex items-center justify-between gap-2">
-            <Button variant="outline" onClick={prev} disabled={step === 0} className="inline-flex items-center gap-1">
-              <ChevronLeft className="h-4 w-4" /> Back
-            </Button>
-            {step < STEPS.length - 1 ? (
-              <Button onClick={next} disabled={!!currentStepError} className="inline-flex items-center gap-1">
-                Next <ChevronRight className="h-4 w-4" />
-              </Button>
-            ) : (
-              <Button onClick={runProvision} disabled={!!currentStepError}>Provision Tenant</Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ---- PROVISION LOADING DIALOG ---- */}
-      <Dialog open={provisionOpen} onOpenChange={(o) => !o && result && closeProvision()}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              {result
-                ? "Tenant provisioned"
-                : provisionError
-                ? "Provisioning failed"
-                : "Provisioning tenant…"}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-2">
-            {PROVISION_STAGES.map((s, i) => {
-              const status = stageStatus[s.key] ?? "pending";
-              const done = status === "done";
-              const active = status === "running" || activeStage === s.key;
-              const detail = stageDetails[s.key];
-              return (
-                <div
-                  key={s.key}
-                  className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors ${
-                    done
-                      ? "border-success/40 bg-success-soft"
-                      : active
-                      ? "border-primary/40 bg-primary-soft"
-                      : "border-border bg-background"
-                  }`}
-                >
-                  <div
-                    className={`flex h-7 w-7 items-center justify-center rounded-full transition-colors ${
-                      done
-                        ? "bg-success text-success-foreground"
-                        : active
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    {done ? (
-                      <Check className="h-4 w-4" />
-                    ) : active ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <span className="text-xs font-semibold">{i + 1}</span>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div
-                      className={`text-sm ${
-                        done
-                          ? "text-success-soft-foreground font-medium"
-                          : active
-                          ? "text-foreground font-medium"
-                          : "text-muted-foreground"
-                      }`}
-                    >
-                      {s.label}
+            <div className="flex-1 overflow-y-auto p-6">
+              {/* Loading view */}
+              {provisioning && (
+                <div className="space-y-2">
+                  {STAGES.map(s => {
+                    const st = stageStatus[s.key]?.status || "pending";
+                    return (
+                      <div key={s.key} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-muted/50">
+                        <div className="size-6 rounded-full flex items-center justify-center shrink-0">
+                          {st === "done" ? <Check className="size-4 text-green-600" /> : st === "running" ? <Loader2 className="size-4 text-orange-500 animate-spin" /> : <div className="size-2 rounded-full bg-muted-foreground/30" />}
+                        </div>
+                        <span className={`text-sm ${st === "done" ? "text-foreground" : st === "running" ? "text-foreground font-medium" : "text-muted-foreground"}`}>{s.label}</span>
+                        {stageStatus[s.key]?.meta && <span className="ml-auto text-xs text-muted-foreground">{Object.values(stageStatus[s.key].meta!).join(" · ")}</span>}
+                      </div>
+                    );
+                  })}
+                  {provisionError && (
+                    <div className="mt-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 flex items-start gap-2 text-sm text-destructive">
+                      <AlertCircle className="size-4 mt-0.5" /> {provisionError}
                     </div>
-                    {detail?.slug && (
-                      <div className="text-[11px] font-mono text-muted-foreground truncate">
-                        {detail.slug}
-                      </div>
-                    )}
-                    {typeof detail?.count === "number" && (
-                      <div className="text-[11px] text-muted-foreground">
-                        {detail.count} item{detail.count === 1 ? "" : "s"}
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
-              );
-            })}
+              )}
+
+              {/* Result view */}
+              {provisionResult && (
+                <div className="space-y-4">
+                  <div className="text-center py-4">
+                    <div className="size-14 rounded-full bg-success-soft mx-auto flex items-center justify-center mb-3">
+                      <Check className="size-7 text-success" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-foreground">{form.name} is live</h3>
+                    <p className="text-sm text-muted-foreground mt-1">Share these one-time credentials with the new admin.</p>
+                  </div>
+                  <Field label="Tenant Slug" value={provisionResult.slug} />
+                  <Field label="Admin Email" value={form.adminEmail} />
+                  <Field label="Temporary Password" value={provisionResult.tempPassword} mono />
+                </div>
+              )}
+
+              {/* Form steps */}
+              {!provisioning && !provisionResult && (
+                <div className="space-y-4">
+                  {step === 0 && <>
+                    <TextField label="Hospital Name" value={form.name} onChange={(v: string) => setForm({ ...form, name: v })} placeholder="Mountain Peak Hospital" />
+                    <SelectField label="Plan" value={form.plan} onChange={(v: string) => setForm({ ...form, plan: v })} options={["Basic", "Standard", "Premium"]} />
+                  </>}
+                  {step === 1 && <>
+                    <TextField label="Contact Email" value={form.contactEmail} onChange={(v: string) => setForm({ ...form, contactEmail: v })} placeholder="contact@hospital.com" />
+                    <TextField label="Contact Phone" value={form.contactPhone} onChange={(v: string) => setForm({ ...form, contactPhone: v })} placeholder="+1 555 123 4567" />
+                  </>}
+                  {step === 2 && <>
+                    <TextField label="Address" value={form.address} onChange={(v: string) => setForm({ ...form, address: v })} />
+                    <div className="grid grid-cols-2 gap-3">
+                      <TextField label="City" value={form.city} onChange={(v: string) => setForm({ ...form, city: v })} />
+                      <TextField label="Country" value={form.country} onChange={(v: string) => setForm({ ...form, country: v })} />
+                    </div>
+                    <TextField label="Timezone" value={form.timezone} onChange={(v: string) => setForm({ ...form, timezone: v })} />
+                  </>}
+                  {step === 3 && <>
+                    <TextField label="Logo URL (optional)" value={form.logoUrl} onChange={(v: string) => setForm({ ...form, logoUrl: v })} placeholder="https://..." />
+                  </>}
+                  {step === 4 && <>
+                    <TextField label="Admin Full Name" value={form.adminFullName} onChange={(v: string) => setForm({ ...form, adminFullName: v })} />
+                    <TextField label="Admin Email" value={form.adminEmail} onChange={(v: string) => setForm({ ...form, adminEmail: v })} placeholder="admin@hospital.com" />
+                    <p className="text-xs text-muted-foreground">A temporary password will be generated and shown once at the end.</p>
+                  </>}
+                  {step === 5 && <ChipsEditor label="Departments" items={form.departments} onChange={(v: string[]) => setForm({ ...form, departments: v })} />}
+                  {step === 6 && <ChipsEditor label="Modules" items={form.modules} onChange={(v: string[]) => setForm({ ...form, modules: v })} />}
+                  {step === 7 && (
+                    <div className="space-y-2 text-sm">
+                      <Row k="Hospital" v={form.name} />
+                      <Row k="Plan" v={form.plan} />
+                      <Row k="Admin" v={`${form.adminFullName} <${form.adminEmail}>`} />
+                      <Row k="Departments" v={form.departments.join(", ")} />
+                      <Row k="Modules" v={form.modules.join(", ")} />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-border flex items-center justify-between gap-2">
+              {provisionResult ? (
+                <button onClick={() => setWizardOpen(false)} className="ml-auto px-4 py-2 rounded-lg text-white text-sm font-medium" style={{ backgroundColor: orange }}>Done</button>
+              ) : provisioning ? (
+                <p className="text-xs text-muted-foreground">Please don't close this window.</p>
+              ) : (
+                <>
+                  <button disabled={step === 0} onClick={() => setStep(s => s - 1)} className="px-4 py-2 rounded-lg border border-border text-sm text-foreground disabled:opacity-40 inline-flex items-center gap-1 transition-colors hover:bg-muted">
+                    <ChevronLeft className="size-4" /> Back
+                  </button>
+                  {step < totalSteps - 1 ? (
+                    <button onClick={() => setStep(s => s + 1)} className="px-4 py-2 rounded-lg text-white text-sm font-medium inline-flex items-center gap-1" style={{ backgroundColor: orange }}>
+                      Next <ChevronRight className="size-4" />
+                    </button>
+                  ) : (
+                    <button onClick={startProvisioning} className="px-4 py-2 rounded-lg text-white text-sm font-medium" style={{ backgroundColor: orange }}>
+                      Provision Tenant
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-
-          {provisionError && (
-            <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive-soft px-3 py-2 text-xs text-destructive-soft-foreground">
-              <AlertCircle className="h-4 w-4 mt-0.5" />
-              <span>{provisionError}</span>
-            </div>
-          )}
-
-          {result && (
-            <div className="mt-4 space-y-3 rounded-lg border border-border p-4">
-              <p className="text-sm font-semibold text-foreground">
-                {result.tenant.name} is live
-              </p>
-              <div className="text-xs text-muted-foreground">
-                Slug: <span className="font-mono text-foreground">{result.tenant.slug}</span>
-              </div>
-              <div className="rounded-md border border-warning/40 bg-warning-soft p-3">
-                <p className="text-xs font-semibold text-warning-soft-foreground">
-                  Temporary password — shown only once
-                </p>
-                <p className="mt-1 text-xs text-warning-soft-foreground">
-                  Share this with {result.admin.fullName} ({result.admin.email}). They must reset it on first sign-in.
-                </p>
-               <div className="mt-2 flex items-center gap-2">
-                   <code className="flex-1 rounded bg-background px-2 py-1.5 text-sm font-mono text-foreground border border-border">
-                     {passwordVisible ? result.admin.tempPassword : "••••••••••••••••"}
-                   </code>
-                   <Button
-                     variant="outline"
-                     size="sm"
-                     onClick={togglePasswordVisibility}
-                     disabled={passwordRevealed}
-                     className="inline-flex items-center gap-1"
-                   >
-                     {passwordVisible ? "Hide" : "Reveal"}
-                   </Button>
-                   <Button
-                     variant="outline"
-                     size="sm"
-                     onClick={copyPassword}
-                     disabled={passwordRevealed}
-                     className="inline-flex items-center gap-1"
-                   >
-                     {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                     {copied ? "Copied" : "Copy"}
-                   </Button>
-                 </div>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="mt-4">
-            {provisionError && (
-              <Button variant="outline" onClick={retryProvision} className="inline-flex items-center gap-1">
-                <Loader2 className="h-4 w-4" />
-                Retry Provisioning
-              </Button>
-            )}
-            {(result || provisionError) && (
-              <Button onClick={closeProvision}>Close</Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
     </div>
   );
 }
 
-function ReviewRow({ k, v }: { k: string; v: string }) {
+function TextField({ label, value, onChange, placeholder }: any) {
   return (
-    <div className="flex items-start justify-between gap-4 rounded-md border border-border px-3 py-2 text-sm">
-      <span className="text-muted-foreground">{k}</span>
-      <span className="text-right text-foreground font-medium break-all">{v}</span>
+    <div>
+      <label className="block text-xs font-medium text-muted-foreground mb-1.5">{label}</label>
+      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100 dark:focus:ring-orange-900/20" />
+    </div>
+  );
+}
+function SelectField({ label, value, onChange, options }: any) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-muted-foreground mb-1.5">{label}</label>
+      <select value={value} onChange={e => onChange(e.target.value)} className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300">
+        {options.map((o: string) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
+function ChipsEditor({ label, items, onChange }: { label: string; items: string[]; onChange: (v: string[]) => void }) {
+  const [draft, setDraft] = useState("");
+  return (
+    <div>
+      <label className="block text-xs font-medium text-muted-foreground mb-1.5">{label}</label>
+      <div className="flex flex-wrap gap-2 mb-2">
+        {items.map(it => (
+          <span key={it} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-orange-50 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 text-xs">
+            {it} <button onClick={() => onChange(items.filter(x => x !== it))} className="text-orange-400 hover:text-orange-600">×</button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input value={draft} onChange={e => setDraft(e.target.value)} placeholder="Add..." className="flex-1 h-9 px-3 rounded-lg border border-border bg-background text-sm text-foreground" />
+        <button onClick={() => { if (draft.trim()) { onChange([...items, draft.trim()]); setDraft(""); } }} className="px-3 h-9 rounded-lg bg-muted text-sm text-muted-foreground transition-colors hover:bg-muted/80">Add</button>
+      </div>
+    </div>
+  );
+}
+function Row({ k, v }: any) {
+  return <div className="flex justify-between py-1.5 border-b border-border"><span className="text-muted-foreground">{k}</span><span className="text-foreground font-medium text-right">{v}</span></div>;
+}
+function Field({ label, value, mono }: any) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div>
+      <label className="block text-xs font-medium text-muted-foreground mb-1.5">{label}</label>
+      <div className="flex gap-2">
+        <input readOnly value={value} className={`flex-1 h-10 px-3 rounded-lg border border-border bg-muted/50 text-sm text-foreground ${mono ? "font-mono" : ""}`} />
+        <button onClick={() => { navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); }} className="h-10 px-3 rounded-lg border border-border bg-background text-sm text-muted-foreground inline-flex items-center gap-1 transition-colors hover:bg-muted">
+          {copied ? <><Check className="size-4 text-green-600" /> Copied</> : <><Copy className="size-4" /> Copy</>}
+        </button>
+      </div>
     </div>
   );
 }

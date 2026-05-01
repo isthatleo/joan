@@ -5,11 +5,11 @@ const service = new TenantService();
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const { id } = await params;
-    const tenant = await service.getTenant(id);
+    const { slug } = await params;
+    const tenant = await service.getTenantBySlug(slug);
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
@@ -22,16 +22,23 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const { id } = await params;
+    const { slug } = await params;
     const data = await request.json();
-    const tenant = await service.updateTenant(id, data);
-    if (!tenant.length) {
+
+    // First get the tenant by slug to get its ID
+    const tenant = await service.getTenantBySlug(slug);
+    if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
-    return NextResponse.json(tenant[0]);
+
+    const updatedTenant = await service.updateTenant(tenant.id, data);
+    if (!updatedTenant.length) {
+      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+    return NextResponse.json(updatedTenant[0]);
   } catch (error) {
     console.error("Error updating tenant:", error);
     return NextResponse.json({ error: "Failed to update tenant" }, { status: 500 });
@@ -40,11 +47,18 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const { id } = await params;
-    await service.deleteTenant(id);
+    const { slug } = await params;
+
+    // First get the tenant by slug to get its ID
+    const tenant = await service.getTenantBySlug(slug);
+    if (!tenant) {
+      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+
+    await service.deleteTenant(tenant.id);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error deleting tenant:", error);
@@ -55,18 +69,24 @@ export async function DELETE(
 // Handle PATCH for specific actions
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const { id } = await params;
+    const { slug } = await params;
     const { action } = await request.json();
+
+    // First get the tenant by slug to get its ID
+    const tenant = await service.getTenantBySlug(slug);
+    if (!tenant) {
+      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
 
     switch (action) {
       case "suspend":
-        const suspended = await service.suspendTenant(id);
+        const suspended = await service.suspendTenant(tenant.id);
         return NextResponse.json(suspended[0]);
       case "activate":
-        const activated = await service.activateTenant(id);
+        const activated = await service.activateTenant(tenant.id);
         return NextResponse.json(activated[0]);
       default:
         return NextResponse.json({ error: "Invalid action" }, { status: 400 });

@@ -293,7 +293,10 @@ export const notifications = pgTable("notifications", {
   message: text("message"),
   metadata: jsonb("metadata"),
   read: boolean("read").default(false),
-});
+}, (table) => ({
+  notificationUserIdx: index("notification_user_idx").on(table.userId),
+  notificationTenantIdx: index("notification_tenant_idx").on(table.tenantId),
+}));
 
 // Audit
 export const auditLogs = pgTable("audit_logs", {
@@ -321,6 +324,42 @@ export const provisioningRuns = pgTable("provisioning_runs", {
 }, (table) => ({
   provisioningTenantIdx: index("provisioning_tenant_idx").on(table.tenantId),
   provisioningStatusIdx: index("provisioning_status_idx").on(table.status),
+}));
+
+// OTP Management
+export const otps = pgTable("otps", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id),
+  userId: uuid("user_id").references(() => users.id),
+  code: text("code").notNull(),
+  type: text("type").notNull(), // "password_reset", "2fa", "email_verification"
+  expiresAt: timestamp("expires_at").notNull(),
+  attempts: integer("attempts").default(0),
+  maxAttempts: integer("max_attempts").default(3),
+  isUsed: boolean("is_used").default(false),
+  usedAt: timestamp("used_at"),
+}, (table) => ({
+  otpUserIdx: index("otp_user_idx").on(table.userId),
+  otpTenantIdx: index("otp_tenant_idx").on(table.tenantId),
+  otpTypeIdx: index("otp_type_idx").on(table.type),
+}));
+
+// Password Reset Requests
+export const passwordResets = pgTable("password_resets", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id),
+  userId: uuid("user_id").references(() => users.id),
+  requestedBy: uuid("requested_by").references(() => users.id), // null if user requested it themselves
+  status: text("status").notNull(), // "pending", "completed", "expired"
+  token: text("token").unique().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  completedAt: timestamp("completed_at"),
+  approvedBy: uuid("approved_by").references(() => users.id), // admin who approved
+  approvalNotes: text("approval_notes"),
+}, (table) => ({
+  passwordResetUserIdx: index("password_reset_user_idx").on(table.userId),
+  passwordResetTenantIdx: index("password_reset_tenant_idx").on(table.tenantId),
+  passwordResetStatusIdx: index("password_reset_status_idx").on(table.status),
 }));
 
 // Relations

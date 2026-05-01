@@ -134,5 +134,78 @@ export class RoleService {
       },
     });
   }
+
+  async getTenantPermissions(tenantId: string) {
+    const tenantRoles = await db.query.roles.findMany({
+      where: eq(roles.tenantId, tenantId),
+    });
+
+    const perms: Record<string, string[]> = {};
+
+    const mappings = await db
+      .select({ roleId: roles.id, roleName: roles.name, permKey: permissions.key })
+      .from(rolePermissions)
+      .innerJoin(roles, eq(roles.id, rolePermissions.roleId))
+      .innerJoin(permissions, eq(permissions.id, rolePermissions.permissionId))
+      .where(eq(roles.tenantId, tenantId));
+
+    mappings.forEach((m) => {
+      const roleSlug = m.roleName.toLowerCase().replace(/ /g, "_");
+      if (!perms[roleSlug]) perms[roleSlug] = [];
+      perms[roleSlug].push(m.permKey);
+    });
+
+    return perms;
+  }
+
+  async updateTenantPermissions(tenantId: string, perms: Record<string, string[]>) {
+    // This is a complex operation: we need to sync the roles and their permissions for this tenant
+    // 1. Ensure all roles exist for this tenant
+    // 2. Ensure all permissions exist in the permissions table
+    // 3. Update the rolePermissions mapping
+
+    for (const [roleSlug, permKeys] of Object.entries(perms)) {
+      const roleName = roleSlug
+        .split("_")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+
+      // Find or create role
+      let role = await db.query.roles.findFirst({
+        where: and(eq(roles.tenantId, tenantId), eq(roles.name, roleName)),
+      });
+
+      if (!role) {
+        const [newRole] = await db
+          .insert(roles)
+          .values({
+            tenantId,
+            name: roleName,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .returning();
+        role = newRole;
+      }
+
+      // Delete existing permissions for this role
+      await db.delete(rolePermissions).where(eq(rolePermissions.roleId, role.id));
+
+      // Add new permissions
+      for (const key of permKeys) {
+        let perm = await this.getPermissionByKey(key);
+        if (!perm) {
+          const [newPerm] = await this.createPermission({
+            key,
+            resource: key.split(" ")[0] || "General",
+            action: key,
+          });
+          perm = newPerm;
+        }
+
+        await this.assignPermissionToRole(role.id, perm.id);
+      }
+    }
+  }
 }
 

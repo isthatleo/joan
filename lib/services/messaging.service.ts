@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { messages, users, userRoles, roles } from "@/lib/db/schema";
 import { eq, and, or, desc, asc } from "drizzle-orm";
+import { redis } from "@/lib/redis";
 
 export class MessagingService {
   async sendMessage(data: {
@@ -23,6 +24,46 @@ export class MessagingService {
       message: data.message,
       type: data.type || "direct",
     }).returning();
+
+    // Notify receiver
+    const sender = await db.query.users.findFirst({
+      where: eq(users.id, data.senderId),
+      columns: { fullName: true, email: true }
+    });
+
+    const senderName = sender?.fullName || sender?.email || "Someone";
+
+    // Create a notification for the receiver
+    const notificationPayload = {
+      userId: data.receiverId,
+      tenantId: (await db.query.users.findFirst({ where: eq(users.id, data.receiverId), columns: { tenantId: true } }))?.tenantId,
+      type: "message",
+      title: "New Message",
+      message: `New message from ${senderName}`,
+      metadata: { 
+        senderId: data.senderId,
+        messageId: msg[0].id,
+        type: "message" 
+      }
+    };
+
+    // Save notification to DB
+    await db.insert(notifications).values({
+      userId: notificationPayload.userId,
+      tenantId: notificationPayload.tenantId,
+      type: notificationPayload.type,
+      title: notificationPayload.title,
+      message: notificationPayload.message,
+      metadata: notificationPayload.metadata,
+      read: false,
+    });
+
+    // Use a lightweight approach to publish to Redis for the WebSocket server
+    await redis.publish("notifications", JSON.stringify({
+      userId: data.receiverId,
+      message: notificationPayload.message,
+      payload: notificationPayload
+    }));
 
     return msg[0];
   }
