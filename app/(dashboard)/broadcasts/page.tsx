@@ -72,13 +72,14 @@ export default function BroadcastsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          senderId: user?.id,
-          message: data.message,
-          type: "broadcast",
-          ...(data.target === "role" ? { roleTarget: "doctor" } : // Default to doctors, can be expanded
-             data.target === "tenant" ? { tenantTarget: true } :
-             data.target === "all" ? { allUsers: true } : {}),
-        }),
+            senderId: user?.id,
+            message: data.message,
+            type: "broadcast",
+            ...(data.target === "all" ? { allUsers: true } :
+               data.target === "hospital_admins" ? { roleTarget: "hospital_admin" } :
+               data.target === "tenant" ? { tenantTarget: true } :
+               data.target.startsWith("role:") ? { roleTarget: data.target.split(":")[1] } : {}),
+          }),
       });
       if (!response.ok) throw new Error("Failed to send broadcast");
       return response.json();
@@ -163,26 +164,43 @@ export default function BroadcastsPage() {
                       <SelectValue placeholder="Select who to message" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="tenant">
-                        <div className="flex items-center gap-2">
-                          <Building2 className="h-4 w-4" />
-                          All users in my hospital
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="role">
-                        <div className="flex items-center gap-2">
-                          <Users className="h-4 w-4" />
-                          All doctors
-                        </div>
-                      </SelectItem>
-                      {userRole === "super_admin" && (
-                        <SelectItem value="all">
-                          <div className="flex items-center gap-2">
-                            <Megaphone className="h-4 w-4" />
-                            All users in all hospitals
-                          </div>
-                        </SelectItem>
-                      )}
+                      {userRole === "super_admin" ? (
+                        <>
+                          <SelectItem value="all">
+                            <div className="flex items-center gap-2">
+                              <Megaphone className="h-4 w-4" />
+                              Every user in the system
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="hospital_admins">
+                            <div className="flex items-center gap-2">
+                              <Building2 className="h-4 w-4" />
+                              All Hospital Admins
+                            </div>
+                          </SelectItem>
+                        </>
+                      ) : userRole === "hospital_admin" ? (
+                        <>
+                          <SelectItem value="tenant">
+                            <div className="flex items-center gap-2">
+                              <Building2 className="h-4 w-4" />
+                              All hospital employees
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="role:doctor">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4" />
+                              All doctors
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="role:nurse">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4" />
+                              All nurses
+                            </div>
+                          </SelectItem>
+                        </>
+                      ) : null}
                     </SelectContent>
                   </Select>
                 </div>

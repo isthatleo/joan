@@ -24,7 +24,22 @@ export async function GET(request: NextRequest) {
           return NextResponse.json({ error: "Other user ID required for chat" }, { status: 400 });
         }
         const messages = await service.getChatMessages(userId, otherUserId);
-        return NextResponse.json({ messages });
+        let otherUser = null;
+        if (messages.length === 0) {
+          // If no messages, fetch the other user's info so the UI can display their name
+          const { db } = await import("@/lib/db");
+          const { users } = await import("@/lib/db/schema");
+          const { eq } = await import("drizzle-orm");
+          otherUser = await db.query.users.findFirst({
+            where: eq(users.id, otherUserId),
+            columns: {
+              id: true,
+              fullName: true,
+              email: true,
+            },
+          });
+        }
+        return NextResponse.json({ messages, otherUser });
 
       case "broadcasts":
         const broadcasts = await service.getBroadcasts(userId);

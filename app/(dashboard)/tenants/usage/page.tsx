@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { PageHeader } from "@/components/ui";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -208,9 +209,12 @@ export default function TenantUsagePage() {
                       className="space-y-2 p-3 rounded-lg border border-border/50 hover:border-border transition-colors"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold text-foreground truncate flex-1">
+                        <Link 
+                          href={`/tenants/${tenant.slug || tenant.id}`}
+                          className="text-sm font-semibold text-foreground hover:text-primary truncate flex-1"
+                        >
                           {tenant.name}
-                        </p>
+                        </Link>
                         <Badge variant={status.color as any} className="flex-shrink-0">
                           {status.label}
                         </Badge>
@@ -254,9 +258,12 @@ export default function TenantUsagePage() {
                       className="space-y-2 p-3 rounded-lg border border-border/50 hover:border-border transition-colors"
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <p className="text-sm font-semibold text-foreground truncate flex-1">
+                        <Link 
+                          href={`/tenants/${tenant.slug || tenant.id}`}
+                          className="text-sm font-semibold text-foreground hover:text-primary truncate flex-1"
+                        >
                           {tenant.name}
-                        </p>
+                        </Link>
                         <div className="flex items-center gap-2">
                           <Badge variant={status.color as any}>
                             {status.label}

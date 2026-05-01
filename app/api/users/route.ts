@@ -32,19 +32,58 @@ export async function GET(request: NextRequest) {
     const isActive = searchParams.get("isActive") ? searchParams.get("isActive") === "true" : undefined;
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : 50;
     const offset = searchParams.get("offset") ? parseInt(searchParams.get("offset")!) : 0;
+    const roles = searchParams.get("roles") ? searchParams.get("roles")!.split(",") : undefined;
 
     // Get the authenticated user to scope results by their tenant
     const auth = await verifyAuth(request);
     let userTenantId: string | undefined;
+    let currentUser: any;
 
     if (auth.authenticated && auth.user?.sub) {
       try {
-        const user = await db.query.users.findFirst({
+        currentUser = await db.query.users.findFirst({
           where: eq(usersTable.id, auth.user.sub as string),
+          with: {
+            userRoles: {
+              with: { role: true }
+            }
+          }
         });
-        userTenantId = user?.tenantId?.toString();
+        userTenantId = currentUser?.tenantId?.toString();
       } catch {
         userTenantId = undefined;
+      }
+    }
+
+    // Handle messaging filters if requested
+    let targetRoles = roles;
+    let targetTenantId = userTenantId;
+
+    const messagingFilter = searchParams.get("messagingFilter") === "true";
+    if (messagingFilter && currentUser) {
+      const userRole = currentUser.userRoles?.[0]?.role?.name || "patient";
+      
+      switch (userRole) {
+        case "super_admin":
+          targetRoles = ["hospital_admin"];
+          targetTenantId = undefined; // Super admin can message hospital admins across all tenants
+          break;
+        case "hospital_admin":
+          // Hospital admin messages all employees in their tenant
+          targetRoles = ["doctor", "nurse", "lab_technician", "pharmacist", "accountant", "receptionist"];
+          break;
+        case "doctor":
+          targetRoles = ["hospital_admin", "nurse", "lab_technician", "pharmacist", "patient"];
+          break;
+        case "nurse":
+          targetRoles = ["doctor"]; // Nurses only message doctors as per requirement
+          break;
+        case "patient":
+        case "guardian":
+          targetRoles = ["doctor"];
+          break;
+        default:
+          targetRoles = [];
       }
     }
 
@@ -54,34 +93,23 @@ export async function GET(request: NextRequest) {
       if (!user) {
         return NextResponse.json({ error: "User not found" }, { status: 404 });
       }
-      // Verify the user belongs to the current tenant
-      if (userTenantId && user.tenantId?.toString() !== userTenantId) {
+      // Verify the user belongs to the current tenant (unless super admin)
+      const userRole = currentUser?.userRoles?.[0]?.role?.name;
+      if (userRole !== "super_admin" && userTenantId && user.tenantId?.toString() !== userTenantId) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
       }
       return NextResponse.json(user);
     }
 
-    // Get user by email
-    if (email) {
-      const user = await service.getUserByEmail(email);
-      if (!user) {
-        return NextResponse.json({ error: "User not found" }, { status: 404 });
-      }
-      // Verify the user belongs to the current tenant
-      if (userTenantId && user.tenantId?.toString() !== userTenantId) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-      }
-      return NextResponse.json(user);
-    }
-
-    // Get stats
-    if (searchParams.get("stats") === "true") {
-      const stats = await service.getUserStats();
-      return NextResponse.json(stats);
-    }
-
-    // Get all users - scoped to current user's tenant
-    const users = await service.getAllUsers({ search, tenantId: userTenantId, isActive, limit, offset });
+    // Get all users - scoped to current user's tenant (or filtered for messaging)
+    const users = await service.getAllUsers({ 
+      search, 
+      tenantId: targetTenantId, 
+      isActive, 
+      limit, 
+      offset,
+      roles: targetRoles
+    });
     return NextResponse.json(users);
   } catch (error) {
     console.error("Error fetching users:", error);

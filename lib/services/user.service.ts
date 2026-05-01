@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { users, roles, userRoles, permissions, rolePermissions } from "@/lib/db/schema";
-import { eq, like, desc, and } from "drizzle-orm";
+import { eq, like, desc, and, or, inArray } from "drizzle-orm";
 
 export class UserService {
   async createUser(data: {
@@ -49,6 +49,7 @@ export class UserService {
     isActive?: boolean;
     limit?: number;
     offset?: number;
+    roles?: string[];
   }) {
     let query = db.select().from(users);
 
@@ -66,6 +67,25 @@ export class UserService {
 
     if (options?.isActive !== undefined) {
       conditions.push(eq(users.isActive, options.isActive));
+    }
+
+    if (options?.roles && options.roles.length > 0) {
+      // Join with userRoles and roles to filter by role names
+      const userRoleIds = db
+        .select({ userId: userRoles.userId })
+        .from(userRoles)
+        .innerJoin(roles, eq(userRoles.roleId, roles.id))
+        .where(and(...options.roles.map(role => eq(roles.name, role))));
+      
+      // Actually we want OR for multiple roles
+      const roleConditions = options.roles.map(role => eq(roles.name, role));
+      const subquery = db
+        .select({ userId: userRoles.userId })
+        .from(userRoles)
+        .innerJoin(roles, eq(userRoles.roleId, roles.id))
+        .where(or(...roleConditions));
+
+      conditions.push(and(inArray(users.id, subquery)));
     }
 
     if (conditions.length > 0) {

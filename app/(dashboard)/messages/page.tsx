@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "@/stores/auth";
+import { useRouter, useSearchParams } from "next/navigation";
+import { socket } from "@/lib/socket";
 import {
   PageHeader,
   SectionCard,
@@ -42,17 +44,20 @@ import {
   Check,
   CheckCheck,
   Circle,
+  Plus,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
+interface User {
+  id: string;
+  fullName?: string;
+  email: string;
+}
+
 interface Conversation {
-  user: {
-    id: string;
-    fullName?: string;
-    email: string;
-  };
+  user: User;
   lastMessage: {
     id: string;
     message: string;
@@ -68,22 +73,16 @@ interface Message {
   message: string;
   createdAt: string;
   read: boolean;
-  sender: {
-    id: string;
-    fullName?: string;
-    email: string;
-  };
-  receiver: {
-    id: string;
-    fullName?: string;
-    email: string;
-  };
+  sender: User;
+  receiver: User;
 }
 
 export default function MessagesPage() {
   const { user } = useAuthStore();
+  const searchParams = useSearchParams();
+  const userIdFromQuery = searchParams.get("userId");
   const queryClient = useQueryClient();
-  const [selectedChat, setSelectedChat] = useState<string | null>(null);
+  const [selectedChat, setSelectedChat] = useState<string | null>(userIdFromQuery);
   const [messageInput, setMessageInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -92,10 +91,87 @@ export default function MessagesPage() {
     target: "",
     message: "",
   });
+  
+  const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+  const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get user's role to determine features
   const userRole = user?.role || "patient";
   const canBroadcast = ["super_admin", "hospital_admin"].includes(userRole);
+
+  // WebSocket Integration
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Connect and authenticate
+    socket.auth = { 
+      userId: user.id,
+      tenantId: user.tenantId,
+    };
+    socket.connect();
+
+    socket.on("connect", () => {
+      console.log("Connected to messaging socket");
+    });
+
+    socket.on("user-status", ({ userId, status }) => {
+      setOnlineUsers(prev => {
+        const next = new Set(prev);
+        if (status === "online") next.add(userId);
+        else next.delete(userId);
+        return next;
+      });
+    });
+
+    socket.on("user-typing", ({ userId, isTyping }) => {
+      setTypingUsers(prev => {
+        const next = new Set(prev);
+        if (isTyping) next.add(userId);
+        else next.delete(userId);
+        return next;
+      });
+    });
+
+    socket.on("notification", (payload) => {
+      if (payload.type === "message") {
+        queryClient.invalidateQueries({ queryKey: ["conversations"] });
+        if (payload.metadata?.senderId === selectedChat) {
+          queryClient.invalidateQueries({ queryKey: ["chat"] });
+        }
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [user?.id, selectedChat, queryClient]);
+
+  // Handle typing status
+  const handleTyping = () => {
+    if (!selectedChat) return;
+    
+    socket.emit("typing", { receiverId: selectedChat, isTyping: true });
+    
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit("typing", { receiverId: selectedChat, isTyping: false });
+    }, 3000);
+  };
+
+  // Fetch users for new chat
+  const { data: usersData, isLoading: usersLoading } = useQuery({
+    queryKey: ["users-search", userSearchQuery, user?.id],
+    queryFn: async () => {
+      const response = await fetch(`/api/users?search=${userSearchQuery}&messagingFilter=true`);
+      if (!response.ok) throw new Error("Failed to fetch users");
+      return response.json();
+    },
+    enabled: newChatDialogOpen && userSearchQuery.length > 2,
+  });
 
   // Fetch conversations
   const { data: conversationsData, isLoading: conversationsLoading } = useQuery({
@@ -106,7 +182,7 @@ export default function MessagesPage() {
       return response.json();
     },
     enabled: !!user?.id,
-    refetchInterval: 30000, // Refetch every 30 seconds
+    refetchInterval: 30000, // Fallback refetch
   });
 
   // Fetch chat messages
@@ -137,6 +213,7 @@ export default function MessagesPage() {
     },
     onSuccess: () => {
       setMessageInput("");
+      socket.emit("typing", { receiverId: selectedChat, isTyping: false });
       queryClient.invalidateQueries({ queryKey: ["chat"] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
@@ -170,6 +247,13 @@ export default function MessagesPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatData?.messages]);
 
+  // Handle userId from query parameter
+  useEffect(() => {
+    if (userIdFromQuery) {
+      setSelectedChat(userIdFromQuery);
+    }
+  }, [userIdFromQuery]);
+
   const conversations = conversationsData?.conversations || [];
   const messages = chatData?.messages || [];
 
@@ -178,7 +262,8 @@ export default function MessagesPage() {
     conv.user.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const selectedConversation = conversations.find(conv => conv.user.id === selectedChat);
+  const selectedConversation = conversations.find(conv => conv.user.id === selectedChat) || 
+    (chatData?.otherUser ? { user: chatData.otherUser } : null);
 
   const handleSendMessage = () => {
     if (messageInput.trim() && selectedChat) {
@@ -214,22 +299,34 @@ export default function MessagesPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-12rem)] flex bg-background">
-      {/* Conversations Sidebar */}
-      <div className="w-80 border-r border-border flex flex-col">
-        <div className="p-4 border-b border-border">
+    <div className="h-[calc(100vh-10rem)] flex gap-4">
+      {/* Conversations Sidebar - Styled as a Vertical Card */}
+      <div className="w-80 flex flex-col bg-card border border-border shadow-sm rounded-[2rem] overflow-hidden">
+        <div className="p-6 border-b border-border">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Messages</h2>
-            {canBroadcast && (
+            <h2 className="text-xl font-bold">Messages</h2>
+            <div className="flex gap-2">
               <Button
-                size="sm"
-                onClick={() => setBroadcastDialogOpen(true)}
-                className="inline-flex items-center gap-2"
+                size="icon"
+                variant="outline"
+                onClick={() => setNewChatDialogOpen(true)}
+                title="Start New Chat"
+                className="rounded-full"
               >
-                <Megaphone className="h-4 w-4" />
-                Broadcast
+                <Plus className="h-4 w-4" />
               </Button>
-            )}
+              {canBroadcast && (
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => setBroadcastDialogOpen(true)}
+                  title="Broadcast"
+                  className="rounded-full"
+                >
+                  <Megaphone className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="relative">
@@ -238,12 +335,12 @@ export default function MessagesPage() {
               placeholder="Search conversations..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
+              className="pl-10 rounded-full bg-muted/50 border-none focus-visible:ring-1"
             />
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
           {conversationsLoading ? (
             <div className="p-4 space-y-3">
               {[1, 2, 3, 4, 5].map(i => (
@@ -269,8 +366,10 @@ export default function MessagesPage() {
                   key={conversation.user.id}
                   onClick={() => setSelectedChat(conversation.user.id)}
                   className={cn(
-                    "w-full p-4 text-left hover:bg-muted/50 transition-colors",
-                    selectedChat === conversation.user.id && "bg-muted"
+                    "w-full px-4 py-3 text-left transition-all duration-200",
+                    selectedChat === conversation.user.id 
+                      ? "bg-primary/10 border-r-4 border-primary" 
+                      : "hover:bg-muted/50 border-r-4 border-transparent"
                   )}
                 >
                   <div className="flex items-center gap-3">
@@ -281,8 +380,9 @@ export default function MessagesPage() {
                           {(conversation.user.fullName || conversation.user.email).charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
-                      {/* Online status indicator - placeholder */}
-                      <div className="absolute -bottom-1 -right-1 h-3 w-3 bg-green-500 border-2 border-background rounded-full" />
+                      {onlineUsers.has(conversation.user.id) && (
+                        <div className="absolute -bottom-1 -right-1 h-3 w-3 bg-green-500 border-2 border-background rounded-full" />
+                      )}
                     </div>
 
                     <div className="flex-1 min-w-0">
@@ -314,42 +414,51 @@ export default function MessagesPage() {
         </div>
       </div>
 
-      {/* Chat Area */}
-      <div className="flex-1 flex flex-col">
+      {/* Chat Area - Styled as a Card */}
+      <div className="flex-1 flex flex-col bg-card border border-border shadow-sm rounded-[2rem] overflow-hidden">
         {selectedChat ? (
           <>
             {/* Chat Header */}
-            <div className="p-4 border-b border-border flex items-center justify-between">
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-muted/30">
               <div className="flex items-center gap-3">
                 <Avatar className="h-10 w-10">
                   <AvatarImage src="" />
                   <AvatarFallback>
-                    {(selectedConversation?.user.fullName || selectedConversation?.user.email || "").charAt(0).toUpperCase()}
+                    {(selectedConversation?.user.fullName || selectedConversation?.user.email || "U").charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
                 <div>
                   <p className="font-medium">
-                    {selectedConversation?.user.fullName || selectedConversation?.user.email}
+                    {selectedConversation?.user.fullName || selectedConversation?.user.email || "New Conversation"}
                   </p>
-                  <p className="text-sm text-muted-foreground">Online</p>
+                  <div className="flex items-center gap-2">
+                    {onlineUsers.has(selectedChat) ? (
+                      <span className="text-xs text-green-500 font-medium">Online</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Offline</span>
+                    )}
+                    {typingUsers.has(selectedChat) && (
+                      <span className="text-xs text-primary animate-pulse italic">typing...</span>
+                    )}
+                  </div>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="icon" className="rounded-full">
                   <Phone className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="icon" className="rounded-full">
                   <Video className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="icon" className="rounded-full">
                   <Info className="h-4 w-4" />
                 </Button>
               </div>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
               {chatLoading ? (
                 <div className="space-y-4">
                   {[1, 2, 3].map(i => (
@@ -374,10 +483,10 @@ export default function MessagesPage() {
                     >
                       <div
                         className={cn(
-                          "max-w-xs lg:max-w-md px-4 py-2 rounded-lg",
+                          "max-w-xs lg:max-w-md px-6 py-3 rounded-[2rem]",
                           isOwnMessage
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted"
+                            ? "bg-primary text-primary-foreground rounded-tr-none"
+                            : "bg-muted rounded-tl-none"
                         )}
                       >
                         <p className="text-sm">{message.message}</p>
@@ -402,21 +511,24 @@ export default function MessagesPage() {
             </div>
 
             {/* Message Input */}
-            <div className="p-4 border-t border-border">
+            <div className="p-6 border-t border-border bg-muted/10">
               <div className="flex items-end gap-2">
                 <Textarea
                   value={messageInput}
-                  onChange={(e) => setMessageInput(e.target.value)}
+                  onChange={(e) => {
+                    setMessageInput(e.target.value);
+                    handleTyping();
+                  }}
                   onKeyPress={handleKeyPress}
                   placeholder="Type a message..."
-                  className="min-h-[40px] max-h-32 resize-none"
+                  className="min-h-[44px] max-h-32 resize-none rounded-[1.5rem] bg-background py-3 px-4"
                   rows={1}
                 />
                 <Button
                   onClick={handleSendMessage}
                   disabled={!messageInput.trim() || sendMessageMutation.isPending}
                   size="sm"
-                  className="h-10 w-10 p-0"
+                  className="h-10 w-10 p-0 rounded-full"
                 >
                   <Send className="h-4 w-4" />
                 </Button>
@@ -428,9 +540,67 @@ export default function MessagesPage() {
             <MessageSquare className="h-16 w-16 mb-4" />
             <h3 className="text-lg font-medium mb-2">Select a conversation</h3>
             <p>Choose a conversation from the sidebar to start messaging</p>
+            <Button 
+              className="mt-4"
+              onClick={() => setNewChatDialogOpen(true)}
+            >
+              Start New Chat
+            </Button>
           </div>
         )}
       </div>
+
+      {/* New Chat Dialog */}
+      <Dialog open={newChatDialogOpen} onOpenChange={setNewChatDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start a New Conversation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search users by name or email..."
+                value={userSearchQuery}
+                onChange={(e) => setUserSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
+            <div className="max-h-60 overflow-y-auto space-y-2">
+              {usersLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-full" />)}
+                </div>
+              ) : usersData?.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-4">
+                  {userSearchQuery.length < 3 ? "Type at least 3 characters to search" : "No users found"}
+                </p>
+              ) : (
+                usersData?.map((u: any) => (
+                  <button
+                    key={u.id}
+                    onClick={() => {
+                      setSelectedChat(u.id);
+                      setNewChatDialogOpen(false);
+                      setUserSearchQuery("");
+                    }}
+                    className="w-full flex items-center gap-3 p-2 hover:bg-muted rounded-lg transition-colors"
+                  >
+                    <Avatar className="h-8 w-8">
+                      <AvatarFallback>{(u.fullName || u.email).charAt(0).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <div className="text-left">
+                      <p className="text-sm font-medium">{u.fullName || u.email}</p>
+                      <p className="text-xs text-muted-foreground">{u.email}</p>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Broadcast Dialog */}
       <Dialog open={broadcastDialogOpen} onOpenChange={setBroadcastDialogOpen}>
@@ -449,8 +619,20 @@ export default function MessagesPage() {
                   <SelectValue placeholder="Select target audience" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="tenant">All users in my hospital</SelectItem>
-                  <SelectItem value="role">All doctors</SelectItem>
+                  {userRole === "super_admin" ? (
+                    <>
+                      <SelectItem value="all">Every user in the system</SelectItem>
+                      <SelectItem value="hospital_admins">All Hospital Admins</SelectItem>
+                    </>
+                  ) : userRole === "hospital_admin" ? (
+                    <>
+                      <SelectItem value="tenant">All hospital employees</SelectItem>
+                      <SelectItem value="role:doctor">All doctors</SelectItem>
+                      <SelectItem value="role:nurse">All nurses</SelectItem>
+                    </>
+                  ) : (
+                    <SelectItem value="tenant">My organization</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>

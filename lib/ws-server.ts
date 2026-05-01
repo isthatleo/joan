@@ -11,17 +11,34 @@ const io = new Server(httpServer, {
 io.on("connection", (socket) => {
   const { tenantId, departmentId, userId } = socket.handshake.auth;
 
-  // Join rooms
-  socket.join(`tenant:${tenantId}`);
-  socket.join(`department:${departmentId}`);
-  socket.join(`user:${userId}`);
+  if (userId) {
+    // Join rooms
+    socket.join(`tenant:${tenantId}`);
+    socket.join(`department:${departmentId}`);
+    socket.join(`user:${userId}`);
 
-  console.log(`User ${userId} connected`);
+    // Track online status
+    redis.sadd("online-users", userId);
+    io.emit("user-status", { userId, status: "online" });
 
-  // Disconnect
-  socket.on("disconnect", () => {
-    console.log(`User ${userId} disconnected`);
-  });
+    console.log(`User ${userId} connected`);
+
+    // Handle typing status
+    socket.on("typing", (data) => {
+      // data: { receiverId, isTyping }
+      io.to(`user:${data.receiverId}`).emit("user-typing", {
+        userId,
+        isTyping: data.isTyping
+      });
+    });
+
+    // Disconnect
+    socket.on("disconnect", () => {
+      redis.srem("online-users", userId);
+      io.emit("user-status", { userId, status: "offline" });
+      console.log(`User ${userId} disconnected`);
+    });
+  }
 });
 
 // Redis subscriber
@@ -45,8 +62,8 @@ redisSub.subscribe("queue-events", (message) => {
 });
 
 redisSub.subscribe("notifications", (message) => {
-  const { userId, message: msg } = JSON.parse(message);
-  io.to(`user:${userId}`).emit("notification", { message: msg });
+  const { userId, message: msg, payload } = JSON.parse(message);
+  io.to(`user:${userId}`).emit("notification", payload || { message: msg });
 });
 
 httpServer.listen(4000, () => {
