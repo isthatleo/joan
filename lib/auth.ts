@@ -22,6 +22,8 @@ export const auth = betterAuth({
     allowedHosts: [
       "localhost:3000",
       "localhost:8080",
+      "*.localhost:3000",
+      "*.localhost:8080",
       "*.lovableproject.com",
       "*.lovable.app",
       "*.lovable.dev",
@@ -43,15 +45,22 @@ export const auth = betterAuth({
     "https://localhost:3000",
     "http://localhost:8080",
     "https://localhost:8080",
+    // Development tenant localhost origins
+    "http://*.localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://127.0.0.1:3000",
     "https://*.lovableproject.com",
     "https://*.lovable.app",
     "https://*.lovable.dev",
   ],
   advanced: {
-    useSecureCookies: true,
+    useSecureCookies: false,
     defaultCookieAttributes: {
-      sameSite: "none",
-      secure: true,
+      sameSite: "lax",
+      secure: false,
+    },
+    csrfProtection: {
+      enabled: true,
     },
   },
 });

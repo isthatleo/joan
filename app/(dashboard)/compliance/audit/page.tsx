@@ -354,7 +354,7 @@ export default function AuditLogsPage() {
       </div>
 
       {/* Compliance Alerts */}
-      {auditData?.stats?.complianceFlags > 0 && (
+      {auditData?.stats?.complianceFlags && auditData.stats.complianceFlags > 0 && (
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>

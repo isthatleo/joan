@@ -26,6 +26,7 @@ export const tenants = pgTable("tenants", {
   adminUserId: uuid("admin_user_id"),
   provisioningStatus: text("provisioning_status").default("pending"),
   provisionedAt: timestamp("provisioned_at"),
+  scheduledPurgeAt: timestamp("scheduled_purge_at"),
 }, (table) => ({
   tenantSlugIdx: index("tenant_slug_idx").on(table.slug),
 }));
@@ -55,6 +56,7 @@ export const users = pgTable("users", {
   dateOfBirth: timestamp("date_of_birth"),
   bio: text("bio"),
   avatar: text("avatar"),
+  role: text("role").default("patient"),
   isActive: boolean("is_active").default(true),
 }, (table) => ({
   userEmailIdx: index("user_email_idx").on(table.email),
@@ -66,6 +68,14 @@ export const userSettings = pgTable("user_settings", {
   settings: jsonb("settings").notNull(),
 }, (table) => ({
   userSettingsUserIdx: index("user_settings_user_idx").on(table.userId),
+}));
+
+export const doctorSettings = pgTable("doctor_settings", {
+  ...baseColumns,
+  userId: uuid("user_id").references(() => users.id).unique().notNull(),
+  settings: jsonb("settings").notNull(),
+}, (table) => ({
+  doctorSettingsUserIdx: index("doctor_settings_user_idx").on(table.userId),
 }));
 
 export const roles = pgTable("roles", {
@@ -301,6 +311,7 @@ export const notifications = pgTable("notifications", {
 // Audit
 export const auditLogs = pgTable("audit_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id"),
   userId: uuid("user_id"),
   action: text("action"),
   entity: text("entity"),
@@ -309,6 +320,20 @@ export const auditLogs = pgTable("audit_logs", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   auditUserIdx: index("audit_user_idx").on(table.userId),
+  auditTenantIdx: index("audit_tenant_idx").on(table.tenantId),
+}));
+
+// AI Logs
+export const aiLogs = pgTable("ai_logs", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id"),
+  patientId: uuid("patient_id").references(() => patients.id),
+  type: text("type").notNull(), // "summary", "diagnosis", etc.
+  input: jsonb("input"),
+  output: jsonb("output"),
+}, (table) => ({
+  aiLogPatientIdx: index("ai_log_patient_idx").on(table.patientId),
+  aiLogTenantIdx: index("ai_log_tenant_idx").on(table.tenantId),
 }));
 
 // Provisioning Runs
@@ -362,6 +387,116 @@ export const passwordResets = pgTable("password_resets", {
   passwordResetStatusIdx: index("password_reset_status_idx").on(table.status),
 }));
 
+// Platform-wide settings (singleton key/value)
+export const platformSettings = pgTable("platform_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  key: text("key").unique().notNull(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  updatedBy: uuid("updated_by"),
+});
+
+// Per-tenant settings
+export const tenantSettings = pgTable("tenant_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  key: text("key").notNull(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  updatedBy: uuid("updated_by"),
+}, (table) => ({
+  tenantSettingsTenantIdx: index("tenant_settings_tenant_idx").on(table.tenantId),
+}));
+
+// Guardians
+export const guardians = pgTable("guardians", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id"),
+  userId: uuid("user_id").references(() => users.id),
+  relationship: text("relationship"), // "parent", "guardian", "caregiver"
+}, (table) => ({
+  guardianUserIdx: index("guardian_user_idx").on(table.userId),
+  guardianTenantIdx: index("guardian_tenant_idx").on(table.tenantId),
+}));
+
+export const guardianPatients = pgTable("guardian_patients", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  guardianId: uuid("guardian_id").references(() => guardians.id),
+  patientId: uuid("patient_id").references(() => patients.id),
+  canViewRecords: boolean("can_view_records").default(true),
+  canSchedule: boolean("can_schedule").default(true),
+  emergencyContact: boolean("emergency_contact").default(false),
+}, (table) => ({
+  guardianPatientGuardianIdx: index("guardian_patient_guardian_idx").on(table.guardianId),
+  guardianPatientPatientIdx: index("guardian_patient_patient_idx").on(table.patientId),
+}));
+
+// Integrations & Communication
+export const integrations = pgTable("integrations", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  provider: text("provider").notNull(), // "twilio", "resend", "sendgrid", "stripe", "aws_s3", etc.
+  isActive: boolean("is_active").default(false).notNull(),
+  apiKeyEncrypted: text("api_key_encrypted"), // Store encrypted API keys
+  apiSecretEncrypted: text("api_secret_encrypted"),
+  accountId: text("account_id"),
+  accountName: text("account_name"),
+  config: jsonb("config").notNull(), // Provider-specific config
+  status: text("status").default("pending"), // "pending", "testing", "active", "error"
+  lastTestedAt: timestamp("last_tested_at"),
+  testError: text("test_error"),
+  metadata: jsonb("metadata"),
+}, (table) => ({
+  integrationTenantIdx: index("integration_tenant_idx").on(table.tenantId),
+  integrationProviderIdx: index("integration_provider_idx").on(table.provider),
+}));
+
+// System Metrics
+export const systemMetrics = pgTable("system_metrics", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  cpuUsage: integer("cpu_usage"),
+  memoryUsage: integer("memory_usage"),
+  diskUsage: integer("disk_usage"),
+  networkIo: integer("network_io"),
+  databaseSize: text("database_size"),
+  activeUsers: integer("active_users"),
+  apiResponseTime: integer("api_response_time"), // in milliseconds
+  uptime: text("uptime"), // percentage
+  timestamp: timestamp("timestamp").defaultNow(),
+}, (table) => ({
+  systemMetricsTenantIdx: index("system_metrics_tenant_idx").on(table.tenantId),
+  systemMetricsTimestampIdx: index("system_metrics_timestamp_idx").on(table.timestamp),
+}));
+
+// System Alerts
+export const systemAlerts = pgTable("system_alerts", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  title: text("title").notNull(),
+  message: text("message"),
+  severity: text("severity").default("info"), // "info", "warning", "critical"
+  type: text("type"), // "cpu_high", "memory_high", "disk_high", "maintenance", "custom"
+  isResolved: boolean("is_resolved").default(false),
+  resolvedAt: timestamp("resolved_at"),
+  metadata: jsonb("metadata"),
+}, (table) => ({
+  systemAlertsTenantIdx: index("system_alerts_tenant_idx").on(table.tenantId),
+  systemAlertsSeverityIdx: index("system_alerts_severity_idx").on(table.severity),
+}));
+
+// System Configuration
+export const systemConfigurations = pgTable("system_configurations", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  key: text("key").notNull(), // "cpu_threshold", "memory_threshold", "disk_threshold", "alert_email", "alert_webhook", etc.
+  value: jsonb("value").notNull(),
+  description: text("description"),
+}, (table) => ({
+  systemConfigTenantIdx: index("system_config_tenant_idx").on(table.tenantId),
+  systemConfigKeyIdx: index("system_config_key_idx").on(table.key),
+}));
+
 // Relations
 export const messagesRelations = relations(messages, ({ one }) => ({
   sender: one(users, {
@@ -384,4 +519,4 @@ export const userRolesRelations = relations(userRoles, ({ one }) => ({
     references: [roles.id],
   }),
 }));
-
+// Added a comment to force re-evaluation by the build system.

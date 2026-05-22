@@ -10,7 +10,7 @@ dotenv.config();
 
 const { neon } = require("@neondatabase/serverless");
 const { drizzle } = require("drizzle-orm/neon-http");
-const * as schema = require("./lib/db/schema");
+const { ...schema } = require("./lib/db/schema");
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
@@ -67,4 +67,3 @@ async function verifyAndSetup() {
 }
 
 verifyAndSetup();
-

@@ -1,0 +1,128 @@
+import type { AppRole } from "@/lib/rbac";
+
+const PRODUCTION_TENANT_DOMAINS = [
+  "joan.com",
+  "joan.vercel.app",
+  "joan-production.com",
+];
+
+export const TENANT_ROLE_HOME: Record<Exclude<AppRole, "super_admin">, string> = {
+  hospital_admin: "",
+  doctor: "doctor",
+  nurse: "nurse",
+  lab_technician: "lab",
+  pharmacist: "pharmacy",
+  accountant: "accountant",
+  receptionist: "reception",
+  patient: "my-health",
+  guardian: "guardian",
+};
+
+export const TENANT_ROUTE_ALIASES: Record<string, string> = {
+  "/hospital-admin": "",
+  "/admin": "",
+  "/doctor": "doctor",
+  "/nurse": "nurse",
+  "/lab": "lab",
+  "/lab-technician": "lab",
+  "/pharmacist": "pharmacy",
+  "/pharmacy": "pharmacy",
+  "/accountant": "accountant",
+  "/accounts": "accountant",
+  "/reception": "reception",
+  "/receptionist": "reception",
+  "/patient": "",
+  "/patient-portal": "",
+  "/guardian": "guardian",
+};
+
+export function getTenantSlugFromPath(pathname?: string | null) {
+  const match = pathname?.match(/^\/tenant\/([^/]+)/);
+  return match?.[1] || null;
+}
+
+export function isTenantLoginPath(pathname?: string | null) {
+  if (!pathname) return false;
+  return pathname === "/login" || /^\/tenant\/[^/]+\/login\/?$/.test(pathname) || /^\/tenant-login\/[^/]+\/?$/.test(pathname);
+}
+
+export function resolveTenantSlug(
+  pathname?: string | null,
+  hostname?: string | null,
+  fallbackSlug?: string | null
+) {
+  return getTenantSlugFromPath(pathname) || getTenantSubdomain(hostname) || fallbackSlug || null;
+}
+
+export function getTenantSubdomain(hostname?: string | null) {
+  const host = hostname?.split(":")[0].toLowerCase();
+  if (!host) return null;
+
+  if (host.endsWith(".localhost")) {
+    const parts = host.split(".");
+    return parts.length >= 2 ? parts[0] : null;
+  }
+
+  for (const domain of PRODUCTION_TENANT_DOMAINS) {
+    if (host.endsWith(`.${domain}`)) {
+      const subdomain = host.replace(`.${domain}`, "");
+      if (subdomain && subdomain !== "www") {
+        return subdomain;
+      }
+    }
+  }
+
+  return null;
+}
+
+export function isTenantSubdomainHost(hostname?: string | null, slug?: string | null) {
+  const subdomain = getTenantSubdomain(hostname);
+  if (!subdomain) return false;
+  return slug ? subdomain === slug.toLowerCase() : true;
+}
+
+export function getTenantDashboardPath(slug: string, role?: AppRole | null, hostname?: string | null) {
+  if (!role || role === "super_admin") {
+    if (role === "super_admin") return "/super-admin";
+    return isTenantSubdomainHost(hostname, slug) ? "/" : `/tenant/${slug}`;
+  }
+  const segment = TENANT_ROLE_HOME[role];
+  if (isTenantSubdomainHost(hostname, slug)) {
+    return segment ? `/${segment}` : "/";
+  }
+  return segment ? `/tenant/${slug}/${segment}` : `/tenant/${slug}`;
+}
+
+export function getTenantLoginPath(slug: string, hostname?: string | null) {
+  return isTenantSubdomainHost(hostname, slug) ? "/login" : `/tenant-login/${slug}`;
+}
+
+export function getResolvedTenantLoginPath(
+  pathname?: string | null,
+  hostname?: string | null,
+  fallbackSlug?: string | null
+) {
+  const slug = resolveTenantSlug(pathname, hostname, fallbackSlug);
+  return slug ? getTenantLoginPath(slug, hostname) : "/login";
+}
+
+export function withTenantPrefix(path: string, slug?: string | null, hostname?: string | null) {
+  if (!slug || !path.startsWith("/") || path.startsWith("/tenant/") || path.startsWith("/api/")) return path;
+  if (isTenantSubdomainHost(hostname, slug)) {
+    if (path === "/login") return "/login";
+    return path;
+  }
+  if (path === "/") return `/tenant/${slug}`;
+  if (path === "/login") return getTenantLoginPath(slug, hostname);
+  return `/tenant/${slug}${path}`;
+}
+
+export function resolveTenantAlias(slug: string, pathname: string) {
+  const tenantPrefix = `/tenant/${slug}`;
+  const rest = pathname.startsWith(tenantPrefix) ? pathname.slice(tenantPrefix.length) || "/" : pathname;
+  const [head, ...tail] = rest.split("/").filter(Boolean);
+  const alias = TENANT_ROUTE_ALIASES[`/${head || ""}`];
+  if (alias === undefined) return null;
+  const suffix = tail.length ? `/${tail.join("/")}` : "";
+  return alias ? `${tenantPrefix}/${alias}${suffix}` : tenantPrefix;
+}

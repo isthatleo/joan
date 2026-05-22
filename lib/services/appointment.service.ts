@@ -48,6 +48,10 @@ export class AppointmentService {
     });
   }
 
+  async getAppointmentsByTenant(tenantId: string) {
+    return db.select().from(appointments).where(eq(appointments.tenantId, tenantId));
+  }
+
   async sendAppointmentNotifications(appointment: any) {
     try {
       // Send in-app notification to patient

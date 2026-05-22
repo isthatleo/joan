@@ -47,6 +47,15 @@ export {
   CardFooter,
 } from "./card";
 export {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "./table";
+export {
   Alert,
   AlertDescription,
 } from "./alert";

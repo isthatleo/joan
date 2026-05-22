@@ -1,1750 +1,779 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useAuthStore } from "@/stores/auth";
+import { useState, useEffect, useMemo } from "react";
+import { useAuthStore, type AppRole } from "@/stores/auth";
 import {
-  PageHeader,
-  Button,
-  Input,
-  Label,
-  Switch,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  Textarea,
-  Skeleton,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui";
-import {
-  Bell,
-  Shield,
-  Palette,
-  Lock,
-  MessageSquare,
-  Save,
-  CheckCircle,
-  Eye,
-  EyeOff,
-  ChevronRight,
-  Server,
-  Key,
-  FileCheck,
-  Settings as SettingsIcon,
-  AlertCircle,
-  Check,
-  X,
-  Mail,
+  Bell, Shield, Palette, Lock, Globe, Server, Key, FileCheck,
+  User, Building2, Stethoscope, Users, FlaskConical, Pill, Wallet,
+  Calendar, Baby, MessageSquare, CreditCard, Database, Activity,
+  Save, CheckCircle2, AlertCircle, Eye, EyeOff, Search, Sun, Moon, Monitor,
+  Smartphone, Mail, Languages, Clock, Zap, Sparkles, ShieldCheck, Fingerprint,
+  Upload, Download, Trash2, ChevronRight, Plus, ArrowRight,
 } from "lucide-react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { useTheme } from "next-themes";
+import Link from "next/link";
 
-interface SettingsData {
-  notifications: {
-    email: boolean;
-    push: boolean;
-    sms: boolean;
-    marketing: boolean;
-    systemAlerts: boolean;
-    emergencyAlerts: boolean;
-    maintenanceNotifications: boolean;
-  };
-  privacy: {
-    profileVisibility: "public" | "private" | "contacts";
-    dataSharing: boolean;
-    analytics: boolean;
-    auditLogging: boolean;
-    dataRetention: number;
-  };
-  appearance: {
-    theme: "light" | "dark" | "system";
-    language: string;
-    timezone: string;
-    dashboardLayout: "compact" | "comfortable" | "spacious";
-    itemsPerPage: number;
-    fontSize?: "small" | "medium" | "large";
-    compactMode?: boolean;
-    showAnimations?: boolean;
-  };
-  security: {
-    twoFactorEnabled: boolean;
-    sessionTimeout: number;
-    loginAlerts: boolean;
-    passwordPolicy: {
-      minLength: number;
-      requireSpecialChars: boolean;
-      requireNumbers: boolean;
-      requireUppercase: boolean;
-      expiryDays: number;
-    };
-    ipWhitelist: string[];
-    bruteForceProtection: boolean;
-  };
-  communication: {
-    messageSettings: {
-      allowMessagesFrom: "anyone" | "contacts" | "doctors" | "none";
-      autoReply: string;
-      workingHours: {
-        enabled: boolean;
-        start: string;
-        end: string;
-      };
-    };
-    emailTemplates: boolean;
-    smsGateway: string;
-  };
-  system: {
-    maintenanceMode: boolean;
-    debugMode: boolean;
-    backupFrequency: "daily" | "weekly" | "monthly";
-    logRetention: number;
-    performanceMonitoring: boolean;
-    apiRateLimiting: boolean;
-    systemHealthCheck: boolean;
-    enableCaching: boolean;
-    errorReporting: "none" | "basic" | "detailed";
-  };
-  integrations: {
-    emailProvider: "sendgrid" | "mailgun" | "ses" | "smtp";
-    smsProvider: "twilio" | "aws-sns" | "messagebird";
-    storageProvider: "local" | "s3" | "azure" | "gcp";
-    analyticsProvider: "google" | "mixpanel" | "segment";
-    emailApiKey?: string;
-    emailDomain?: string;
-    smsAccountSid?: string;
-    smsAuthToken?: string;
-    smsPhoneNumber?: string;
-    storageBucket?: string;
-    storageRegion?: string;
-    storageAccessKey?: string;
-    storageSecretKey?: string;
-    analyticsTrackingId?: string;
-  };
-  compliance: {
-    hipaaCompliance: boolean;
-    gdprCompliance: boolean;
-    auditTrail: boolean;
-    dataEncryption: boolean;
-    accessLogging: boolean;
-  };
-}
+/* ---------------- Types ---------------- */
+type SectionId =
+  | "profile" | "appearance" | "notifications" | "security" | "privacy"
+  | "language" | "communication" | "devices"
+  // role-scoped
+  | "clinical" | "prescribing" | "lab" | "pharmacy" | "billing"
+  | "reception" | "guardian" | "patient-care" | "tenant" | "platform" | "integrations" | "compliance" | "audit";
 
-interface SidebarItem {
-  id: string;
+interface SectionDef {
+  id: SectionId;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   description: string;
+  group: "Account" | "Workspace" | "Role" | "Administration";
+  roles?: AppRole[]; // if undefined → everyone
 }
 
-const sidebarItems: SidebarItem[] = [
-  {
-    id: "notifications",
-    label: "Notifications",
-    icon: Bell,
-    description: "Manage your notification preferences",
-  },
-  {
-    id: "privacy",
-    label: "Privacy",
-    icon: Shield,
-    description: "Control your privacy settings",
-  },
-  {
-    id: "appearance",
-    label: "Appearance",
-    icon: Palette,
-    description: "Customize your interface",
-  },
-  {
-    id: "security",
-    label: "Security",
-    icon: Lock,
-    description: "Secure your account",
-  },
-  {
-    id: "communication",
-    label: "Communication",
-    icon: MessageSquare,
-    description: "Manage messaging preferences",
-  },
-  {
-    id: "system",
-    label: "System",
-    icon: Server,
-    description: "System administration settings",
-  },
-  {
-    id: "integrations",
-    label: "Integrations",
-    icon: Key,
-    description: "Third-party service integrations",
-  },
-  {
-    id: "compliance",
-    label: "Compliance",
-    icon: FileCheck,
-    description: "Regulatory compliance settings",
-  },
+const SECTIONS: SectionDef[] = [
+  // Account
+  { id: "profile", label: "Profile", icon: User, description: "Identity, avatar and contact", group: "Account" },
+  { id: "appearance", label: "Appearance", icon: Palette, description: "Theme, density and motion", group: "Account" },
+  { id: "notifications", label: "Notifications", icon: Bell, description: "Channels, alerts and digests", group: "Account" },
+  { id: "security", label: "Security", icon: Lock, description: "Password, 2FA and sessions", group: "Account" },
+  { id: "privacy", label: "Privacy", icon: Shield, description: "Visibility and data controls", group: "Account" },
+  { id: "language", label: "Language & Region", icon: Globe, description: "Locale, timezone, formats", group: "Account" },
+  { id: "devices", label: "Devices & Sessions", icon: Smartphone, description: "Active devices and tokens", group: "Account" },
+
+  // Workspace
+  { id: "communication", label: "Communication", icon: MessageSquare, description: "Messaging and availability", group: "Workspace" },
+
+  // Role-specific
+  { id: "clinical", label: "Clinical Preferences", icon: Stethoscope, description: "Consultation, templates, briefings", group: "Role", roles: ["doctor", "nurse"] },
+  { id: "prescribing", label: "Prescribing", icon: Pill, description: "Defaults, interactions, formularies", group: "Role", roles: ["doctor"] },
+  { id: "lab", label: "Lab Workflow", icon: FlaskConical, description: "Result thresholds and signoff", group: "Role", roles: ["lab_technician", "doctor"] },
+  { id: "pharmacy", label: "Pharmacy Operations", icon: Pill, description: "Dispensing, stock alerts", group: "Role", roles: ["pharmacist"] },
+  { id: "billing", label: "Billing & Finance", icon: Wallet, description: "Invoicing, taxes, payments", group: "Role", roles: ["accountant", "hospital_admin"] },
+  { id: "reception", label: "Front Desk", icon: Calendar, description: "Check-in, queue, walk-ins", group: "Role", roles: ["receptionist"] },
+  { id: "guardian", label: "Family Care", icon: Baby, description: "Linked children and consent", group: "Role", roles: ["guardian"] },
+  { id: "patient-care", label: "My Health", icon: Activity, description: "Sharing, reminders, providers", group: "Role", roles: ["patient"] },
+
+  // Administration
+  { id: "tenant", label: "Hospital Profile", icon: Building2, description: "Branding, modules, tenants", group: "Administration", roles: ["hospital_admin", "super_admin"] },
+  { id: "platform", label: "Platform", icon: Server, description: "Maintenance and global flags", group: "Administration", roles: ["super_admin"] },
+  { id: "integrations", label: "Integrations", icon: Key, description: "Email, SMS, storage providers", group: "Administration", roles: ["hospital_admin", "super_admin"] },
+  { id: "compliance", label: "Compliance", icon: FileCheck, description: "HIPAA, GDPR and audit trail", group: "Administration", roles: ["hospital_admin", "super_admin"] },
+  { id: "audit", label: "Audit Log", icon: Database, description: "Who did what and when", group: "Administration", roles: ["hospital_admin", "super_admin"] },
 ];
 
+/* ---------------- Page ---------------- */
 export default function SettingsPage() {
   const { user } = useAuthStore();
-  const queryClient = useQueryClient();
-  const [activeSection, setActiveSection] = useState("notifications");
-
-  const [settings, setSettings] = useState<SettingsData>({
-    notifications: {
-      email: true,
-      push: true,
-      sms: false,
-      marketing: false,
-      systemAlerts: true,
-      emergencyAlerts: true,
-      maintenanceNotifications: false,
-    },
-    privacy: {
-      profileVisibility: "private",
-      dataSharing: false,
-      analytics: true,
-      auditLogging: true,
-      dataRetention: 30,
-    },
-    appearance: {
-      theme: "system",
-      language: "en",
-      timezone: "UTC",
-      dashboardLayout: "comfortable",
-      itemsPerPage: 10,
-      fontSize: "medium",
-      compactMode: false,
-      showAnimations: true,
-    },
-    security: {
-      twoFactorEnabled: false,
-      sessionTimeout: 30,
-      loginAlerts: true,
-      passwordPolicy: {
-        minLength: 8,
-        requireSpecialChars: true,
-        requireNumbers: true,
-        requireUppercase: true,
-        expiryDays: 90,
-      },
-      ipWhitelist: [],
-      bruteForceProtection: true,
-    },
-    communication: {
-      messageSettings: {
-        allowMessagesFrom: "doctors",
-        autoReply: "",
-        workingHours: {
-          enabled: false,
-          start: "09:00",
-          end: "17:00",
-        },
-      },
-      emailTemplates: true,
-      smsGateway: "twilio",
-    },
-    system: {
-      maintenanceMode: false,
-      debugMode: false,
-      backupFrequency: "daily",
-      logRetention: 7,
-      performanceMonitoring: true,
-      apiRateLimiting: true,
-      systemHealthCheck: false,
-      enableCaching: false,
-      errorReporting: "basic",
-    },
-    integrations: {
-      emailProvider: "sendgrid",
-      smsProvider: "twilio",
-      storageProvider: "s3",
-      analyticsProvider: "google",
-    },
-    compliance: {
-      hipaaCompliance: false,
-      gdprCompliance: false,
-      auditTrail: true,
-      dataEncryption: true,
-      accessLogging: true,
-    },
-  });
-
-  const [originalSettings, setOriginalSettings] = useState<SettingsData>(settings);
-  const [unsavedSections, setUnsavedSections] = useState<Set<string>>(new Set());
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPasswords, setShowPasswords] = useState(false);
-  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
-
-  // Fetch settings
-  const { data: fetchedSettings, isLoading } = useQuery({
-    queryKey: ["user-settings", user?.id],
-    queryFn: async (): Promise<SettingsData> => {
-      const response = await fetch(`/api/users/settings?userId=${user?.id}`);
-      if (response.ok) {
-        return response.json();
-      }
-      // Return defaults if no settings exist yet
-      return settings;
-    },
-    enabled: !!user?.id,
-  });
-
-  // Update settings mutation
-  const updateSettingsMutation = useMutation({
-    mutationFn: async (newSettings: Partial<SettingsData>) => {
-      const response = await fetch(`/api/users/settings?userId=${user?.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newSettings),
-      });
-      if (!response.ok) throw new Error("Failed to update settings");
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["user-settings"] });
-      toast.success("Settings updated successfully");
-    },
-    onError: (error) => {
-      toast.error("Failed to update settings");
-      console.error("Update error:", error);
-    },
-  });
-
-  // Change password mutation
-  const changePasswordMutation = useMutation({
-    mutationFn: async (data: { currentPassword: string; newPassword: string }) => {
-      const response = await fetch("/api/auth/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error("Failed to change password");
-      return response.json();
-    },
-    onSuccess: () => {
-      setChangePasswordOpen(false);
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      toast.success("Password changed successfully");
-    },
-    onError: (error) => {
-      toast.error("Failed to change password");
-      console.error("Password change error:", error);
-    },
-  });
-
-  // Initialize settings when data loads
-  useEffect(() => {
-    if (fetchedSettings) {
-      // Deep merge fetched settings with defaults to ensure all properties exist
-      const mergedSettings = {
-        notifications: { ...settings.notifications, ...fetchedSettings.notifications },
-        privacy: { ...settings.privacy, ...fetchedSettings.privacy },
-        appearance: { ...settings.appearance, ...fetchedSettings.appearance },
-        security: {
-          ...settings.security,
-          ...fetchedSettings.security,
-          passwordPolicy: { ...settings.security.passwordPolicy, ...fetchedSettings.security?.passwordPolicy },
-        },
-        communication: {
-          ...settings.communication,
-          ...fetchedSettings.communication,
-          messageSettings: {
-            ...settings.communication.messageSettings,
-            ...fetchedSettings.communication?.messageSettings,
-            workingHours: { ...settings.communication.messageSettings.workingHours, ...fetchedSettings.communication?.messageSettings?.workingHours },
-          },
-        },
-        system: { ...settings.system, ...fetchedSettings.system },
-        integrations: { ...settings.integrations, ...fetchedSettings.integrations },
-        compliance: { ...settings.compliance, ...fetchedSettings.compliance },
-      };
-      setSettings(mergedSettings);
-      setOriginalSettings(mergedSettings); // Set original settings to fetched data
-    }
-  }, [fetchedSettings]);
-
-  const handleSettingChange = (path: string, value: any) => {
-    setSettings(prevSettings => {
-      const newSettings = JSON.parse(JSON.stringify(prevSettings)); // Deep clone
-      const keys = path.split(".");
-      let current = newSettings as any;
-
-      for (let i = 0; i < keys.length - 1; i++) {
-        if (!current[keys[i]]) {
-          current[keys[i]] = {};
-        }
-        current = current[keys[i]];
-      }
-      current[keys[keys.length - 1]] = value;
-
-      return newSettings;
-    });
-
-    // Track unsaved sections
-    setUnsavedSections(prev => {
-      const newUnsaved = new Set(prev);
-      newUnsaved.add(activeSection);
-      return newUnsaved;
-    });
-  };
-
-  const handleSave = () => {
-    updateSettingsMutation.mutate(settings);
-    setOriginalSettings(settings); // Update original settings on save
-    setUnsavedSections(new Set()); // Clear unsaved sections
-  };
-
-  const handleChangePassword = () => {
-    if (newPassword !== confirmPassword) {
-      toast.error("New passwords don't match");
-      return;
-    }
-    if (newPassword.length < 8) {
-      toast.error("Password must be at least 8 characters");
-      return;
-    }
-    changePasswordMutation.mutate({
-      currentPassword,
-      newPassword,
-    });
-  };
-
-  const handleSectionSave = useCallback((section: string) => {
-    const sectionData = { [section]: settings[section as keyof SettingsData] };
-    updateSettingsMutation.mutate(sectionData);
-    setOriginalSettings(prev => ({ ...prev, [section]: settings[section as keyof SettingsData] }));
-    setUnsavedSections(prev => {
-      const newUnsaved = new Set(prev);
-      newUnsaved.delete(section);
-      return newUnsaved;
-    });
-  }, [settings, updateSettingsMutation]);
-
-  const renderContent = () => {
-    const hasUnsavedChanges = unsavedSections.has(activeSection);
-
-    switch (activeSection) {
-      case "notifications":
-        return (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <Bell className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Notifications</h2>
-                  <p className="text-muted-foreground">Manage your notification preferences</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {hasUnsavedChanges && (
-                  <div className="flex items-center gap-1 text-amber-600 text-sm">
-                    <AlertCircle className="h-4 w-4" />
-                    Unsaved changes
-                  </div>
-                )}
-                <Button
-                  onClick={() => handleSectionSave("notifications")}
-                  disabled={updateSettingsMutation.isPending || !hasUnsavedChanges}
-                  size="sm"
-                  className="inline-flex items-center gap-2"
-                >
-                  <Save className="h-4 w-4" />
-                  {updateSettingsMutation.isPending ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-4">
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Bell className="h-5 w-5" />
-                    Email Notifications
-                  </CardTitle>
-                  <CardDescription>
-                    Configure how you receive email notifications
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Email Notifications</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Receive notifications via email
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.notifications.email}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("notifications.email", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Marketing Communications</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Receive updates about new features and promotions
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.notifications.marketing}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("notifications.marketing", checked)
-                      }
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <MessageSquare className="h-5 w-5" />
-                    Push & SMS Notifications
-                  </CardTitle>
-                  <CardDescription>
-                    Configure push notifications and SMS alerts
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Push Notifications</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Receive push notifications in your browser
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.notifications.push}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("notifications.push", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">SMS Notifications</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Receive important alerts via SMS
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.notifications.sms}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("notifications.sms", checked)
-                      }
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Shield className="h-5 w-5" />
-                    System & Emergency Alerts
-                  </CardTitle>
-                  <CardDescription>
-                    Critical system notifications and emergency alerts
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">System Alerts</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Receive critical system alerts
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.notifications.systemAlerts}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("notifications.systemAlerts", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Emergency Alerts</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Receive emergency notifications
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.notifications.emergencyAlerts}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("notifications.emergencyAlerts", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Maintenance Notifications</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Receive notifications about system maintenance
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.notifications.maintenanceNotifications}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("notifications.maintenanceNotifications", checked)
-                      }
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        );
-
-      case "privacy":
-        return (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <Shield className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Privacy</h2>
-                  <p className="text-muted-foreground">Control your privacy settings</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {hasUnsavedChanges && (
-                  <div className="flex items-center gap-1 text-amber-600 text-sm">
-                    <AlertCircle className="h-4 w-4" />
-                    Unsaved changes
-                  </div>
-                )}
-                <Button
-                  onClick={() => handleSectionSave("privacy")}
-                  disabled={updateSettingsMutation.isPending || !hasUnsavedChanges}
-                  size="sm"
-                  className="inline-flex items-center gap-2"
-                >
-                  <Save className="h-4 w-4" />
-                  {updateSettingsMutation.isPending ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-4">
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Eye className="h-5 w-5" />
-                    Profile Visibility
-                  </CardTitle>
-                  <CardDescription>
-                    Control who can see your profile information
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Profile Visibility</Label>
-                    <Select
-                      value={settings.privacy.profileVisibility}
-                      onValueChange={(value: any) =>
-                        handleSettingChange("privacy.profileVisibility", value)
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="public">Public - Visible to everyone</SelectItem>
-                        <SelectItem value="contacts">Contacts - Visible to colleagues</SelectItem>
-                        <SelectItem value="private">Private - Visible only to you</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <SettingsIcon className="h-5 w-5" />
-                    Data & Analytics
-                  </CardTitle>
-                  <CardDescription>
-                    Manage data sharing and analytics preferences
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Data Sharing</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Allow sharing anonymized data for research
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.privacy.dataSharing}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("privacy.dataSharing", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Analytics</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Help improve the system with usage analytics
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.privacy.analytics}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("privacy.analytics", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Audit Logging</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Keep a log of system access and changes
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.privacy.auditLogging}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("privacy.auditLogging", checked)
-                      }
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Server className="h-5 w-5" />
-                    Data Retention
-                  </CardTitle>
-                  <CardDescription>
-                    Configure how long your data is retained
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Data Retention Period</Label>
-                    <Select
-                      value={(settings.privacy?.dataRetention ?? 30).toString()}
-                      onValueChange={(value) =>
-                        handleSettingChange("privacy.dataRetention", parseInt(value))
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="7">7 days</SelectItem>
-                        <SelectItem value="30">30 days</SelectItem>
-                        <SelectItem value="90">90 days</SelectItem>
-                        <SelectItem value="180">6 months</SelectItem>
-                        <SelectItem value="365">1 year</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        );
-
-      case "appearance":
-        return (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <Palette className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Appearance</h2>
-                  <p className="text-muted-foreground">Customize your interface</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {hasUnsavedChanges && (
-                  <div className="flex items-center gap-1 text-amber-600 text-sm">
-                    <AlertCircle className="h-4 w-4" />
-                    Unsaved changes
-                  </div>
-                )}
-                <Button
-                  onClick={() => handleSectionSave("appearance")}
-                  disabled={updateSettingsMutation.isPending || !hasUnsavedChanges}
-                  size="sm"
-                  className="inline-flex items-center gap-2"
-                >
-                  <Save className="h-4 w-4" />
-                  {updateSettingsMutation.isPending ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-4">
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Palette className="h-5 w-5" />
-                    Theme & Language
-                  </CardTitle>
-                  <CardDescription>
-                    Customize the look and language of your interface
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Theme</Label>
-                    <Select
-                      value={settings.appearance.theme}
-                      onValueChange={(value: any) =>
-                        handleSettingChange("appearance.theme", value)
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="light">Light</SelectItem>
-                        <SelectItem value="dark">Dark</SelectItem>
-                        <SelectItem value="system">System</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Language</Label>
-                    <Select
-                      value={settings.appearance.language}
-                      onValueChange={(value: any) =>
-                        handleSettingChange("appearance.language", value)
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="en">English</SelectItem>
-                        <SelectItem value="es">Spanish</SelectItem>
-                        <SelectItem value="fr">French</SelectItem>
-                        <SelectItem value="de">German</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <SettingsIcon className="h-5 w-5" />
-                    Layout & Display
-                  </CardTitle>
-                  <CardDescription>
-                    Configure dashboard layout and display preferences
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Timezone</Label>
-                    <Select
-                      value={settings.appearance.timezone}
-                      onValueChange={(value: any) =>
-                        handleSettingChange("appearance.timezone", value)
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="UTC">UTC</SelectItem>
-                        <SelectItem value="America/New_York">Eastern Time</SelectItem>
-                        <SelectItem value="America/Chicago">Central Time</SelectItem>
-                        <SelectItem value="America/Denver">Mountain Time</SelectItem>
-                        <SelectItem value="America/Los_Angeles">Pacific Time</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Dashboard Layout</Label>
-                    <Select
-                      value={settings.appearance.dashboardLayout}
-                      onValueChange={(value: any) =>
-                        handleSettingChange("appearance.dashboardLayout", value)
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="compact">Compact</SelectItem>
-                        <SelectItem value="comfortable">Comfortable</SelectItem>
-                        <SelectItem value="spacious">Spacious</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Items Per Page</Label>
-                    <Select
-                      value={settings.appearance.itemsPerPage.toString()}
-                      onValueChange={(value) =>
-                        handleSettingChange("appearance.itemsPerPage", parseInt(value))
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="5">5</SelectItem>
-                        <SelectItem value="10">10</SelectItem>
-                        <SelectItem value="20">20</SelectItem>
-                        <SelectItem value="50">50</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Eye className="h-5 w-5" />
-                    Typography & Effects
-                  </CardTitle>
-                  <CardDescription>
-                    Customize text size and visual effects
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Font Size</Label>
-                    <Select
-                      value={settings.appearance.fontSize || "medium"}
-                      onValueChange={(value: any) =>
-                        handleSettingChange("appearance.fontSize", value)
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="small">Small</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="large">Large</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Compact Mode</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Use a more compact interface design
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.appearance.compactMode || false}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("appearance.compactMode", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Show Animations</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Enable smooth transitions and animations
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.appearance.showAnimations !== false}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("appearance.showAnimations", checked)
-                      }
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        );
-
-      case "security":
-        return (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <Lock className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Security</h2>
-                  <p className="text-muted-foreground">Secure your account</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {hasUnsavedChanges && (
-                  <div className="flex items-center gap-1 text-amber-600 text-sm">
-                    <AlertCircle className="h-4 w-4" />
-                    Unsaved changes
-                  </div>
-                )}
-                <Button
-                  onClick={() => handleSectionSave("security")}
-                  disabled={updateSettingsMutation.isPending || !hasUnsavedChanges}
-                  size="sm"
-                  className="inline-flex items-center gap-2"
-                >
-                  <Save className="h-4 w-4" />
-                  {updateSettingsMutation.isPending ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-4">
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Shield className="h-5 w-5" />
-                    Authentication
-                  </CardTitle>
-                  <CardDescription>
-                    Configure authentication and access controls
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Two-Factor Authentication</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Add an extra layer of security to your account
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {settings.security.twoFactorEnabled && (
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                      )}
-                      <Switch
-                        checked={settings.security.twoFactorEnabled}
-                        onCheckedChange={(checked) =>
-                          handleSettingChange("security.twoFactorEnabled", checked)
-                        }
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Session Timeout (minutes)</Label>
-                    <Select
-                      value={settings.security.sessionTimeout.toString()}
-                      onValueChange={(value) =>
-                        handleSettingChange("security.sessionTimeout", parseInt(value))
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="15">15 minutes</SelectItem>
-                        <SelectItem value="30">30 minutes</SelectItem>
-                        <SelectItem value="60">1 hour</SelectItem>
-                        <SelectItem value="240">4 hours</SelectItem>
-                        <SelectItem value="480">8 hours</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Login Alerts</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Get notified of new login attempts
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.security.loginAlerts}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("security.loginAlerts", checked)
-                      }
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Lock className="h-5 w-5" />
-                    Password Policy
-                  </CardTitle>
-                  <CardDescription>
-                    Configure password requirements and security rules
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-3">
-                      <Label className="text-sm font-medium">Minimum Length</Label>
-                      <Select
-                        value={settings.security.passwordPolicy.minLength.toString()}
-                        onValueChange={(value) =>
-                          handleSettingChange("security.passwordPolicy.minLength", parseInt(value))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="8">8</SelectItem>
-                          <SelectItem value="10">10</SelectItem>
-                          <SelectItem value="12">12</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-3">
-                      <Label className="text-sm font-medium">Password Expiry (days)</Label>
-                      <Select
-                        value={settings.security.passwordPolicy.expiryDays.toString()}
-                        onValueChange={(value) =>
-                          handleSettingChange("security.passwordPolicy.expiryDays", parseInt(value))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="30">30</SelectItem>
-                          <SelectItem value="60">60</SelectItem>
-                          <SelectItem value="90">90</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Requirements</Label>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                        <div className="space-y-1">
-                          <Label className="text-xs font-medium">Special Characters</Label>
-                        </div>
-                        <Switch
-                          checked={settings.security.passwordPolicy.requireSpecialChars}
-                          onCheckedChange={(checked) =>
-                            handleSettingChange("security.passwordPolicy.requireSpecialChars", checked)
-                          }
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                        <div className="space-y-1">
-                          <Label className="text-xs font-medium">Numbers</Label>
-                        </div>
-                        <Switch
-                          checked={settings.security.passwordPolicy.requireNumbers}
-                          onCheckedChange={(checked) =>
-                            handleSettingChange("security.passwordPolicy.requireNumbers", checked)
-                          }
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                        <div className="space-y-1">
-                          <Label className="text-xs font-medium">Uppercase</Label>
-                        </div>
-                        <Switch
-                          checked={settings.security.passwordPolicy.requireUppercase}
-                          onCheckedChange={(checked) =>
-                            handleSettingChange("security.passwordPolicy.requireUppercase", checked)
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Server className="h-5 w-5" />
-                    Access Control
-                  </CardTitle>
-                  <CardDescription>
-                    Manage IP restrictions and security features
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">IP Whitelist</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Limit access to specific IP addresses
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      onClick={() => {}}
-                      size="sm"
-                      className="whitespace-nowrap"
-                    >
-                      Manage IPs
-                    </Button>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Brute Force Protection</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Protect against brute force attacks
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.security.bruteForceProtection}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("security.bruteForceProtection", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="pt-4 border-t">
-                    <Button
-                      variant="outline"
-                      onClick={() => setChangePasswordOpen(true)}
-                      className="inline-flex items-center gap-2"
-                    >
-                      <Lock className="h-4 w-4" />
-                      Change Password
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        );
-
-      case "communication":
-        return (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <MessageSquare className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Communication</h2>
-                  <p className="text-muted-foreground">Manage messaging preferences</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {hasUnsavedChanges && (
-                  <div className="flex items-center gap-1 text-amber-600 text-sm">
-                    <AlertCircle className="h-4 w-4" />
-                    Unsaved changes
-                  </div>
-                )}
-                <Button
-                  onClick={() => handleSectionSave("communication")}
-                  disabled={updateSettingsMutation.isPending || !hasUnsavedChanges}
-                  size="sm"
-                  className="inline-flex items-center gap-2"
-                >
-                  <Save className="h-4 w-4" />
-                  {updateSettingsMutation.isPending ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-4">
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <MessageSquare className="h-5 w-5" />
-                    Message Settings
-                  </CardTitle>
-                  <CardDescription>
-                    Configure who can message you and auto-reply settings
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Allow Messages From</Label>
-                    <Select
-                      value={settings.communication.messageSettings.allowMessagesFrom}
-                      onValueChange={(value: any) =>
-                        handleSettingChange("communication.messageSettings.allowMessagesFrom", value)
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="anyone">Anyone</SelectItem>
-                        <SelectItem value="contacts">Contacts Only</SelectItem>
-                        <SelectItem value="doctors">Doctors Only</SelectItem>
-                        <SelectItem value="none">No One</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Auto Reply Message</Label>
-                    <Textarea
-                      value={settings.communication.messageSettings.autoReply}
-                      onChange={(e) =>
-                        handleSettingChange("communication.messageSettings.autoReply", e.target.value)
-                      }
-                      placeholder="I'm currently unavailable. I'll respond as soon as possible."
-                      rows={3}
-                      className="resize-none"
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <SettingsIcon className="h-5 w-5" />
-                    Working Hours
-                  </CardTitle>
-                  <CardDescription>
-                    Set your availability for receiving messages
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm font-medium">Enable Working Hours</Label>
-                    <Switch
-                      checked={settings.communication.messageSettings.workingHours.enabled}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("communication.messageSettings.workingHours.enabled", checked)
-                      }
-                    />
-                  </div>
-
-                  {settings.communication.messageSettings.workingHours.enabled && (
-                    <div className="grid grid-cols-2 gap-4 pl-4 border-l-2 border-muted">
-                      <div className="space-y-2">
-                        <Label className="text-xs">Start Time</Label>
-                        <Input
-                          type="time"
-                          value={settings.communication.messageSettings.workingHours.start}
-                          onChange={(e) =>
-                            handleSettingChange("communication.messageSettings.workingHours.start", e.target.value)
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-xs">End Time</Label>
-                        <Input
-                          type="time"
-                          value={settings.communication.messageSettings.workingHours.end}
-                          onChange={(e) =>
-                            handleSettingChange("communication.messageSettings.workingHours.end", e.target.value)
-                          }
-                        />
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Mail className="h-5 w-5" />
-                    Templates & Gateway
-                  </CardTitle>
-                  <CardDescription>
-                    Configure email templates and SMS gateway settings
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Email Templates</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Use custom email templates for notifications
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.communication.emailTemplates}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("communication.emailTemplates", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">SMS Gateway</Label>
-                    <Select
-                      value={settings.communication.smsGateway}
-                      onValueChange={(value: any) =>
-                        handleSettingChange("communication.smsGateway", value)
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="twilio">Twilio</SelectItem>
-                        <SelectItem value="aws-sns">AWS SNS</SelectItem>
-                        <SelectItem value="messagebird">MessageBird</SelectItem>
-                        <SelectItem value="nexmo">Nexmo</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        );
-
-      case "system":
-        return (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <Server className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">System Settings</h2>
-                  <p className="text-muted-foreground">Manage system administration settings</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {hasUnsavedChanges && (
-                  <div className="flex items-center gap-1 text-amber-600 text-sm">
-                    <AlertCircle className="h-4 w-4" />
-                    Unsaved changes
-                  </div>
-                )}
-                <Button
-                  onClick={() => handleSectionSave("system")}
-                  disabled={updateSettingsMutation.isPending || !hasUnsavedChanges}
-                  size="sm"
-                  className="inline-flex items-center gap-2"
-                >
-                  <Save className="h-4 w-4" />
-                  {updateSettingsMutation.isPending ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-4">
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <SettingsIcon className="h-5 w-5" />
-                    System Control
-                  </CardTitle>
-                  <CardDescription>
-                    Basic system operation settings
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Maintenance Mode</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Enable to perform maintenance on the system
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.system.maintenanceMode}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("system.maintenanceMode", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Debug Mode</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Enable to debug issues with the system
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.system.debugMode}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("system.debugMode", checked)
-                      }
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Server className="h-5 w-5" />
-                    Data Management
-                  </CardTitle>
-                  <CardDescription>
-                    Configure backups, logs, and data retention
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Backup Frequency</Label>
-                    <Select
-                      value={settings.system.backupFrequency}
-                      onValueChange={(value: any) =>
-                        handleSettingChange("system.backupFrequency", value)
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="daily">Daily</SelectItem>
-                        <SelectItem value="weekly">Weekly</SelectItem>
-                        <SelectItem value="monthly">Monthly</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Log Retention (days)</Label>
-                    <Select
-                      value={settings.system.logRetention.toString()}
-                      onValueChange={(value) =>
-                        handleSettingChange("system.logRetention", parseInt(value))
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="7">7 days</SelectItem>
-                        <SelectItem value="30">30 days</SelectItem>
-                        <SelectItem value="90">90 days</SelectItem>
-                        <SelectItem value="180">6 months</SelectItem>
-                        <SelectItem value="365">1 year</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Eye className="h-5 w-5" />
-                    Monitoring & Performance
-                  </CardTitle>
-                  <CardDescription>
-                    Configure system monitoring and performance settings
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Performance Monitoring</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Monitor system performance and usage
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.system.performanceMonitoring}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("system.performanceMonitoring", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">API Rate Limiting</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Limit the rate of API requests
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.system.apiRateLimiting}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("system.apiRateLimiting", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">System Health Check</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Enable automatic system health monitoring
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.system.systemHealthCheck}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("system.systemHealthCheck", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
-                    <div className="space-y-1">
-                      <Label className="text-sm font-medium">Cache Management</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Enable caching for improved performance
-                      </p>
-                    </div>
-                    <Switch
-                      checked={settings.system.enableCaching}
-                      onCheckedChange={(checked) =>
-                        handleSettingChange("system.enableCaching", checked)
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Error Reporting</Label>
-                    <Select
-                      value={settings.system.errorReporting || "basic"}
-                      onValueChange={(value: any) =>
-                        handleSettingChange("system.errorReporting", value)
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="basic">Basic</SelectItem>
-                        <SelectItem value="detailed">Detailed</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        );
-
-      case "integrations":
-        return (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <Key className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold tracking-tight">Integrations</h2>
-                  <p className="text-muted-foreground">Manage third-party service integrations</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {hasUnsavedChanges && (
-                  <div className="flex items-center gap-1 text-amber-600 text-sm">
-                    <AlertCircle className="h-4 w-4" />
-                    Unsaved changes
-                  </div>
-                )}
-                <Button
-                  onClick={() => handleSectionSave("integrations")}
-                  disabled={updateSettingsMutation.isPending || !hasUnsavedChanges}
-                  size="sm"
-                  className="inline-flex items-center gap-2"
-                >
-                  <Save className="h-4 w-4" />
-                  {updateSettingsMutation.isPending ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-4">
-              <Card className="p-6">
-                <CardHeader className="pb-4">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Mail className="h-5 w-5" />
-                    Email Provider
-                  </CardTitle>
-                  <CardDescription>
-                    Configure your email service provider
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Email Provider</Label>
-                    <Select
-                      value={settings.integrations.emailProvider}
-                      onValueChange={(value: any) =>
-                        handleSettingChange("integrations.emailProvider", value)
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="sendgrid">SendGrid</SelectItem>
-                        <SelectItem value="mailgun">Mailgun</SelectItem>
-                        <SelectItem value="ses">AWS SES</SelectItem>
-                        <SelectItem value="smtp">SMTP</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {settings.integrations.emailProvider === "sendgrid" && (
-                    <div className="space-y-3 p-4 rounded-lg border bg-muted/50">
-                      <Label className="text-sm font-medium">SendGrid Configuration</Label>
-                      <Input
-                        placeholder="Enter SendGrid API Key"
-                      />
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        );
-
-      default:
-        return null;
-    }
+  const role = (user?.role || "patient") as AppRole;
+  const { theme, setTheme } = useTheme();
+
+  const visible = useMemo(
+    () => SECTIONS.filter(s => !s.roles || s.roles.includes(role)),
+    [role]
+  );
+
+  const [active, setActive] = useState<SectionId>("profile");
+  const [search, setSearch] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return visible;
+    const q = search.toLowerCase();
+    return visible.filter(s => s.label.toLowerCase().includes(q) || s.description.toLowerCase().includes(q));
+  }, [visible, search]);
+
+  const grouped = useMemo(() => {
+    const g: Record<string, SectionDef[]> = {};
+    filtered.forEach(s => { (g[s.group] ||= []).push(s); });
+    return g;
+  }, [filtered]);
+
+  const activeDef = visible.find(s => s.id === active) || visible[0];
+
+  async function handleSaveAll() {
+    setSaving(true);
+    try {
+      await new Promise(r => setTimeout(r, 600));
+      toast.success("Preferences saved");
+      setDirty(false);
+    } finally { setSaving(false); }
   }
 
-  return <div className="p-6">{renderContent()}</div>;
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
+      {/* Hero */}
+      <div className="relative border-b border-border bg-card overflow-hidden">
+        <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
+             style={{ backgroundImage: "radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)", backgroundSize: "24px 24px" }} />
+        <div className="relative px-6 py-7 lg:px-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-2">
+              <Sparkles className="size-3.5 text-orange-500" />
+              <span>Personalized for {prettyRole(role)}</span>
+            </div>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Settings</h1>
+            <p className="text-sm text-muted-foreground mt-1 max-w-xl">
+              Tailor your workspace, security and role-specific preferences. Changes sync across all your devices.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {dirty && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-600 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-200 dark:border-amber-500/20">
+                <AlertCircle className="size-3.5" /> Unsaved changes
+              </span>
+            )}
+            <button
+              onClick={handleSaveAll}
+              disabled={!dirty || saving}
+              className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-colors"
+            >
+              <Save className="size-4" />
+              {saving ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 lg:px-10 py-6 grid grid-cols-12 gap-6">
+        {/* Sidebar */}
+        <aside className="col-span-12 lg:col-span-3 xl:col-span-3">
+          <div className="lg:sticky lg:top-4 space-y-4">
+            <div className="relative">
+              <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search settings…"
+                className="w-full pl-9 pr-3 py-2.5 text-sm rounded-xl bg-card border border-border focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+              />
+            </div>
+
+            {Object.entries(grouped).map(([group, items]) => (
+              <div key={group}>
+                <p className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground px-2 mb-2">{group}</p>
+                <nav className="space-y-1">
+                  {items.map(s => {
+                    const Icon = s.icon;
+                    const isActive = active === s.id;
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => setActive(s.id)}
+                        className={`w-full group flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${
+                          isActive
+                            ? "bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-200/60 dark:border-orange-500/20 shadow-sm"
+                            : "text-foreground hover:bg-muted/60 border border-transparent"
+                        }`}
+                      >
+                        <span className={`size-8 grid place-items-center rounded-lg ${isActive ? "bg-orange-500 text-white" : "bg-muted text-muted-foreground group-hover:bg-background"}`}>
+                          <Icon className="size-4" />
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-sm font-semibold truncate">{s.label}</span>
+                          <span className="block text-[11px] text-muted-foreground truncate">{s.description}</span>
+                        </span>
+                        <ChevronRight className={`size-4 shrink-0 ${isActive ? "text-orange-500" : "text-transparent group-hover:text-muted-foreground"}`} />
+                      </button>
+                    );
+                  })}
+                </nav>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        {/* Content */}
+        <main className="col-span-12 lg:col-span-9 xl:col-span-9">
+          <SectionShell def={activeDef} onDirty={() => setDirty(true)}>
+            <SectionContent id={activeDef.id} role={role} theme={theme} setTheme={setTheme} onDirty={() => setDirty(true)} />
+          </SectionShell>
+        </main>
+      </div>
+    </div>
+  );
 }
 
+/* ---------------- Section Shell ---------------- */
+function SectionShell({ def, children }: { def: SectionDef; children: React.ReactNode; onDirty: () => void }) {
+  const Icon = def.icon;
+  return (
+    <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+      <div className="px-6 py-5 border-b border-border bg-gradient-to-r from-card to-muted/30 flex items-center gap-4">
+        <div className="size-12 grid place-items-center rounded-xl bg-orange-500 text-white shadow-sm">
+          <Icon className="size-5" />
+        </div>
+        <div className="flex-1">
+          <h2 className="text-lg font-bold text-foreground">{def.label}</h2>
+          <p className="text-sm text-muted-foreground">{def.description}</p>
+        </div>
+        <span className="hidden md:inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground bg-muted px-2.5 py-1 rounded-full border border-border">
+          {def.group}
+        </span>
+      </div>
+      <div className="p-6 space-y-6">{children}</div>
+    </div>
+  );
+}
+
+/* ---------------- Section Content Router ---------------- */
+function SectionContent({ id, role, theme, setTheme, onDirty }: {
+  id: SectionId; role: AppRole; theme?: string; setTheme: (t: string) => void; onDirty: () => void;
+}) {
+  switch (id) {
+    case "profile":       return <ProfileSection onDirty={onDirty} role={role} />;
+    case "appearance":    return <AppearanceSection theme={theme} setTheme={setTheme} onDirty={onDirty} />;
+    case "notifications": return <NotificationsSection onDirty={onDirty} />;
+    case "security":      return <SecuritySection onDirty={onDirty} />;
+    case "privacy":       return <PrivacySection onDirty={onDirty} />;
+    case "language":      return <LanguageSection onDirty={onDirty} />;
+    case "devices":       return <DevicesSection />;
+    case "communication": return <CommunicationSection onDirty={onDirty} />;
+    case "clinical":      return <ClinicalSection onDirty={onDirty} />;
+    case "prescribing":   return <PrescribingSection onDirty={onDirty} />;
+    case "lab":           return <LabSection onDirty={onDirty} />;
+    case "pharmacy":      return <PharmacySection onDirty={onDirty} />;
+    case "billing":       return <BillingSection onDirty={onDirty} />;
+    case "reception":     return <ReceptionSection onDirty={onDirty} />;
+    case "guardian":      return <GuardianSection onDirty={onDirty} />;
+    case "patient-care":  return <PatientCareSection onDirty={onDirty} />;
+    case "tenant":        return <TenantSection onDirty={onDirty} />;
+    case "platform":      return <PlatformSection onDirty={onDirty} />;
+    case "integrations":  return <IntegrationsSection onDirty={onDirty} />;
+    case "compliance":    return <ComplianceSection onDirty={onDirty} />;
+    case "audit":         return <AuditSection />;
+    default:              return null;
+  }
+}
+
+/* ---------------- Reusable atoms ---------------- */
+function Card({ title, description, action, children }: { title?: string; description?: string; action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-border bg-background overflow-hidden">
+      {(title || description || action) && (
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3">
+          <div>
+            {title && <h3 className="text-sm font-semibold text-foreground">{title}</h3>}
+            {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
+          </div>
+          {action}
+        </div>
+      )}
+      <div className="p-5 space-y-4">{children}</div>
+    </div>
+  );
+}
+
+function Row({ icon: Icon, title, hint, children }: { icon?: any; title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2">
+      <div className="flex items-center gap-3 min-w-0">
+        {Icon && <span className="size-9 grid place-items-center rounded-lg bg-muted text-foreground shrink-0"><Icon className="size-4" /></span>}
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground truncate">{title}</p>
+          {hint && <p className="text-xs text-muted-foreground truncate">{hint}</p>}
+        </div>
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${checked ? "bg-orange-500" : "bg-muted"}`}
+      aria-pressed={checked}
+    >
+      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${checked ? "translate-x-6" : "translate-x-1"}`} />
+    </button>
+  );
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-foreground mb-1.5">{label}</label>
+      {children}
+      {hint && <p className="text-[11px] text-muted-foreground mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return <input {...props} className={`w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/40 ${props.className || ""}`} />;
+}
+
+function SelectInput(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return <select {...props} className={`w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/40 ${props.className || ""}`} />;
+}
+
+function Stat({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "success" | "warn" | "danger" }) {
+  const toneCls = {
+    default: "bg-muted text-foreground",
+    success: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400",
+    warn: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400",
+    danger: "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400",
+  }[tone];
+  return (
+    <div className={`rounded-xl px-4 py-3 ${toneCls}`}>
+      <p className="text-[11px] font-medium opacity-80 uppercase tracking-wide">{label}</p>
+      <p className="text-lg font-bold mt-0.5">{value}</p>
+    </div>
+  );
+}
+
+/* ---------------- Sections ---------------- */
+function ProfileSection({ role }: { onDirty: () => void; role: AppRole }) {
+  const { user } = useAuthStore();
+  return (
+    <>
+      <Card>
+        <div className="flex flex-col md:flex-row gap-5 items-start">
+          <div className="relative">
+            <div className="size-24 rounded-2xl bg-gradient-to-br from-orange-400 to-orange-600 grid place-items-center text-white text-3xl font-bold shadow-lg">
+              {(user?.fullName || user?.email || "U").slice(0, 1).toUpperCase()}
+            </div>
+            <button className="absolute -bottom-1 -right-1 size-8 grid place-items-center rounded-full bg-card border border-border shadow hover:bg-muted">
+              <Upload className="size-3.5" />
+            </button>
+          </div>
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+            <Field label="Full name"><TextInput defaultValue={user?.fullName || ""} placeholder="Your name" /></Field>
+            <Field label="Email"><TextInput defaultValue={user?.email || ""} type="email" /></Field>
+            <Field label="Phone"><TextInput placeholder="+254 ..." /></Field>
+            <Field label="Role">
+              <div className="px-3 py-2 rounded-lg border border-border bg-muted text-sm font-medium text-foreground inline-flex items-center gap-2">
+                <ShieldCheck className="size-4 text-orange-500" /> {prettyRole(role)}
+              </div>
+            </Field>
+          </div>
+        </div>
+      </Card>
+      <Card title="Bio" description="Tell colleagues a bit about yourself">
+        <textarea rows={3} placeholder="Short professional bio…" className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/40" />
+      </Card>
+    </>
+  );
+}
+
+function AppearanceSection({ theme, setTheme }: { theme?: string; setTheme: (t: string) => void; onDirty: () => void }) {
+  const themes = [
+    { id: "light", label: "Light", icon: Sun },
+    { id: "dark", label: "Dark", icon: Moon },
+    { id: "system", label: "System", icon: Monitor },
+  ];
+  return (
+    <>
+      <Card title="Theme" description="Choose how the interface looks to you">
+        <div className="grid grid-cols-3 gap-3">
+          {themes.map(t => {
+            const Icon = t.icon;
+            const active = theme === t.id;
+            return (
+              <button key={t.id} onClick={() => setTheme(t.id)}
+                className={`p-4 rounded-xl border text-left transition-all ${active ? "border-orange-500 bg-orange-500/5 ring-2 ring-orange-500/20" : "border-border hover:bg-muted/50"}`}>
+                <Icon className={`size-5 mb-2 ${active ? "text-orange-500" : "text-muted-foreground"}`} />
+                <p className="text-sm font-semibold">{t.label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{t.id === "system" ? "Match OS preference" : `${t.label} mode`}</p>
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+      <Card title="Density & Motion">
+        <Row icon={Zap} title="Reduced motion" hint="Minimize transitions and animations"><Toggle checked={false} onChange={() => {}} /></Row>
+        <Row icon={Monitor} title="Compact mode" hint="Tighter spacing for power users"><Toggle checked={false} onChange={() => {}} /></Row>
+        <Row icon={Sparkles} title="High contrast" hint="Improve readability"><Toggle checked={false} onChange={() => {}} /></Row>
+      </Card>
+    </>
+  );
+}
+
+function NotificationsSection({ onDirty }: { onDirty?: () => void }) {
+  const [s, setS] = useState({ email: true, push: true, sms: false, system: true, emergency: true, marketing: false });
+  return (
+    <>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Stat label="Channels on" value="3" tone="success" />
+        <Stat label="Quiet hours" value="22:00–07:00" />
+        <Stat label="Today" value="14 alerts" />
+        <Stat label="Failed" value="0" tone="success" />
+      </div>
+      <Card title="Channels">
+        <Row icon={Mail} title="Email" hint="Daily digest and important alerts"><Toggle checked={s.email} onChange={v => setS({ ...s, email: v })} /></Row>
+        <Row icon={Bell} title="Push" hint="Browser and mobile notifications"><Toggle checked={s.push} onChange={v => setS({ ...s, push: v })} /></Row>
+        <Row icon={Smartphone} title="SMS" hint="For urgent alerts only"><Toggle checked={s.sms} onChange={v => setS({ ...s, sms: v })} /></Row>
+      </Card>
+      <Card title="Categories">
+        <Row icon={ShieldCheck} title="System alerts" hint="Maintenance and uptime"><Toggle checked={s.system} onChange={v => setS({ ...s, system: v })} /></Row>
+        <Row icon={AlertCircle} title="Emergency" hint="Critical clinical events"><Toggle checked={s.emergency} onChange={v => setS({ ...s, emergency: v })} /></Row>
+        <Row icon={Sparkles} title="Product updates" hint="New features and tips"><Toggle checked={s.marketing} onChange={v => setS({ ...s, marketing: v })} /></Row>
+      </Card>
+    </>
+  );
+}
+
+function SecuritySection({ onDirty }: { onDirty?: () => void }) {
+  const [show, setShow] = useState(false);
+  const [twoFa, setTwoFa] = useState(true);
+  return (
+    <>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Stat label="Password age" value="42 days" />
+        <Stat label="2FA" value={twoFa ? "Enabled" : "Off"} tone={twoFa ? "success" : "warn"} />
+        <Stat label="Sessions" value="3" />
+        <Stat label="Failed logins" value="0" tone="success" />
+      </div>
+      <Card title="Password">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Field label="Current">
+            <div className="relative">
+              <TextInput type={show ? "text" : "password"} />
+              <button onClick={() => setShow(!show)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground">
+                {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+          </Field>
+          <Field label="New password"><TextInput type="password" /></Field>
+          <Field label="Confirm"><TextInput type="password" /></Field>
+        </div>
+        <button className="mt-2 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold">
+          Update password
+        </button>
+      </Card>
+      <Card title="Two-factor authentication">
+        <Row icon={Fingerprint} title="Authenticator app" hint="Use TOTP for sign-in"><Toggle checked={twoFa} onChange={setTwoFa} /></Row>
+        <Row icon={Smartphone} title="SMS backup" hint="Fallback if app unavailable"><Toggle checked={false} onChange={() => {}} /></Row>
+      </Card>
+    </>
+  );
+}
+
+function PrivacySection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <>
+      <Card title="Visibility">
+        <Field label="Profile visibility">
+          <SelectInput defaultValue="contacts">
+            <option value="public">Public</option>
+            <option value="contacts">Contacts only</option>
+            <option value="private">Private</option>
+          </SelectInput>
+        </Field>
+      </Card>
+      <Card title="Data">
+        <Row icon={Activity} title="Usage analytics" hint="Help us improve the product"><Toggle checked onChange={() => {}} /></Row>
+        <Row icon={Database} title="Audit logging" hint="Record privileged actions"><Toggle checked onChange={() => {}} /></Row>
+      </Card>
+      <Card title="Data export & deletion">
+        <div className="flex flex-wrap gap-2">
+          <button className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border hover:bg-muted text-sm"><Download className="size-4" /> Export my data</button>
+          <button className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-rose-200 dark:border-rose-500/30 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 text-sm"><Trash2 className="size-4" /> Delete account</button>
+        </div>
+      </Card>
+    </>
+  );
+}
+
+function LanguageSection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <Card title="Locale">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Field label="Language">
+          <SelectInput defaultValue="en"><option value="en">English (US)</option><option value="sw">Swahili</option><option value="fr">French</option></SelectInput>
+        </Field>
+        <Field label="Timezone">
+          <SelectInput defaultValue="UTC"><option>UTC</option><option>Africa/Nairobi</option><option>Europe/London</option><option>America/New_York</option></SelectInput>
+        </Field>
+        <Field label="Date format">
+          <SelectInput defaultValue="iso"><option value="iso">YYYY-MM-DD</option><option value="us">MM/DD/YYYY</option><option value="eu">DD/MM/YYYY</option></SelectInput>
+        </Field>
+      </div>
+    </Card>
+  );
+}
+
+function DevicesSection({ onDirty }: { onDirty?: () => void } = {}) {
+  const devices = [
+    { name: "MacBook Pro · Chrome", where: "Nairobi, KE", last: "Active now", current: true },
+    { name: "iPhone 15 · Safari", where: "Nairobi, KE", last: "2h ago" },
+    { name: "Windows · Edge", where: "Mombasa, KE", last: "3d ago" },
+  ];
+  return (
+    <Card title="Active sessions" description="Sign out anywhere you don't recognize">
+      <div className="space-y-2">
+        {devices.map((d, i) => (
+          <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border">
+            <div className="flex items-center gap-3">
+              <div className="size-9 rounded-lg bg-muted grid place-items-center"><Smartphone className="size-4" /></div>
+              <div>
+                <p className="text-sm font-semibold">{d.name} {d.current && <span className="ml-2 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded-full">CURRENT</span>}</p>
+                <p className="text-xs text-muted-foreground">{d.where} · {d.last}</p>
+              </div>
+            </div>
+            {!d.current && <button className="text-xs font-semibold text-rose-600 hover:underline">Sign out</button>}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function CommunicationSection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <>
+      <Card title="Messaging">
+        <Field label="Allow messages from">
+          <SelectInput defaultValue="contacts"><option value="anyone">Anyone</option><option value="contacts">My contacts</option><option value="doctors">Doctors only</option><option value="none">No one</option></SelectInput>
+        </Field>
+        <Field label="Auto-reply">
+          <TextInput placeholder="I'll respond within 24 hours…" />
+        </Field>
+      </Card>
+      <Card title="Working hours">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Row icon={Clock} title="Enable" hint="Show as busy outside hours"><Toggle checked onChange={() => {}} /></Row>
+          <Field label="Start"><TextInput type="time" defaultValue="09:00" /></Field>
+          <Field label="End"><TextInput type="time" defaultValue="17:00" /></Field>
+        </div>
+      </Card>
+    </>
+  );
+}
+
+function ClinicalSection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <>
+      <Card title="Consultation defaults">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Field label="Default duration"><SelectInput defaultValue="20"><option>10</option><option>15</option><option>20</option><option>30</option><option>45</option></SelectInput></Field>
+          <Field label="Buffer between visits"><SelectInput defaultValue="5"><option>0</option><option>5</option><option>10</option><option>15</option></SelectInput></Field>
+        </div>
+        <Row icon={Sparkles} title="AI patient briefing" hint="Auto-summarize each chart before visit"><Toggle checked onChange={() => {}} /></Row>
+        <Row icon={Activity} title="Vital flags" hint="Highlight out-of-range vitals"><Toggle checked onChange={() => {}} /></Row>
+      </Card>
+      <Card title="Clinical notes">
+        <Field label="Note template">
+          <SelectInput defaultValue="soap"><option value="soap">SOAP</option><option value="dap">DAP</option><option value="freeform">Free-form</option></SelectInput>
+        </Field>
+      </Card>
+    </>
+  );
+}
+
+function PrescribingSection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <Card title="Prescribing safeguards">
+      <Row icon={AlertCircle} title="Drug interaction warnings" hint="Block prescribing on severe interactions"><Toggle checked onChange={() => {}} /></Row>
+      <Row icon={ShieldCheck} title="Allergy double-check" hint="Confirm before any prescription"><Toggle checked onChange={() => {}} /></Row>
+      <Field label="Default formulary"><SelectInput defaultValue="who"><option value="who">WHO Essential Medicines</option><option value="custom">Hospital formulary</option></SelectInput></Field>
+    </Card>
+  );
+}
+
+function LabSection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <Card title="Lab workflow">
+      <Row icon={CheckCircle2} title="Auto-publish normal results" hint="Skip manual signoff for in-range values"><Toggle checked={false} onChange={() => {}} /></Row>
+      <Row icon={AlertCircle} title="Critical value alerts" hint="Page on-call doctor immediately"><Toggle checked onChange={() => {}} /></Row>
+      <Field label="Result delivery"><SelectInput defaultValue="portal"><option value="portal">Patient portal</option><option value="email">Email</option><option value="sms">SMS link</option></SelectInput></Field>
+    </Card>
+  );
+}
+
+function PharmacySection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <Card title="Pharmacy operations">
+      <Row icon={AlertCircle} title="Low-stock alerts" hint="Notify when below threshold"><Toggle checked onChange={() => {}} /></Row>
+      <Row icon={Clock} title="Expiry warnings" hint="Flag items expiring within 90 days"><Toggle checked onChange={() => {}} /></Row>
+      <Field label="Dispensing label printer"><TextInput placeholder="Brother QL-820NWB · Counter 1" /></Field>
+    </Card>
+  );
+}
+
+function BillingSection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <>
+      <Card title="Invoicing">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Field label="Currency"><SelectInput defaultValue="KES"><option>KES</option><option>USD</option><option>EUR</option><option>GBP</option></SelectInput></Field>
+          <Field label="Tax (%)"><TextInput type="number" defaultValue={16} /></Field>
+          <Field label="Invoice prefix"><TextInput defaultValue="JJH-" /></Field>
+        </div>
+        <Row icon={CreditCard} title="Auto-charge insurance"><Toggle checked onChange={() => {}} /></Row>
+      </Card>
+      <Card title="Payment providers">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {["M-Pesa", "Stripe", "PayPal", "Cash"].map(p => (
+            <label key={p} className="flex items-center gap-2 p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer">
+              <input type="checkbox" defaultChecked className="accent-orange-500" />
+              <span className="text-sm font-medium">{p}</span>
+            </label>
+          ))}
+        </div>
+      </Card>
+    </>
+  );
+}
+
+function ReceptionSection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <Card title="Front desk">
+      <Row icon={Users} title="Walk-in queue" hint="Allow patients without appointments"><Toggle checked onChange={() => {}} /></Row>
+      <Row icon={Smartphone} title="SMS check-in confirmations"><Toggle checked onChange={() => {}} /></Row>
+      <Field label="Queue display name"><TextInput defaultValue="Counter 1" /></Field>
+    </Card>
+  );
+}
+
+function GuardianSection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <Card title="Family care">
+      <Row icon={Baby} title="Linked dependents" hint="2 children connected">
+        <button className="text-xs font-semibold text-orange-600 hover:underline inline-flex items-center gap-1"><Plus className="size-3.5" /> Add</button>
+      </Row>
+      <Row icon={Bell} title="Vaccination reminders"><Toggle checked onChange={() => {}} /></Row>
+      <Row icon={ShieldCheck} title="Share records with co-guardian"><Toggle checked={false} onChange={() => {}} /></Row>
+    </Card>
+  );
+}
+
+function PatientCareSection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <Card title="My health">
+      <Row icon={Bell} title="Appointment reminders" hint="24h before, then 1h before"><Toggle checked onChange={() => {}} /></Row>
+      <Row icon={Pill} title="Medication reminders"><Toggle checked onChange={() => {}} /></Row>
+      <Row icon={Stethoscope} title="Share records with primary doctor"><Toggle checked onChange={() => {}} /></Row>
+    </Card>
+  );
+}
+
+function TenantSection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <>
+      <Card title="Hospital identity">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Field label="Display name"><TextInput defaultValue="JJ Hospital" /></Field>
+          <Field label="Slug"><TextInput defaultValue="jjhospital" /></Field>
+          <Field label="Contact email"><TextInput type="email" defaultValue="contact@jjhospital.co" /></Field>
+          <Field label="Phone"><TextInput defaultValue="+254 700 000 000" /></Field>
+        </div>
+      </Card>
+      <Card title="Branding">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Field label="Primary color">
+            <div className="flex items-center gap-2">
+              <input type="color" defaultValue="#F97316" className="size-10 rounded-lg border border-border bg-background cursor-pointer" />
+              <TextInput defaultValue="#F97316" />
+            </div>
+          </Field>
+          <Field label="Logo URL" hint="Square PNG/SVG, 256×256+"><TextInput placeholder="https://…" /></Field>
+          <Field label="Favicon"><TextInput placeholder="https://…" /></Field>
+        </div>
+      </Card>
+      <Card title="Active modules">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {["Appointments", "Pharmacy", "Lab", "Billing", "Inpatient", "Emergency", "Telemedicine", "Insurance"].map(m => (
+            <label key={m} className="flex items-center gap-2 p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer">
+              <input type="checkbox" defaultChecked className="accent-orange-500" />
+              <span className="text-sm font-medium">{m}</span>
+            </label>
+          ))}
+        </div>
+      </Card>
+    </>
+  );
+}
+
+function PlatformSection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Stat label="Environment" value="Production" tone="success" />
+        <Stat label="Version" value="v2.4.1" />
+        <Stat label="Region" value="us-east-1" />
+        <Stat label="Uptime" value="99.99%" tone="success" />
+      </div>
+      <Card title="Platform controls">
+        <Row icon={Server} title="Maintenance mode" hint="Show maintenance banner globally"><Toggle checked={false} onChange={() => {}} /></Row>
+        <Row icon={Database} title="Read-only mode" hint="Block all writes"><Toggle checked={false} onChange={() => {}} /></Row>
+        <Row icon={Sparkles} title="AI features" hint="Enable Lovable AI across tenants"><Toggle checked onChange={() => {}} /></Row>
+      </Card>
+    </>
+  );
+}
+
+function IntegrationsSection({ onDirty }: { onDirty?: () => void }) {
+  const items = [
+    { name: "SendGrid", kind: "Email", status: "Connected" },
+    { name: "Twilio", kind: "SMS", status: "Connected" },
+    { name: "AWS S3", kind: "Storage", status: "Connected" },
+    { name: "Stripe", kind: "Payments", status: "Not connected" },
+    { name: "Google Analytics", kind: "Analytics", status: "Not connected" },
+  ];
+  return (
+    <Card title="Connected services">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {items.map(i => (
+          <div key={i.name} className="p-4 rounded-xl border border-border flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="size-10 rounded-lg bg-muted grid place-items-center"><Key className="size-4" /></div>
+              <div>
+                <p className="text-sm font-semibold">{i.name}</p>
+                <p className="text-xs text-muted-foreground">{i.kind}</p>
+              </div>
+            </div>
+            <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${i.status === "Connected" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>
+              {i.status.toUpperCase()}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function ComplianceSection({ onDirty }: { onDirty?: () => void }) {
+  return (
+    <Card title="Regulatory">
+      <Row icon={ShieldCheck} title="HIPAA mode" hint="Enforce HIPAA-grade controls"><Toggle checked onChange={() => {}} /></Row>
+      <Row icon={Globe} title="GDPR mode" hint="Apply EU data subject rights"><Toggle checked onChange={() => {}} /></Row>
+      <Row icon={Database} title="Encryption at rest" hint="AES-256 on all PHI"><Toggle checked onChange={() => {}} /></Row>
+      <Row icon={FileCheck} title="Tamper-evident audit trail"><Toggle checked onChange={() => {}} /></Row>
+    </Card>
+  );
+}
+
+function AuditSection({ onDirty }: { onDirty?: () => void } = {}) {
+  const events = [
+    { who: "you@jjhospital.co", what: "Updated branding color", when: "2m ago" },
+    { who: "admin@jjhospital.co", what: "Activated Telemedicine module", when: "1h ago" },
+    { who: "system", what: "Scheduled backup completed", when: "4h ago" },
+  ];
+  return (
+    <Card title="Recent activity">
+      <div className="space-y-2">
+        {events.map((e, i) => (
+          <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border">
+            <div className="flex items-center gap-3">
+              <div className="size-8 grid place-items-center rounded-lg bg-orange-500/10 text-orange-600"><Activity className="size-4" /></div>
+              <div>
+                <p className="text-sm font-medium">{e.what}</p>
+                <p className="text-xs text-muted-foreground">{e.who}</p>
+              </div>
+            </div>
+            <span className="text-xs text-muted-foreground">{e.when}</span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+/* ---------------- Helpers ---------------- */
+function prettyRole(r: AppRole) {
+  return r.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}

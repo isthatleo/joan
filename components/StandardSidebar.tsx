@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LucideIcon } from "lucide-react";
+import { LucideIcon } from "lucide-react";import { resolveTenantSlug, withTenantPrefix } from "@/lib/tenant-routing";
 
 interface SidebarItem {
   label: string;
@@ -30,6 +30,11 @@ export function StandardSidebar({
   userRole,
 }: StandardSidebarProps) {
   const pathname = usePathname();
+  const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+  const tenantSlug =
+    typeof window !== "undefined"
+      ? resolveTenantSlug(pathname, hostname, sessionStorage.getItem("active_tenant_slug"))
+      : null;
 
   return (
     <div className="w-64 h-screen bg-white border-r border-gray-200 overflow-y-auto fixed left-0 top-0">
@@ -55,13 +60,14 @@ export function StandardSidebar({
             </h3>
             <div className="space-y-1">
               {section.items.map((item, itemIndex) => {
-                const isActive = pathname === item.href;
+                const resolvedHref = withTenantPrefix(item.href, tenantSlug, hostname);
+                const isActive = pathname === resolvedHref;
                 const Icon = item.icon;
 
                 return (
                   <Link
                     key={itemIndex}
-                    href={item.href}
+                    href={resolvedHref}
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                       isActive
                         ? "text-orange-600 bg-orange-50"
