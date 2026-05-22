@@ -3,6 +3,8 @@
  */
 import { db as baseDb } from "./index";
 import { neonConfig } from "@neondatabase/serverless";
+import { tenants } from "./schema";
+import { eq } from "drizzle-orm";
 
 // Configure Neon for optimal performance
 neonConfig.poolQueryViaFetch = true;
@@ -62,3 +64,8 @@ export function getErrorStatus(error: any): number {
   return 500;
 }
 
+export async function getTenantBySlug(slug: string) {
+  return await db.query.tenants.findFirst({
+    where: eq(tenants.slug, slug),
+  });
+}

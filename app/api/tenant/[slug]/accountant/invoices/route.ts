@@ -120,7 +120,18 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { tenantId, patientId, amount, dueDate, description, items } = body;
+    const {
+      tenantId,
+      patientId,
+      amount,
+      amountDue,
+      dueDate,
+      description,
+      notes,
+      paymentTerms,
+      items,
+      status,
+    } = body;
 
     if (!tenantId || !patientId || !amount || !dueDate) {
       return NextResponse.json(
@@ -139,10 +150,12 @@ export async function POST(request: NextRequest) {
         patientId,
         invoiceNumber,
         amount: parseFloat(amount),
-        amountDue: parseFloat(amount),
-        status: "draft",
+        amountDue: amountDue ? parseFloat(amountDue) : parseFloat(amount),
+        status: status || "draft",
         dueDate: new Date(dueDate),
         description,
+        notes,
+        paymentTerms,
         items: items ? JSON.stringify(items) : null,
         createdBy: session.user.id,
       },

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { useTenantPath } from "@/hooks/useTenantPath";
 
 const orange = "#F97316";
 
@@ -51,6 +52,7 @@ interface PaymentMethodStats {
 export default function AccountantPaymentsPage() {
   const params = useParams();
   const slug = params?.slug as string;
+  const tenantPath = useTenantPath();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [stats, setStats] = useState<PaymentStats | null>(null);
   const [methodStats, setMethodStats] = useState<PaymentMethodStats[]>([]);
@@ -245,7 +247,7 @@ export default function AccountantPaymentsPage() {
             Export
           </button>
           <Link
-            href={`/tenant/${slug}/accountant/payments/new`}
+            href={tenantPath("/accountant/payments/new")}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-sm hover:opacity-90"
             style={{ backgroundColor: orange }}
           >
@@ -560,7 +562,7 @@ export default function AccountantPaymentsPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         <Link
-                          href={`/tenant/${slug}/accountant/payments/${payment.id}`}
+                          href={tenantPath(`/accountant/payments/${payment.id}`)}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-blue-600 hover:bg-blue-50 font-medium text-xs transition-colors"
                         >
                           <Eye className="size-3" />

@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { withTenantPrefix } from "@/lib/tenant-routing";
+import { useTenantPath } from "@/hooks/useTenantPath";
 
 const orange = "#F97316";
 
@@ -48,6 +50,9 @@ interface PaymentMethod {
 export default function AccountantBillingPage() {
   const params = useParams();
   const slug = params?.slug as string;
+  const tenantPath = useTenantPath();
+  const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+  const createInvoiceHref = withTenantPrefix("/accountant/billing/invoices/new", slug, hostname);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [metrics, setMetrics] = useState<BillingMetrics | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -200,7 +205,7 @@ export default function AccountantBillingPage() {
             Export CSV
           </button>
           <Link
-            href={`/tenant/${slug}/accountant/billing/invoices/new`}
+            href={createInvoiceHref}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-sm hover:opacity-90"
             style={{ backgroundColor: orange }}
           >
@@ -464,14 +469,14 @@ export default function AccountantBillingPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         <Link
-                          href={`/tenant/${slug}/accountant/billing/invoices/${invoice.id}`}
+                          href={tenantPath(`/accountant/billing/invoices/${invoice.id}`)}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-blue-600 hover:bg-blue-50 font-medium text-xs transition-colors"
                         >
                           <Eye className="size-3" />
                           View
                         </Link>
                         <Link
-                          href={`/tenant/${slug}/accountant/billing/invoices/${invoice.id}/edit`}
+                          href={tenantPath(`/accountant/billing/invoices/${invoice.id}/edit`)}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-green-600 hover:bg-green-50 font-medium text-xs transition-colors"
                         >
                           <Edit className="size-3" />
@@ -495,7 +500,7 @@ export default function AccountantBillingPage() {
             <h3 className="text-lg font-semibold text-foreground">Payment Methods</h3>
           </div>
           <Link
-            href={`/tenant/${slug}/accountant/settings?tab=payment-methods`}
+            href={tenantPath("/accountant/settings?tab=payment-methods")}
             className="text-sm text-orange-600 hover:underline"
           >
             Configure Methods

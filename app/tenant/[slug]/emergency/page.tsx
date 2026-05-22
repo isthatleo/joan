@@ -6,7 +6,7 @@ import {
   AlertOctagon, AlertTriangle, Phone, MessageSquare, Clock, MapPin,
   User, Heart, Activity, Thermometer, Stethoscope, Ambulance,
   CheckCircle2, XCircle, RefreshCw, Volume2, VolumeX, Zap,
-  Shield, Users, Timer, Bell
+  Shield, Users, Timer, Bell, FileText
 } from "lucide-react";
 
 interface EmergencyAlert {

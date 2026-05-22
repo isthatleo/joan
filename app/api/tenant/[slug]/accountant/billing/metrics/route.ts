@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getTenantIdBySlug } from "@/lib/accountant/server";
 
-export async function GET(request: NextRequest) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ slug: string }> }
+) {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { searchParams } = new URL(request.url);
-    const tenantId = searchParams.get("tenantId");
-
+    const { slug } = await params;
+    const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) {
-      return NextResponse.json({ error: "Tenant ID required" }, { status: 400 });
+      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
     // Get billing metrics
