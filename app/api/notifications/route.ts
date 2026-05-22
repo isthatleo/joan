@@ -53,9 +53,9 @@ export async function GET(request: NextRequest) {
         metadata: n.metadata,
       })),
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching notifications:", error);
-    return NextResponse.json({ error: "Failed to fetch notifications" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to fetch notifications", details: error.message, stack: error.stack }, { status: 500 });
   }
 }
 
@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
       { error: "Invalid action" },
       { status: 400 }
     );
-  } catch (error) {
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: "Validation error", details: error.errors },
@@ -179,6 +179,6 @@ export async function POST(request: NextRequest) {
       );
     }
     console.error("Error creating notification:", error);
-    return NextResponse.json({ error: "Failed to create notification" }, { status: 500 });
+    return NextResponse.json({ error: error.message || "Failed to create notification" }, { status: 500 });
   }
 }

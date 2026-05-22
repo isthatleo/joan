@@ -15,6 +15,7 @@ import { useAuthStore } from "@/stores/auth";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui";
+import { resolveTenantSlug, withTenantPrefix } from "@/lib/tenant-routing";
 
 interface SidebarItem {
   label: string;
@@ -63,62 +64,65 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Settings", path: "/settings", icon: Settings, category: "System" },
   ],
   doctor: [
-    { label: "Dashboard", path: "/", icon: LayoutDashboard, category: "Main" },
-    { label: "Patients", path: "/patients", icon: Users, category: "Clinical" },
-    { label: "Appointments", path: "/appointments", icon: Calendar, category: "Clinical" },
-    { label: "Queue", path: "/queue", icon: ClipboardList, category: "Clinical" },
-    { label: "Lab Orders", path: "/lab-orders", icon: FlaskConical, category: "Orders" },
-    { label: "Lab Results", path: "/lab-results", icon: Microscope, category: "Orders" },
-    { label: "Prescriptions", path: "/prescriptions", icon: Pill, category: "Orders" },
-    { label: "Patient History", path: "/analytics/my-patients", icon: History, category: "Analytics" },
+    { label: "Dashboard", path: "/doctor", icon: LayoutDashboard, category: "Main" },
+    { label: "Patients", path: "/doctor/patients", icon: Users, category: "Clinical" },
+    { label: "Appointments", path: "/doctor/appointments", icon: Calendar, category: "Clinical" },
+    { label: "Queue", path: "/doctor/queue", icon: ClipboardList, category: "Clinical" },
+    { label: "Lab Orders", path: "/doctor/lab-orders", icon: FlaskConical, category: "Orders" },
+    { label: "Lab Results", path: "/doctor/lab-results", icon: Microscope, category: "Orders" },
+    { label: "Prescriptions", path: "/doctor/prescriptions", icon: Pill, category: "Orders" },
+    { label: "Patient History", path: "/doctor/analytics/my-patients", icon: History, category: "Analytics" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
+    { label: "Settings", path: "/doctor/settings", icon: Settings, category: "Account" },
   ],
-  nurse: [
-    { label: "Dashboard", path: "/", icon: LayoutDashboard, category: "Main" },
-    { label: "Patients", path: "/patients", icon: Users, category: "Care" },
-    { label: "Vitals", path: "/vitals", icon: HeartPulse, category: "Care" },
-    { label: "Medications", path: "/medications", icon: Pill, category: "Care" },
-    { label: "Care Plans", path: "/care-plans", icon: ClipboardList, category: "Care" },
-    { label: "Beds", path: "/beds", icon: BedDouble, category: "Ward" },
-    { label: "Queue", path: "/queue", icon: ClipboardList, category: "Ward" },
-    { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
-    { label: "Reports", path: "/analytics/nursing", icon: BarChart3, category: "Reports" },
-  ],
-  lab_technician: [
-    { label: "Dashboard", path: "/", icon: LayoutDashboard, category: "Main" },
-    { label: "Lab Orders", path: "/lab-orders", icon: FlaskConical, category: "Lab" },
-    { label: "Results", path: "/lab-results", icon: Microscope, category: "Lab" },
-    { label: "Inventory", path: "/lab-inventory", icon: Boxes, category: "Lab" },
-    { label: "Quality Control", path: "/lab-qc", icon: ShieldCheck, category: "Lab" },
-    { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
-    { label: "Analytics", path: "/lab-analytics", icon: BarChart3, category: "Reports" },
-    { label: "Performance", path: "/analytics/lab-performance", icon: TrendingUp, category: "Reports" },
-  ],
+   nurse: [
+     { label: "Dashboard", path: "/nurse", icon: LayoutDashboard, category: "Main" },
+     { label: "Patients", path: "/nurse/patients", icon: Users, category: "Care" },
+     { label: "Vitals", path: "/nurse/vitals", icon: HeartPulse, category: "Care" },
+     { label: "Medications", path: "/nurse/medications", icon: Pill, category: "Care" },
+     { label: "Care Plans", path: "/nurse/care-plans", icon: ClipboardList, category: "Care" },
+     { label: "Beds", path: "/nurse/beds", icon: BedDouble, category: "Ward" },
+     { label: "Queue", path: "/nurse/queue", icon: ClipboardList, category: "Ward" },
+     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
+     { label: "Reports", path: "/nurse/analytics/nursing", icon: BarChart3, category: "Reports" },
+     { label: "Settings", path: "/nurse/settings", icon: Settings, category: "Account" },
+   ],
+   lab_technician: [
+     { label: "Dashboard", path: "/lab", icon: LayoutDashboard, category: "Main" },
+     { label: "Lab Orders", path: "/lab/lab-orders", icon: FlaskConical, category: "Lab" },
+     { label: "Results", path: "/lab/lab-results", icon: Microscope, category: "Lab" },
+     { label: "Inventory", path: "/lab/lab-inventory", icon: Boxes, category: "Lab" },
+     { label: "Quality Control", path: "/lab/lab-qc", icon: ShieldCheck, category: "Lab" },
+     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
+     { label: "Analytics", path: "/lab/lab-analytics", icon: BarChart3, category: "Reports" },
+     { label: "Performance", path: "/analytics/lab-performance", icon: TrendingUp, category: "Reports" },
+     { label: "Settings", path: "/lab/settings", icon: Settings, category: "Account" },
+   ],
   pharmacist: [
-    { label: "Dashboard", path: "/", icon: LayoutDashboard, category: "Main" },
-    { label: "Prescriptions", path: "/prescriptions", icon: Pill, category: "Pharmacy" },
-    { label: "Inventory", path: "/pharmacy-inventory", icon: Boxes, category: "Pharmacy" },
-    { label: "Dispensing", path: "/dispensing", icon: ClipboardList, category: "Pharmacy" },
-    { label: "Drug Interactions", path: "/drug-interactions", icon: AlertOctagon, category: "Safety" },
-    { label: "Stock Alerts", path: "/pharmacy-inventory/alerts", icon: Bell, category: "Inventory" },
-    { label: "Suppliers", path: "/pharmacy/suppliers", icon: Building2, category: "Inventory" },
+    { label: "Dashboard", path: "/pharmacy", icon: LayoutDashboard, category: "Main" },
+    { label: "Prescriptions", path: "/pharmacy/prescriptions", icon: Pill, category: "Pharmacy" },
+    { label: "Inventory", path: "/pharmacy/pharmacy-inventory", icon: Boxes, category: "Pharmacy" },
+    { label: "Dispensing", path: "/pharmacy/dispensing", icon: ClipboardList, category: "Pharmacy" },
+    { label: "Drug Interactions", path: "/pharmacy/drug-interactions", icon: AlertOctagon, category: "Safety" },
+    { label: "Stock Alerts", path: "/pharmacy/pharmacy-inventory/alerts", icon: Bell, category: "Inventory" },
+    { label: "Suppliers", path: "/pharmacy/pharmacy/suppliers", icon: Building2, category: "Inventory" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
-    { label: "Analytics", path: "/analytics", icon: BarChart3, category: "Reports" },
-    { label: "Reports", path: "/analytics/pharmacy", icon: FileText, category: "Reports" },
+    { label: "Analytics", path: "/pharmacy/analytics", icon: BarChart3, category: "Reports" },
+    { label: "Reports", path: "/pharmacy/analytics/pharmacy", icon: FileText, category: "Reports" },
   ],
   accountant: [
-    { label: "Dashboard", path: "/", icon: LayoutDashboard, category: "Main" },
-    { label: "Billing", path: "/billing", icon: Wallet, category: "Finance" },
-    { label: "Invoices", path: "/billing/invoices", icon: Receipt, category: "Finance" },
-    { label: "Payments", path: "/payments", icon: DollarSign, category: "Finance" },
-    { label: "Insurance Claims", path: "/insurance-claims", icon: ShieldCheck, category: "Finance" },
-    { label: "Revenue Tracking", path: "/analytics/revenue", icon: TrendingUp, category: "Reports" },
-    { label: "Reports", path: "/reports", icon: FileText, category: "Reports" },
-    { label: "Financial Analysis", path: "/analytics/financial", icon: BarChart3, category: "Reports" },
+    { label: "Dashboard", path: "/accountant", icon: LayoutDashboard, category: "Main" },
+    { label: "Billing", path: "/accountant/billing", icon: Wallet, category: "Finance" },
+    { label: "Invoices", path: "/accountant/billing/invoices", icon: Receipt, category: "Finance" },
+    { label: "Payments", path: "/accountant/payments", icon: DollarSign, category: "Finance" },
+    { label: "Insurance Claims", path: "/accountant/insurance-claims", icon: ShieldCheck, category: "Finance" },
+    { label: "Revenue Tracking", path: "/accountant/analytics/revenue", icon: TrendingUp, category: "Reports" },
+    { label: "Reports", path: "/accountant/reports", icon: FileText, category: "Reports" },
+    { label: "Financial Analysis", path: "/accountant/analytics/financial", icon: BarChart3, category: "Reports" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
   ],
   receptionist: [
-    { label: "Dashboard", path: "/", icon: LayoutDashboard, category: "Main" },
+    { label: "Dashboard", path: "/reception", icon: LayoutDashboard, category: "Main" },
     { label: "Appointments", path: "/appointments", icon: Calendar, category: "Front Desk" },
     { label: "Check-in", path: "/check-in", icon: UserCheck, category: "Front Desk" },
     { label: "Queue", path: "/queue", icon: ClipboardList, category: "Front Desk" },
@@ -128,7 +132,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Emergency", path: "/emergency", icon: AlertOctagon, category: "Emergency" },
   ],
   patient: [
-    { label: "Dashboard", path: "/", icon: LayoutDashboard, category: "Main" },
+    { label: "Dashboard", path: "/my-health", icon: LayoutDashboard, category: "Main" },
     { label: "My Health", path: "/my-health", icon: HeartPulse, category: "Health" },
     { label: "Health Records", path: "/patient-portal/records", icon: FileText, category: "Health" },
     { label: "Appointments", path: "/appointments", icon: Calendar, category: "Health" },
@@ -139,7 +143,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Account" },
   ],
   guardian: [
-    { label: "Dashboard", path: "/", icon: LayoutDashboard, category: "Main" },
+    { label: "Dashboard", path: "/guardian", icon: LayoutDashboard, category: "Main" },
     { label: "Family", path: "/guardian", icon: Baby, category: "Family" },
     { label: "Child Profiles", path: "/guardian/children", icon: Users, category: "Family" },
     { label: "Appointments", path: "/appointments", icon: Calendar, category: "Family" },
@@ -158,11 +162,30 @@ export function Sidebar() {
   const pathname = usePathname();
   const role = (user?.role || "doctor") as keyof typeof sidebarConfigs;
   const sidebarItems = sidebarConfigs[role] || sidebarConfigs.doctor;
+  const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+  const tenantSlug =
+    typeof window !== "undefined"
+      ? resolveTenantSlug(pathname, hostname, sessionStorage.getItem("active_tenant_slug"))
+      : null;
   const [collapsed, setCollapsed] = useState(false);
+  const [tenantName, setTenantName] = useState<string>("Healthcare OS");
+  const [tenantLogo, setTenantLogo] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     setCollapsed(localStorage.getItem(STORAGE_KEY) === "1");
+
+    // Get tenant name from sessionStorage or cookies
+    const name = sessionStorage.getItem("active_tenant_name");
+    if (name) {
+      setTenantName(name);
+    }
+
+    // Get tenant logo from sessionStorage
+    const logo = sessionStorage.getItem("active_tenant_logo");
+    if (logo) {
+      setTenantLogo(logo);
+    }
   }, []);
 
   const toggleCollapsed = () => {
@@ -196,12 +219,16 @@ export function Sidebar() {
         "flex items-center gap-3 border-b border-sidebar-border px-4 py-4",
         collapsed && "justify-center px-2"
       )}>
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-          <GraduationCap className="h-5 w-5" />
-        </div>
+        {tenantLogo ? (
+          <img src={tenantLogo} alt="Logo" className="h-9 w-9 shrink-0 rounded-xl object-cover border border-sidebar-border" />
+        ) : (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+            <GraduationCap className="h-5 w-5" />
+          </div>
+        )}
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-semibold text-sidebar-foreground">Joan</p>
+            <p className="truncate text-base font-semibold text-sidebar-foreground">{tenantName}</p>
             <p className="truncate text-xs text-sidebar-muted">Healthcare OS</p>
           </div>
         )}
@@ -218,14 +245,15 @@ export function Sidebar() {
             )}
             <ul className="space-y-0.5">
               {group.items.map((item) => {
+                const resolvedPath = withTenantPrefix(item.path, tenantSlug, hostname);
                 const isActive =
-                  pathname === item.path ||
-                  (item.path !== "/" && pathname.startsWith(item.path + "/"));
+                  pathname === resolvedPath ||
+                  (resolvedPath !== "/" && pathname.startsWith(resolvedPath + "/"));
                 const Icon = item.icon;
                 return (
-                  <li key={item.path}>
+                  <li key={resolvedPath}>
                     <Link
-                      href={item.path}
+                      href={resolvedPath}
                       title={collapsed ? item.label : undefined}
                       className={cn(
                         "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",

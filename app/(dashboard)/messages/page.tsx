@@ -109,7 +109,7 @@ export default function MessagesPage() {
     // Connect and authenticate
     socket.auth = { 
       userId: user.id,
-      tenantId: user.tenantId,
+      tenantId: user.hospitalId,
     };
     socket.connect();
 
@@ -257,12 +257,12 @@ export default function MessagesPage() {
   const conversations = conversationsData?.conversations || [];
   const messages = chatData?.messages || [];
 
-  const filteredConversations = conversations.filter(conv =>
+  const filteredConversations = conversations.filter((conv: Conversation) =>
     conv.user.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     conv.user.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const selectedConversation = conversations.find(conv => conv.user.id === selectedChat) || 
+  const selectedConversation = conversations.find((conv: Conversation) => conv.user.id === selectedChat) ||
     (chatData?.otherUser ? { user: chatData.otherUser } : null);
 
   const handleSendMessage = () => {
@@ -361,7 +361,7 @@ export default function MessagesPage() {
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {filteredConversations.map((conversation) => (
+              {filteredConversations.map((conversation: Conversation) => (
                 <button
                   key={conversation.user.id}
                   onClick={() => setSelectedChat(conversation.user.id)}

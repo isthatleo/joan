@@ -1,77 +1,44 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { Sidebar } from "@/components/sidebar";
-import { Topbar } from "@/components/topbar";
 import { db } from "@/lib/db";
 import { tenants } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { TenantDashboardShell } from "./shell";
+import { TenantNotFoundRedirect } from "./not-found-redirect";
+
+export const dynamic = "force-dynamic";
 
 interface TenantLayoutProps {
   children: React.ReactNode;
+  params: Promise<{ slug: string }>;
 }
 
-export default function TenantLayout({ children }: TenantLayoutProps) {
-  const params = useParams();
-  const router = useRouter();
-  const tenantSlug = params?.slug as string;
-  const [tenant, setTenant] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+export default async function TenantLayout({ children, params }: TenantLayoutProps) {
+  const { slug } = await params;
 
-  useEffect(() => {
-    const fetchTenant = async () => {
-      if (!tenantSlug) {
-        router.push("/login");
-        return;
-      }
-
-      try {
-        // In a real app, you'd fetch this from an API
-        // For now, we'll assume the tenant exists based on the slug
-        setTenant({ slug: tenantSlug, name: tenantSlug.replace("-", " ").toUpperCase() });
-      } catch (error) {
-        console.error("Failed to fetch tenant:", error);
-        router.push("/login");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchTenant();
-  }, [tenantSlug, router]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-subtle flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
-      </div>
-    );
+  let tenant;
+  try {
+    tenant = await db.query.tenants.findFirst({ where: eq(tenants.slug, slug) });
+  } catch (error) {
+    console.error("Database query failed for tenant slug:", slug, error);
+    // Treat database errors as if the tenant was not found
+    return <TenantNotFoundRedirect slug={slug} />;
   }
 
-  if (!tenant) {
-    return (
-      <div className="min-h-screen bg-subtle flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-destructive mb-2">Tenant Not Found</h1>
-          <p className="text-muted-foreground">The requested hospital could not be found.</p>
-        </div>
-      </div>
-    );
+  // If tenant doesn't exist or is inactive, redirect to public login with error
+  if (!tenant || !tenant.isActive) {
+    return <TenantNotFoundRedirect slug={slug} />;
   }
 
   return (
-    <div className="min-h-screen bg-subtle">
-      <div className="flex">
-        <Sidebar tenantSlug={tenantSlug} />
-        <div className="flex-1 flex flex-col">
-          <Topbar tenant={tenant} />
-          <main className="flex-1 p-6">
-            {children}
-          </main>
-        </div>
-      </div>
-    </div>
+    <TenantDashboardShell
+      tenant={{
+        id: tenant.id,
+        name: tenant.name,
+        slug: tenant.slug,
+        plan: tenant.plan,
+        logoUrl: tenant.logoUrl ?? null,
+      }}
+    >
+      {children}
+    </TenantDashboardShell>
   );
 }
-

@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { TenantService } from "@/lib/services/tenant.service";
+import { db } from "@/lib/db";
+import { auditLogs, tenants as tenantsTable } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
+import { getTenantAccess, tenantAccessResponse } from "@/lib/api/tenant-access";
 
 const service = new TenantService();
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 export async function GET(
   request: NextRequest,
@@ -9,11 +14,9 @@ export async function GET(
 ) {
   try {
     const { slug } = await params;
-    const tenant = await service.getTenantBySlug(slug);
-    if (!tenant) {
-      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
-    }
-    return NextResponse.json(tenant);
+    const access = await getTenantAccess(request, slug);
+    if (!access.ok) return tenantAccessResponse(access);
+    return NextResponse.json(access.tenant);
   } catch (error) {
     console.error("Error fetching tenant:", error);
     return NextResponse.json({ error: "Failed to fetch tenant" }, { status: 500 });
@@ -26,10 +29,13 @@ export async function PUT(
 ) {
   try {
     const { slug } = await params;
+    const access = await getTenantAccess(request, slug);
+    if (!access.ok) return tenantAccessResponse(access);
+    if (!access.canEditSettings) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     const data = await request.json();
 
     // First get the tenant by slug to get its ID
-    const tenant = await service.getTenantBySlug(slug);
+    const tenant = access.tenant;
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
@@ -51,18 +57,75 @@ export async function DELETE(
 ) {
   try {
     const { slug } = await params;
+    const access = await getTenantAccess(request, slug);
+    if (!access.ok) return tenantAccessResponse(access);
+    if (!access.canArchiveTenant) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const url = new URL(request.url);
+    const purge = url.searchParams.get("purge") === "true";
+    const force = url.searchParams.get("force") === "true";
 
-    // First get the tenant by slug to get its ID
-    const tenant = await service.getTenantBySlug(slug);
+    const tenant = access.tenant;
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    await service.deleteTenant(tenant.id);
-    return NextResponse.json({ success: true });
-  } catch (error) {
+    if (purge) {
+      if (!force) {
+        const scheduledPurgeAt = (tenant as any).scheduledPurgeAt as Date | null;
+        if (!scheduledPurgeAt) {
+          return NextResponse.json({
+            error: "Tenant must be archived with a scheduled purge timestamp before hard purge.",
+          }, { status: 400 });
+        }
+        const waitMs = new Date(scheduledPurgeAt).getTime() - Date.now();
+        if (waitMs > 0) {
+          const daysLeft = Math.ceil(waitMs / (24 * 60 * 60 * 1000));
+          return NextResponse.json({
+            error: `Hard purge unavailable for ${daysLeft} more day(s). Pass force=true to override.`,
+          }, { status: 400 });
+        }
+      }
+      await db.insert(auditLogs).values({
+        userId: access.user?.id,
+        action: force ? "tenant.force_purged" : "tenant.purged",
+        entity: "tenant",
+        entityId: tenant.id,
+        metadata: { name: tenant.name, slug: tenant.slug, force },
+      }).catch(() => {});
+      await service.deleteTenant(tenant.id);
+      return NextResponse.json({ success: true, mode: force ? "force_purged" : "purged" });
+    }
+
+    // Soft delete: deactivate + archive
+    const scheduledPurgeAt = new Date(Date.now() + THIRTY_DAYS_MS);
+    await db.update(tenantsTable).set({
+      isActive: false,
+      provisioningStatus: "archived",
+      deletedAt: new Date(),
+      scheduledPurgeAt,
+      updatedAt: new Date(),
+    } as any).where(eq(tenantsTable.id, tenant.id));
+
+    // Audit
+    await db.insert(auditLogs).values({
+      userId: access.user?.id,
+      action: "tenant.archived",
+      entity: "tenant",
+      entityId: tenant.id,
+      metadata: { name: tenant.name, slug: tenant.slug, scheduledPurgeAt },
+    });
+
+    return NextResponse.json({
+      success: true,
+      mode: "archived",
+      scheduledPurgeAt,
+    });
+  } catch (error: any) {
     console.error("Error deleting tenant:", error);
-    return NextResponse.json({ error: "Failed to delete tenant" }, { status: 500 });
+    return NextResponse.json({
+      error: "Failed to delete tenant",
+      details: error?.message,
+    }, { status: 500 });
   }
 }
 

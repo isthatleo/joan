@@ -80,12 +80,51 @@ const DEFAULT_DEPARTMENTS = [
   "Emergency",
 ];
 
+const DEFAULT_ROLES = [
+  {
+    name: "hospital_admin",
+    description: "Full hospital administration and management",
+  },
+  {
+    name: "doctor",
+    description: "Manage patient consultations and medical records",
+  },
+  {
+    name: "nurse",
+    description: "Monitor patient care and vital statistics",
+  },
+  {
+    name: "lab_technician",
+    description: "Process lab tests and manage results",
+  },
+  {
+    name: "pharmacist",
+    description: "Manage medications and pharmacy inventory",
+  },
+  {
+    name: "accountant",
+    description: "Handle billing and financial management",
+  },
+  {
+    name: "receptionist",
+    description: "Schedule appointments and manage admissions",
+  },
+  {
+    name: "patient",
+    description: "Access your health records and appointments",
+  },
+  {
+    name: "guardian",
+    description: "Manage dependent care and medical records",
+  },
+];
+
 const STAGES = [
   "validate",
   "slug",
   "hospital",
   "admin",
-  "role",
+  "roles",
   "departments",
   "modules",
   "audit",
@@ -107,9 +146,19 @@ export async function POST(request: NextRequest) {
         send("stage", { key, status, ...extra });
 
       let provisioningRun: any = null;
+      let currentStage: StageKey = "validate";
+
+      const failStage = (err: any) => {
+        const msg = err instanceof z.ZodError
+          ? err.errors.map(e => `${e.path.join(".")}: ${e.message}`).join("; ")
+          : (err?.message || "Unknown error");
+        stage(currentStage, "error", { error: msg, details: err instanceof z.ZodError ? err.errors : undefined });
+        return msg;
+      };
 
       try {
         // ---- validate ----
+        currentStage = "validate";
         stage("validate", "start");
         const data = provisionSchema.parse(body);
         stage("validate", "done");
@@ -122,6 +171,7 @@ export async function POST(request: NextRequest) {
         }).returning();
 
         // ---- slug ----
+        currentStage = "slug";
         stage("slug", "start");
         await db.update(provisioningRuns).set({ stage: "slug" }).where(eq(provisioningRuns.id, provisioningRun.id));
         const baseSlug = slugify(data.name);
@@ -129,6 +179,7 @@ export async function POST(request: NextRequest) {
         stage("slug", "done", { slug, baseSlug });
 
         // ---- hospital ----
+        currentStage = "hospital";
         stage("hospital", "start");
         await db.update(provisioningRuns).set({ stage: "hospital" }).where(eq(provisioningRuns.id, provisioningRun.id));
         const [tenant] = await db
@@ -155,6 +206,7 @@ export async function POST(request: NextRequest) {
         await db.update(provisioningRuns).set({ tenantId: tenant.id }).where(eq(provisioningRuns.id, provisioningRun.id));
 
         // ---- admin ----
+        currentStage = "admin";
         stage("admin", "start");
         await db.update(provisioningRuns).set({ stage: "admin" }).where(eq(provisioningRuns.id, provisioningRun.id));
         const tempPassword = generateTempPassword();
@@ -186,23 +238,32 @@ export async function POST(request: NextRequest) {
         }
         stage("admin", "done", { adminEmail: data.adminEmail, adminName: data.adminFullName });
 
-        // ---- role ----
-        stage("role", "start");
-        await db.update(provisioningRuns).set({ stage: "role" }).where(eq(provisioningRuns.id, provisioningRun.id));
-        let [adminRole] = await db
-          .select()
-          .from(roles)
-          .where(eq(roles.name, "hospital_admin"));
-        if (!adminRole) {
-          [adminRole] = await db
-            .insert(roles)
-            .values({ tenantId: tenant.id, name: "hospital_admin" })
-            .returning();
+        // ---- roles ----
+        currentStage = "roles";
+        stage("roles", "start");
+        await db.update(provisioningRuns).set({ stage: "roles" }).where(eq(provisioningRuns.id, provisioningRun.id));
+
+        // Seed all default roles for the tenant
+        const roleInserts = DEFAULT_ROLES.map(role => ({
+          tenantId: tenant.id,
+          name: role.name,
+        }));
+
+        const insertedRoles = await db
+          .insert(roles)
+          .values(roleInserts)
+          .returning();
+
+        // Assign hospital_admin role to the admin user
+        const adminRole = insertedRoles.find(r => r.name === "hospital_admin");
+        if (adminRole) {
+          await db.insert(userRoles).values({ userId: adminUser.id, roleId: adminRole.id });
         }
-        await db.insert(userRoles).values({ userId: adminUser.id, roleId: adminRole.id });
-        stage("role", "done", { roleName: "hospital_admin" });
+
+        stage("roles", "done", { count: insertedRoles.length, roles: insertedRoles.map(r => r.name) });
 
         // ---- departments ----
+        currentStage = "departments";
         stage("departments", "start");
         await db.update(provisioningRuns).set({ stage: "departments" }).where(eq(provisioningRuns.id, provisioningRun.id));
         const deptNames =
@@ -215,6 +276,7 @@ export async function POST(request: NextRequest) {
         stage("departments", "done", { count: deptNames.length, departments: deptNames });
 
         // ---- modules ----
+        currentStage = "modules";
         stage("modules", "start");
         await db.update(provisioningRuns).set({ stage: "modules" }).where(eq(provisioningRuns.id, provisioningRun.id));
         await db
@@ -229,6 +291,7 @@ export async function POST(request: NextRequest) {
         stage("modules", "done", { count: data.modules.length, modules: data.modules });
 
         // ---- audit ----
+        currentStage = "audit";
         stage("audit", "start");
         await db.update(provisioningRuns).set({ stage: "audit" }).where(eq(provisioningRuns.id, provisioningRun.id));
         await db.insert(auditLogs).values({
@@ -274,16 +337,14 @@ export async function POST(request: NextRequest) {
           departments: deptNames,
         });
       } catch (error: any) {
-        console.error("[tenants/provision] failed:", error);
-        const message =
-          error instanceof z.ZodError
-            ? "Validation failed"
-            : error?.message || "Failed to provision tenant";
+        console.error("[tenants/provision] failed at", currentStage, error);
+        const message = failStage(error);
 
         // Update provisioning run with failure
         if (provisioningRun) {
           await db.update(provisioningRuns).set({
             status: "failed",
+            stage: currentStage,
             errorMessage: message,
             completedAt: new Date(),
           }).where(eq(provisioningRuns.id, provisioningRun.id));
@@ -291,6 +352,7 @@ export async function POST(request: NextRequest) {
 
         send("error", {
           ok: false,
+          stage: currentStage,
           error: message,
           details: error instanceof z.ZodError ? error.errors : undefined,
         });

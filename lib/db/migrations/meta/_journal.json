@@ -50,6 +50,48 @@
       "when": 1777547990824,
       "tag": "0006_furry_ricochet",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793700000000,
+      "tag": "0007_platform_and_tenant_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1778357319416,
+      "tag": "0008_tiresome_tyger_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1778583014337,
+      "tag": "0009_stale_orphan",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1778583100000,
+      "tag": "0010_add_audit_tenant_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1779360272777,
+      "tag": "0011_abnormal_jocasta",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1779393954489,
+      "tag": "0012_freezing_praxagora",
+      "breakpoints": true
     }
   ]
 }

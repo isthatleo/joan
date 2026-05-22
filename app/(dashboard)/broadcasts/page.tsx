@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { format } from "date-fns";
 
 interface Broadcast {
   id: string;
@@ -152,7 +153,7 @@ export default function BroadcastsPage() {
       {activeTab === "compose" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Compose Form */}
-            <SectionCard title="Send Broadcast" icon={Megaphone}>
+            <SectionCard title="Send Broadcast" leadIcon={<Megaphone className="h-5 w-5" />}>
               <div className="space-y-6">
                 <div className="space-y-2">
                   <Label>Target Audience</Label>
@@ -230,7 +231,7 @@ export default function BroadcastsPage() {
             </SectionCard>
 
             {/* Preview */}
-            <SectionCard title="Message Preview" icon={MessageSquare}>
+            <SectionCard title="Message Preview" leadIcon={<MessageSquare className="h-5 w-5" />}>
               <div className="space-y-4">
                 <div className="p-4 border border-border rounded-lg bg-muted/50">
                   <div className="flex items-start gap-3">
@@ -281,7 +282,7 @@ export default function BroadcastsPage() {
       )}
 
       {activeTab === "history" && (
-        <SectionCard title="Broadcast History" icon={Clock}>
+        <SectionCard title="Broadcast History" leadIcon={<Clock className="h-5 w-5" />}>
             {broadcastsLoading ? (
               <div className="space-y-4">
                 {[1, 2, 3].map(i => (
@@ -307,7 +308,7 @@ export default function BroadcastsPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {broadcasts.map((broadcast) => (
+                {broadcasts.map((broadcast: Broadcast) => (
                   <div key={broadcast.id} className="p-4 border border-border rounded-lg">
                     <div className="flex items-start gap-3">
                       <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground font-semibold text-sm">

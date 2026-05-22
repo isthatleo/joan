@@ -1,50 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { db } from "@/lib/db";
+import { platformSettings } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
-const platformSettingsSchema = z.object({
-  general: z.object({
-    platformName: z.string().min(1),
-    platformDescription: z.string(),
-    contactEmail: z.string().email(),
-    contactPhone: z.string(),
-    timezone: z.string(),
-    language: z.string(),
-  }).optional(),
-  security: z.object({
-    sessionTimeout: z.number(),
-    passwordMinLength: z.number(),
-    requireTwoFactor: z.boolean(),
-    allowApiKeys: z.boolean(),
-    ipWhitelist: z.array(z.string()),
-    auditLogRetention: z.number(),
-  }).optional(),
-  notifications: z.object({
-    emailEnabled: z.boolean(),
-    smsEnabled: z.boolean(),
-    pushEnabled: z.boolean(),
-    maintenanceAlerts: z.boolean(),
-    securityAlerts: z.boolean(),
-    performanceAlerts: z.boolean(),
-  }).optional(),
-  api: z.object({
-    rateLimitEnabled: z.boolean(),
-    rateLimitRequests: z.number(),
-    rateLimitWindow: z.number(),
-    apiVersion: z.string(),
-    webhookEnabled: z.boolean(),
-    webhookUrl: z.string(),
-  }).optional(),
-  features: z.object({
-    analyticsEnabled: z.boolean(),
-    aiCopilotEnabled: z.boolean(),
-    multiTenantEnabled: z.boolean(),
-    fileStorageEnabled: z.boolean(),
-    backupEnabled: z.boolean(),
-  }).optional(),
-});
+const SETTINGS_KEY = "platform";
 
-// Mock storage for platform settings
-let platformSettings: any = {
+const DEFAULT_SETTINGS = {
   general: {
     platformName: "Joan Healthcare OS",
     platformDescription: "Enterprise Healthcare Management System",
@@ -58,12 +20,12 @@ let platformSettings: any = {
     passwordMinLength: 8,
     requireTwoFactor: true,
     allowApiKeys: true,
-    ipWhitelist: ["192.168.1.0/24", "10.0.0.0/8"],
+    ipWhitelist: [] as string[],
     auditLogRetention: 365,
   },
   notifications: {
     emailEnabled: true,
-    smsEnabled: true,
+    smsEnabled: false,
     pushEnabled: false,
     maintenanceAlerts: true,
     securityAlerts: true,
@@ -74,8 +36,8 @@ let platformSettings: any = {
     rateLimitRequests: 1000,
     rateLimitWindow: 60,
     apiVersion: "v2.1.0",
-    webhookEnabled: true,
-    webhookUrl: "https://api.joanhealthcare.com/webhooks",
+    webhookEnabled: false,
+    webhookUrl: "",
   },
   features: {
     analyticsEnabled: true,
@@ -86,52 +48,59 @@ let platformSettings: any = {
   },
 };
 
+const partialSchema = z.object({
+  general: z.any().optional(),
+  security: z.any().optional(),
+  notifications: z.any().optional(),
+  api: z.any().optional(),
+  features: z.any().optional(),
+});
+
+async function load(): Promise<any> {
+  try {
+    const row = await db.query.platformSettings.findFirst({ where: eq(platformSettings.key, SETTINGS_KEY) });
+    if (row?.value) return { ...DEFAULT_SETTINGS, ...(row.value as any) };
+  } catch (e) {
+    console.error("[platform/settings] load failed:", e);
+  }
+  return DEFAULT_SETTINGS;
+}
+
+async function save(value: any) {
+  const existing = await db.query.platformSettings.findFirst({ where: eq(platformSettings.key, SETTINGS_KEY) });
+  if (existing) {
+    await db.update(platformSettings).set({ value, updatedAt: new Date() }).where(eq(platformSettings.id, existing.id));
+  } else {
+    await db.insert(platformSettings).values({ key: SETTINGS_KEY, value });
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const category = searchParams.get("category");
-
-    if (category && category in platformSettings) {
-      return NextResponse.json(platformSettings[category]);
-    }
-
-    return NextResponse.json(platformSettings);
+    const settings = await load();
+    if (category && category in settings) return NextResponse.json(settings[category]);
+    return NextResponse.json(settings);
   } catch (error) {
     console.error("Error fetching settings:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch settings" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch settings" }, { status: 500 });
   }
 }
 
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const validated = platformSettingsSchema.parse(body);
-
-    // Merge with existing settings
-    platformSettings = {
-      ...platformSettings,
-      ...validated,
-    };
-
-    return NextResponse.json({
-      message: "Settings updated successfully",
-      settings: platformSettings,
-    });
+    const validated = partialSchema.parse(body);
+    const current = await load();
+    const merged = { ...current, ...validated };
+    await save(merged);
+    return NextResponse.json({ message: "Settings updated successfully", settings: merged });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Invalid settings", details: error.errors },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid settings", details: error.errors }, { status: 400 });
     }
     console.error("Error updating settings:", error);
-    return NextResponse.json(
-      { error: "Failed to update settings" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to update settings" }, { status: 500 });
   }
 }
-

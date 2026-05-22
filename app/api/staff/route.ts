@@ -19,19 +19,21 @@ export async function GET(request: NextRequest) {
           where: eq(users.id, auth.user.sub as string),
         });
         userTenantId = user?.tenantId?.toString();
-      } catch {
+      } catch (error: any) {
+        console.error("Error fetching user for tenant ID:", error);
         userTenantId = undefined;
       }
     }
 
     if (!userTenantId) {
-      return NextResponse.json({ error: "Tenant not found" }, { status: 403 });
+      return NextResponse.json({ error: "Tenant not found or user not authenticated" }, { status: 403 });
     }
 
     const staff = await service.getStaffList(userTenantId);
     return NextResponse.json(staff);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch staff" }, { status: 500 });
+  } catch (error: any) {
+    console.error("Error fetching staff:", error);
+    return NextResponse.json({ error: "Failed to fetch staff", details: error.message, stack: error.stack }, { status: 500 });
   }
 }
 
@@ -40,7 +42,8 @@ export async function POST(request: NextRequest) {
     const data = await request.json();
     const staff = await service.createStaff(data);
     return NextResponse.json(staff);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to create staff" }, { status: 500 });
+  } catch (error: any) {
+    console.error("Error creating staff:", error);
+    return NextResponse.json({ error: "Failed to create staff", details: error.message, stack: error.stack }, { status: 500 });
   }
 }

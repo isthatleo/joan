@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { db } from "@/lib/db";
-import { tenants } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
 
 export async function middleware(request: NextRequest) {
   const hostname = request.headers.get("host") || "";
@@ -14,6 +11,7 @@ export async function middleware(request: NextRequest) {
     url.pathname.startsWith("/_next/") ||
     url.pathname.startsWith("/favicon.ico") ||
     url.pathname.startsWith("/assets/") ||
+    url.pathname.startsWith("/tenant-login/") ||
     url.pathname.includes(".")
   ) {
     return NextResponse.next();
@@ -23,20 +21,9 @@ export async function middleware(request: NextRequest) {
   const subdomain = getSubdomain(hostname);
 
   if (subdomain) {
-    try {
-      // Check if subdomain matches a tenant slug
-      const tenant = await db.query.tenants.findFirst({
-        where: eq(tenants.slug, subdomain),
-      });
-
-      if (tenant && tenant.isActive) {
-        // Rewrite to tenant-specific route
-        url.pathname = `/tenant/${tenant.slug}${url.pathname}`;
-        return NextResponse.rewrite(url);
-      }
-    } catch (error) {
-      console.error("Middleware tenant lookup error:", error);
-    }
+    const path = url.pathname === "/" ? "" : url.pathname;
+    url.pathname = `/tenant/${subdomain}${path}`;
+    return NextResponse.rewrite(url);
   }
 
   return NextResponse.next();
@@ -44,13 +31,13 @@ export async function middleware(request: NextRequest) {
 
 function getSubdomain(hostname: string): string | null {
   // Remove port if present
-  const host = hostname.split(":")[0];
+  const host = hostname.split(":")[0].toLowerCase();
 
   // In development: subdomain.localhost
   if (host.endsWith(".localhost")) {
     const parts = host.split(".");
     if (parts.length >= 2) {
-      return parts[0];
+      return parts[0].toLowerCase();
     }
   }
 
@@ -68,7 +55,7 @@ function getSubdomain(hostname: string): string | null {
       const subdomain = host.replace(`.${domain}`, "");
       // Don't treat "www" as a tenant subdomain
       if (subdomain && subdomain !== "www") {
-        return subdomain;
+        return subdomain.toLowerCase();
       }
     }
   }

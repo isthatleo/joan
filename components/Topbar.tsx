@@ -3,9 +3,10 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, ChevronDown, Home, LogOut, Settings, User } from "lucide-react";
+import { Bell, ChevronDown, Home, LogOut, Settings, User, Sliders } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { authClient } from "@/lib/auth-client";
+import { getResolvedTenantLoginPath, getTenantDashboardPath, resolveTenantSlug, withTenantPrefix } from "@/lib/tenant-routing";
 import { ThemeToggle } from "./theme/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -50,16 +51,36 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
   const [notificationDialogOpen, setNotificationDialogOpen] = useState(false);
   const queryClient = useQueryClient();
 
+  // Extract tenant slug from pathname
+  const tenantSlug = useMemo(() => {
+    const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+    const storedSlug = typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null;
+    return resolveTenantSlug(pathname, hostname, storedSlug);
+  }, [pathname]);
+  const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+  const dashboardHref = tenantSlug
+    ? getTenantDashboardPath(tenantSlug, user?.role ?? null, hostname)
+    : "/";
+
   const crumbs = useMemo(
     () => (breadcrumbs && breadcrumbs.length ? breadcrumbs : deriveBreadcrumbs(pathname)),
     [breadcrumbs, pathname]
   );
 
+  // Construct base URL for notifications API
+  const notificationApiBaseUrl = useMemo(() => {
+    let url = `/api/notifications?userId=${user?.id}`;
+    if (tenantSlug) {
+      url += `&tenantId=${tenantSlug}`;
+    }
+    return url;
+  }, [user?.id, tenantSlug]);
+
   // Fetch notification count
   const { data: notificationData } = useQuery({
-    queryKey: ["notification-count", user?.id],
+    queryKey: ["notification-count", user?.id, tenantSlug],
     queryFn: async () => {
-      const response = await fetch(`/api/notifications?userId=${user?.id}&countOnly=true`);
+      const response = await fetch(`${notificationApiBaseUrl}&countOnly=true`);
       if (!response.ok) throw new Error("Failed to fetch notification count");
       return response.json();
     },
@@ -69,9 +90,9 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
 
   // Fetch notifications for dropdown
   const { data: notificationsData } = useQuery({
-    queryKey: ["notifications", user?.id],
+    queryKey: ["notifications", user?.id, tenantSlug],
     queryFn: async () => {
-      const response = await fetch(`/api/notifications?userId=${user?.id}`);
+      const response = await fetch(notificationApiBaseUrl);
       if (!response.ok) throw new Error("Failed to fetch notifications");
       return response.json();
     },
@@ -99,7 +120,9 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
       // ignore
     }
     logout();
-    router.push("/login");
+    const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+    const storedSlug = typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null;
+    router.push(getResolvedTenantLoginPath(pathname, hostname, storedSlug));
   };
 
   // Close dropdowns when clicking outside
@@ -127,14 +150,14 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
     <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-border bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       {/* Breadcrumbs */}
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
-        <Link href="/" className="text-muted-foreground hover:text-foreground">
+        <Link href={dashboardHref} className="text-muted-foreground hover:text-foreground">
           <Home className="h-4 w-4" />
         </Link>
         {crumbs.map((c, i) => (
           <div key={`${c.label}-${i}`} className="flex items-center gap-1.5">
             <span className="text-muted-foreground/60">/</span>
             {c.href ? (
-              <Link href={c.href} className="text-muted-foreground hover:text-foreground">
+              <Link href={withTenantPrefix(c.href, tenantSlug, hostname)} className="text-muted-foreground hover:text-foreground">
                 {c.label}
               </Link>
             ) : (
@@ -204,7 +227,7 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
                 </div>
                 <div className="border-t border-border p-2">
                   <Link
-                    href="/notifications"
+                    href={withTenantPrefix("/notifications", tenantSlug, hostname)}
                     className="block w-full text-center text-sm text-primary hover:underline"
                     onClick={() => setNotifOpen(false)}
                   >
@@ -240,37 +263,49 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
             <ChevronDown className="h-4 w-4 text-muted-foreground" />
           </button>
 
-          {profileOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setProfileOpen(false)} />
-              <div className="absolute right-0 top-full z-50 mt-2 w-52 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg">
-                <Link
-                  href="/profile"
-                  className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted"
-                  onClick={() => setProfileOpen(false)}
-                >
-                  <User className="h-4 w-4" /> My Profile
-                </Link>
-                <Link
-                  href="/settings"
-                  className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted"
-                  onClick={() => setProfileOpen(false)}
-                >
-                  <Settings className="h-4 w-4" /> Settings
-                </Link>
-                <div className="my-1 border-t border-border" />
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className={cn(
-                    "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-muted"
-                  )}
-                >
-                  <LogOut className="h-4 w-4" /> Sign out
-                </button>
-              </div>
-            </>
-          )}
+           {profileOpen && (
+             <>
+               <div className="fixed inset-0 z-40" onClick={() => setProfileOpen(false)} />
+               <div className="absolute right-0 top-full z-50 mt-2 w-52 overflow-hidden rounded-xl border border-border bg-popover py-1 shadow-lg">
+                 <Link
+                   href={withTenantPrefix("/profile", tenantSlug, hostname)}
+                   className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted"
+                   onClick={() => setProfileOpen(false)}
+                 >
+                   <User className="h-4 w-4" /> My Profile
+                 </Link>
+                 <Link
+                   href={withTenantPrefix("/profile/settings", tenantSlug, hostname)}
+                   className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted"
+                   onClick={() => setProfileOpen(false)}
+                 >
+                   <Settings className="h-4 w-4" /> Settings
+                 </Link>
+                 {tenantSlug && (
+                   <>
+                     <div className="my-1 border-t border-border" />
+                     <Link
+                       href={withTenantPrefix("/settings", tenantSlug, hostname)}
+                       className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted"
+                       onClick={() => setProfileOpen(false)}
+                     >
+                       <Sliders className="h-4 w-4" /> Workspace Settings
+                     </Link>
+                   </>
+                 )}
+                 <div className="my-1 border-t border-border" />
+                 <button
+                   type="button"
+                   onClick={handleLogout}
+                   className={cn(
+                     "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-destructive hover:bg-muted"
+                   )}
+                 >
+                   <LogOut className="h-4 w-4" /> Sign out
+                 </button>
+               </div>
+             </>
+           )}
         </div>
       </div>
 

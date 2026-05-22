@@ -13,8 +13,11 @@ export async function GET(request: NextRequest) {
     const permissions = await resolvePermissions(session.user.id);
     if (!can(permissions, "patient.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    // For now, return all patients in tenant
-    const patients = await service.getPatient("some-id"); // Placeholder
+    // Get tenant ID from session
+    const tenantId = session.user.tenantId;
+    if (!tenantId) return NextResponse.json({ error: "No tenant context" }, { status: 400 });
+
+    const patients = await service.getPatientsByTenant(tenantId);
     return NextResponse.json(patients);
   } catch (error) {
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });

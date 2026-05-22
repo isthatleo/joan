@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
+import { getResolvedTenantLoginPath, isTenantLoginPath } from "@/lib/tenant-routing";
 import { useAuthStore } from "@/stores/auth";
 import { PUBLIC_ROUTES, ROLE_HOME, type AppRole } from "@/lib/rbac";
 
@@ -44,6 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { setUser, setLoading, logout } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
+  const isPublicAuthRoute = PUBLIC_ROUTES.includes(pathname) || isTenantLoginPath(pathname);
 
   // Better Auth session hook
   const session = authClient.useSession();
@@ -75,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
 
         // If user has no role yet → onboarding/signup; otherwise hop off public pages
-        if (PUBLIC_ROUTES.includes(pathname)) {
+        if (isPublicAuthRoute) {
           router.push(role ? (ROLE_HOME[role as AppRole] ?? "/") : "/");
         }
       } else {
@@ -100,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 avatar: profile?.avatar || null,
               });
               setLoading(false);
-              if (PUBLIC_ROUTES.includes(pathname)) {
+              if (isPublicAuthRoute) {
                 router.push(role ? (ROLE_HOME[role as AppRole] ?? "/") : "/");
               }
               return;
@@ -108,8 +110,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         } catch {}
         logout();
-        if (!PUBLIC_ROUTES.includes(pathname)) {
-          router.push("/login");
+        if (!isPublicAuthRoute) {
+          const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+          const storedSlug = typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null;
+          router.push(getResolvedTenantLoginPath(pathname, hostname, storedSlug));
         }
       }
     }

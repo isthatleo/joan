@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { TenantService } from "@/lib/services/tenant.service";
 import { verifyAuth } from "@/lib/api/auth-middleware";
 import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
+import { users, userRoles, roles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
     // Get the authenticated user to scope results by their tenant
     const auth = await verifyAuth(request);
     let userTenantId: string | undefined;
+    let isSuperAdmin = false;
 
     if (auth.authenticated && auth.user?.sub) {
       try {
@@ -56,6 +57,17 @@ export async function GET(request: NextRequest) {
           where: eq(users.id, auth.user.sub as string),
         });
         userTenantId = user?.tenantId?.toString();
+
+        // Check if user is super admin
+        if (user) {
+          const userRolesResult = await db
+            .select({ roleName: roles.name })
+            .from(userRoles)
+            .innerJoin(roles, eq(userRoles.roleId, roles.id))
+            .where(eq(userRoles.userId, user.id));
+
+          isSuperAdmin = userRolesResult.some(r => r.roleName === 'super_admin');
+        }
       } catch {
         // If we can't find the user's tenant, return empty
         userTenantId = undefined;
@@ -68,7 +80,7 @@ export async function GET(request: NextRequest) {
       status,
       limit,
       offset,
-      tenantId: userTenantId // Filter by user's tenant
+      tenantId: isSuperAdmin ? undefined : userTenantId // Only scope if not super admin
     });
     return NextResponse.json(tenants);
   } catch (error) {

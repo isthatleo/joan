@@ -9,6 +9,10 @@ export class PatientRepo {
     });
   }
 
+  async findByTenantId(tenantId: string) {
+    return db.select().from(patients).where(eq(patients.tenantId, tenantId));
+  }
+
   async create(data: any) {
     return db.insert(patients).values(data).returning();
   }
@@ -35,6 +39,10 @@ export class PatientService {
     const patient = await this.repo.findById(id);
     if (!patient) throw new Error("Patient not found");
     return patient;
+  }
+
+  async getPatientsByTenant(tenantId: string) {
+    return this.repo.findByTenantId(tenantId);
   }
 
   async createPatient(data: any) {
