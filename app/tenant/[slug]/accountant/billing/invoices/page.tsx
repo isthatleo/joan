@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { useTenantPath } from "@/hooks/useTenantPath";
 
 const orange = "#F97316";
 
@@ -47,6 +48,7 @@ interface InvoiceStats {
 export default function AccountantInvoicesPage() {
   const params = useParams();
   const slug = params?.slug as string;
+  const tenantPath = useTenantPath();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [stats, setStats] = useState<InvoiceStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -235,7 +237,7 @@ export default function AccountantInvoicesPage() {
             Export
           </button>
           <Link
-            href={`/tenant/${slug}/accountant/billing/invoices/new`}
+            href={tenantPath("/accountant/billing/invoices/new")}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-sm hover:opacity-90"
             style={{ backgroundColor: orange }}
           >
@@ -343,7 +345,7 @@ export default function AccountantInvoicesPage() {
               className="p-3 rounded-lg border border-border hover:bg-muted transition-colors text-center"
             >
               <Plus className="size-4 mx-auto mb-1 text-muted-foreground" />
-              <p className="text-xs font-medium">New Invoice</p>
+              <p className="text-xs font-medium href=/accountant/billing/invoices/new">New Invoice</p>
             </Link>
             <button
               onClick={() => exportInvoices('pdf')}
@@ -553,14 +555,14 @@ export default function AccountantInvoicesPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         <Link
-                          href={`/tenant/${slug}/accountant/billing/invoices/${invoice.id}`}
+                          href={tenantPath(`/accountant/billing/invoices/${invoice.id}`)}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-blue-600 hover:bg-blue-50 font-medium text-xs transition-colors"
                         >
                           <Eye className="size-3" />
                           View
                         </Link>
                         <Link
-                          href={`/tenant/${slug}/accountant/billing/invoices/${invoice.id}/edit`}
+                          href={tenantPath(`/accountant/billing/invoices/${invoice.id}/edit`)}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-green-600 hover:bg-green-50 font-medium text-xs transition-colors"
                         >
                           <Edit className="size-3" />

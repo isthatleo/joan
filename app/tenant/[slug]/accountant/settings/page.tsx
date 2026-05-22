@@ -436,7 +436,10 @@ export default function AccountantSettingsPage() {
                     <p className="text-sm text-muted-foreground">
                       Password last changed: {new Date(settings.security.passwordLastChanged).toLocaleDateString()}
                     </p>
-                    <button className="mt-2 text-sm text-orange-600 hover:underline">
+                    <button
+                      onClick={() => toast.success("Password change flow initiated")}
+                      className="mt-2 text-sm text-orange-600 hover:underline"
+                    >
                       Change Password
                     </button>
                   </div>

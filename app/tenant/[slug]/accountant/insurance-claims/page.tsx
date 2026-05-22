@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { useTenantPath } from "@/hooks/useTenantPath";
 
 const orange = "#F97316";
 
@@ -58,6 +59,7 @@ interface InsuranceProvider {
 export default function AccountantInsuranceClaimsPage() {
   const params = useParams();
   const slug = params?.slug as string;
+  const tenantPath = useTenantPath();
   const [claims, setClaims] = useState<InsuranceClaim[]>([]);
   const [stats, setStats] = useState<ClaimStats | null>(null);
   const [providers, setProviders] = useState<InsuranceProvider[]>([]);
@@ -241,7 +243,7 @@ export default function AccountantInsuranceClaimsPage() {
             Export
           </button>
           <Link
-            href={`/tenant/${slug}/accountant/insurance-claims/new`}
+            href={tenantPath("/accountant/insurance-claims/new")}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-sm hover:opacity-90"
             style={{ backgroundColor: orange }}
           >
@@ -557,14 +559,14 @@ export default function AccountantInsuranceClaimsPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
                         <Link
-                          href={`/tenant/${slug}/accountant/insurance-claims/${claim.id}`}
+                          href={tenantPath(`/accountant/insurance-claims/${claim.id}`)}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-blue-600 hover:bg-blue-50 font-medium text-xs transition-colors"
                         >
                           <Eye className="size-3" />
                           View
                         </Link>
                         <Link
-                          href={`/tenant/${slug}/accountant/insurance-claims/${claim.id}/edit`}
+                          href={tenantPath(`/accountant/insurance-claims/${claim.id}/edit`)}
                           className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-green-600 hover:bg-green-50 font-medium text-xs transition-colors"
                         >
                           <Edit className="size-3" />

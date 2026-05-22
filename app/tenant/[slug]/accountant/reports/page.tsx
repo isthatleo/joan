@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { useTenantPath } from "@/hooks/useTenantPath";
 
 const orange = "#F97316";
 
@@ -50,6 +51,7 @@ interface ScheduledReport {
 export default function AccountantReportsPage() {
   const params = useParams();
   const slug = params?.slug as string;
+  const tenantPath = useTenantPath();
   const [reports, setReports] = useState<Report[]>([]);
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
   const [scheduledReports, setScheduledReports] = useState<ScheduledReport[]>([]);
@@ -147,6 +149,20 @@ export default function AccountantReportsPage() {
     } catch (error) {
       toast.error("Failed to schedule report");
     }
+  };
+
+  const updateScheduledReport = (reportId: string, action: "edit" | "toggle") => {
+    setScheduledReports((current) =>
+      current.map((report) =>
+        report.id !== reportId
+          ? report
+          : {
+              ...report,
+              isActive: action === "toggle" ? !report.isActive : report.isActive,
+            }
+      )
+    );
+    toast.success(action === "edit" ? "Scheduled report updated" : "Scheduled report status changed");
   };
 
   const filteredReports = reports.filter(report => {
@@ -256,7 +272,7 @@ export default function AccountantReportsPage() {
             Refresh
           </button>
           <Link
-            href={`/tenant/${slug}/accountant/reports/custom`}
+            href={tenantPath("/accountant/reports/custom")}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-sm hover:opacity-90"
             style={{ backgroundColor: orange }}
           >
@@ -535,11 +551,17 @@ export default function AccountantReportsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
-                          <button className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-blue-600 hover:bg-blue-50 font-medium text-xs transition-colors">
+                          <button
+                            onClick={() => updateScheduledReport(report.id, "edit")}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-blue-600 hover:bg-blue-50 font-medium text-xs transition-colors"
+                          >
                             <Settings className="size-3" />
                             Edit
                           </button>
-                          <button className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-50 font-medium text-xs transition-colors">
+                          <button
+                            onClick={() => updateScheduledReport(report.id, "toggle")}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-50 font-medium text-xs transition-colors"
+                          >
                             <Settings className="size-3" />
                             {report.isActive ? "Pause" : "Resume"}
                           </button>

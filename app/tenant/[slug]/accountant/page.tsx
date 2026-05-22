@@ -7,6 +7,7 @@ import {
   CheckCircle, Download, RefreshCw, Plus, LineChart, PieChart, Users, ArrowRight, Loader2, Bell
 } from "lucide-react";
 import Link from "next/link";
+import { useTenantPath } from "@/hooks/useTenantPath";
 
 const orange = "#F97316";
 
@@ -94,6 +95,7 @@ const StatCard = ({
 export default function AccountantDashboard() {
   const params = useParams();
   const slug = params?.slug as string;
+  const tenantPath = useTenantPath();
   const [metrics, setMetrics] = useState<AccountantDashboardMetrics | null>(null);
   const [recentInvoices, setRecentInvoices] = useState<RecentInvoice[]>([]);
   const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
@@ -143,12 +145,12 @@ export default function AccountantDashboard() {
   }
 
   const quickActions = [
-    { icon: Plus, label: "Create Invoice", color: "bg-blue-50 text-blue-600", href: `/tenant/${slug}/accountant/billing/invoices/new` },
-    { icon: DollarSign, label: "Record Payment", color: "bg-green-50 text-green-600", href: `/tenant/${slug}/accountant/payments/new` },
-    { icon: TrendingUp, label: "Revenue Report", color: "bg-cyan-50 text-cyan-600", href: `/tenant/${slug}/accountant/analytics/revenue` },
-    { icon: Users, label: "View Patients", color: "bg-purple-50 text-purple-600", href: `/tenant/${slug}/accountant/patients` },
-    { icon: LineChart, label: "Financial Analysis", color: "bg-indigo-50 text-indigo-600", href: `/tenant/${slug}/accountant/analytics/financial` },
-    { icon: CheckCircle, label: "Insurance Claims", color: "bg-orange-50 text-orange-600", href: `/tenant/${slug}/accountant/insurance-claims` },
+    { icon: Plus, label: "Create Invoice", color: "bg-blue-50 text-blue-600", href: tenantPath("/accountant/billing/invoices/new") },
+    { icon: DollarSign, label: "Record Payment", color: "bg-green-50 text-green-600", href: tenantPath("/accountant/payments/new") },
+    { icon: TrendingUp, label: "Revenue Report", color: "bg-cyan-50 text-cyan-600", href: tenantPath("/accountant/analytics/revenue") },
+    { icon: Users, label: "View Patients", color: "bg-purple-50 text-purple-600", href: tenantPath("/accountant/patients") },
+    { icon: LineChart, label: "Financial Analysis", color: "bg-indigo-50 text-indigo-600", href: tenantPath("/accountant/analytics/financial") },
+    { icon: CheckCircle, label: "Insurance Claims", color: "bg-orange-50 text-orange-600", href: tenantPath("/accountant/insurance-claims") },
   ];
 
   return (
