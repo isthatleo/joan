@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   Receipt, Search, Plus, DollarSign, CreditCard, AlertCircle,
@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import { toast } from "sonner";
 import { useTenantPath } from "@/hooks/useTenantPath";
+import { exportElementAsPdf, exportElementAsPng } from "@/lib/export/page-export";
 
 const orange = "#F97316";
 
@@ -59,6 +60,7 @@ export default function AccountantInvoicesPage() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
   const [showBulkActions, setShowBulkActions] = useState(false);
+  const exportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetchInvoices();
@@ -202,25 +204,34 @@ export default function AccountantInvoicesPage() {
     }
   };
 
-  const exportInvoices = async (format: 'csv' | 'pdf') => {
+  const exportInvoices = async (format: "csv" | "pdf" | "png") => {
     try {
-      const res = await fetch(`/api/tenant/${slug}/accountant/billing/invoices/export?format=${format}&ids=${selectedInvoices.join(',')}`);
-      if (res.ok) {
+      if (format === "csv") {
+        const res = await fetch(`/api/tenant/${slug}/accountant/billing/invoices/export?format=${format}&ids=${selectedInvoices.join(",")}`);
+        if (!res.ok) throw new Error("Failed to export invoices");
         const blob = await res.blob();
         const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
+        const a = document.createElement("a");
         a.href = url;
-        a.download = `invoices.${format}`;
+        a.download = "invoices.csv";
         a.click();
-        toast.success(`Exported ${selectedInvoices.length} invoices`);
+      } else {
+        if (!exportRef.current) throw new Error("Nothing to export");
+        const filename = `invoices-${selectedInvoices.length ? "selected" : "all"}.${format}`;
+        if (format === "pdf") {
+          await exportElementAsPdf(exportRef.current, filename);
+        } else {
+          await exportElementAsPng(exportRef.current, filename);
+        }
       }
+      toast.success(`Exported invoices as ${format.toUpperCase()}`);
     } catch (error) {
       toast.error("Failed to export invoices");
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div ref={exportRef} className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
@@ -230,11 +241,25 @@ export default function AccountantInvoicesPage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => exportInvoices('csv')}
+            onClick={() => exportInvoices("pdf")}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
           >
             <Download className="size-4" />
-            Export
+            Export PDF
+          </button>
+          <button
+            onClick={() => exportInvoices("png")}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
+          >
+            <Eye className="size-4" />
+            Export PNG
+          </button>
+          <button
+            onClick={() => exportInvoices("csv")}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
+          >
+            <FileText className="size-4" />
+            Export CSV
           </button>
           <Link
             href={tenantPath("/accountant/billing/invoices/new")}
@@ -348,7 +373,7 @@ export default function AccountantInvoicesPage() {
               <p className="text-xs font-medium href=/accountant/billing/invoices/new">New Invoice</p>
             </Link>
             <button
-              onClick={() => exportInvoices('pdf')}
+              onClick={() => exportInvoices("pdf")}
               className="p-3 rounded-lg border border-border hover:bg-muted transition-colors text-center"
             >
               <Printer className="size-4 mx-auto mb-1 text-muted-foreground" />

@@ -1,33 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { listGeneratedReports } from "@/lib/accountant/report-service";
 
-const reports = [
-  {
-    id: "financial-summary-latest",
-    name: "Financial Summary",
-    type: "financial",
-    description: "Latest consolidated financial summary",
-    createdAt: new Date().toISOString(),
-    lastGenerated: new Date().toISOString(),
-    status: "ready",
-    format: "pdf",
-    size: "124 KB",
-  },
-  {
-    id: "billing-collections-latest",
-    name: "Billing & Collections",
-    type: "billing",
-    description: "Open invoices, collections, and aging overview",
-    createdAt: new Date().toISOString(),
-    lastGenerated: new Date().toISOString(),
-    status: "ready",
-    format: "csv",
-    size: "88 KB",
-  },
-];
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  try {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  return NextResponse.json(reports);
+    const { slug } = await params;
+    const tenantId = await getTenantIdBySlug(slug);
+    if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+
+    const rows = await listGeneratedReports(tenantId);
+    return NextResponse.json(
+      rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        type: row.type,
+        description: row.description || "",
+        createdAt: row.createdAt,
+        lastGenerated: row.generatedAt,
+        status: row.status,
+        format: row.format,
+        size: row.size || "N/A",
+        downloadUrl: row.downloadUrl || undefined,
+      }))
+    );
+  } catch (error) {
+    console.error("Failed to fetch reports:", error);
+    return NextResponse.json({ error: "Failed to fetch reports" }, { status: 500 });
+  }
 }

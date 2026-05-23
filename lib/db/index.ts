@@ -11,4 +11,21 @@ if (!process.env.DATABASE_URL) {
 
 const sql = neon(process.env.DATABASE_URL, { fullResults: false });
 
-export const db = drizzle(sql, { schema });
+const baseDb = drizzle(sql, { schema });
+
+type RawQueryArgs = [TemplateStringsArray, ...unknown[]] | [string, unknown[]?];
+
+async function queryRaw(...args: RawQueryArgs) {
+  if (Array.isArray(args[0]) && "raw" in args[0]) {
+    const [strings, ...params] = args as [TemplateStringsArray, ...unknown[]];
+    return sql(strings, ...params);
+  }
+
+  const [query, params] = args as [string, unknown[]?];
+  return sql.query(query, params);
+}
+
+export const db = Object.assign(baseDb, {
+  $queryRaw: queryRaw,
+  $sql: sql,
+});

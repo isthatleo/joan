@@ -3,8 +3,20 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
-  LayoutDashboard, DollarSign, TrendingUp, Activity, AlertCircle,
-  CheckCircle, Download, RefreshCw, Plus, LineChart, PieChart, Users, ArrowRight, Loader2, Bell
+  Activity,
+  AlertCircle,
+  ArrowDownRight,
+  ArrowRight,
+  ArrowUpRight,
+  Bell,
+  CheckCircle,
+  DollarSign,
+  Loader2,
+  Plus,
+  TrendingUp,
+  Users,
+  RefreshCw,
+  LineChart,
 } from "lucide-react";
 import Link from "next/link";
 import { useTenantPath } from "@/hooks/useTenantPath";
@@ -51,7 +63,7 @@ const StatCard = ({
   title,
   value,
   subtitle,
-  icon: Icon,
+  icon,
   trend,
   trendDirection,
   onClick,
@@ -66,29 +78,21 @@ const StatCard = ({
 }) => (
   <div
     onClick={onClick}
-    className={`p-6 rounded-2xl border border-gray-200 bg-white hover:shadow-lg transition-all ${
-      onClick ? "cursor-pointer" : ""
-    }`}
+    className={`rounded-2xl border border-border bg-card p-6 shadow-sm transition hover:border-orange-300/70 hover:shadow-md ${onClick ? "cursor-pointer" : ""}`}
   >
-    <div className="flex items-start justify-between mb-4">
-      <div className="p-2.5 rounded-xl bg-orange-50 text-orange-500">
-        {Icon}
-      </div>
-      {trend && (
+    <div className="mb-4 flex items-start justify-between gap-3">
+      <div className="rounded-xl bg-orange-500/10 p-2.5 text-orange-500">{icon}</div>
+      {trend ? (
         <div
-          className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold ${
-            trendDirection === "up"
-              ? "text-green-600 bg-green-50"
-              : "text-red-600 bg-red-50"
-          }`}
+          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold ${trendDirection === "up" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300" : "bg-red-500/10 text-red-600 dark:text-red-300"}`}
         >
-          {trendDirection === "up" ? "↑" : "↓"} {trend}
+          {trendDirection === "up" ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />} {trend}
         </div>
-      )}
+      ) : null}
     </div>
-    <h3 className="text-sm font-medium text-gray-600 mb-1">{title}</h3>
-    <p className="text-2xl font-bold text-gray-900 mb-1">{value}</p>
-    <p className="text-xs text-gray-500">{subtitle}</p>
+    <h3 className="mb-1 text-sm font-medium text-muted-foreground">{title}</h3>
+    <p className="mb-1 text-2xl font-bold text-foreground">{value}</p>
+    <p className="text-xs text-muted-foreground">{subtitle}</p>
   </div>
 );
 
@@ -104,24 +108,28 @@ export default function AccountantDashboard() {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 30000);
+    void fetchDashboardData();
+    const interval = setInterval(() => {
+      void fetchDashboardData();
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
   const fetchDashboardData = async () => {
     try {
       setRefreshing(true);
-      const [metricsRes, invoicesRes, activitiesRes, alertsRes] =
-        await Promise.all([
-          fetch(`/api/tenant/${slug}/accountant/dashboard`),
-          fetch(`/api/tenant/${slug}/accountant/invoices?recent=true`),
-          fetch(`/api/tenant/${slug}/accountant/activities`),
-          fetch(`/api/tenant/${slug}/accountant/alerts`),
-        ]);
+      const [metricsRes, invoicesRes, activitiesRes, alertsRes] = await Promise.all([
+        fetch(`/api/tenant/${slug}/accountant/dashboard`),
+        fetch(`/api/tenant/${slug}/accountant/invoices?recent=true`),
+        fetch(`/api/tenant/${slug}/accountant/activities`),
+        fetch(`/api/tenant/${slug}/accountant/alerts`),
+      ]);
 
       if (metricsRes.ok) setMetrics(await metricsRes.json());
-      if (invoicesRes.ok) setRecentInvoices(await invoicesRes.json());
+      if (invoicesRes.ok) {
+        const payload = await invoicesRes.json();
+        setRecentInvoices(Array.isArray(payload) ? payload : payload.invoices || []);
+      }
       if (activitiesRes.ok) setRecentActivities(await activitiesRes.json());
       if (alertsRes.ok) setAlerts(await alertsRes.json());
 
@@ -135,9 +143,9 @@ export default function AccountantDashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex h-full items-center justify-center">
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-orange-500" />
+          <Loader2 className="h-4 w-4 animate-spin" />
           Loading financial dashboard...
         </div>
       </div>
@@ -145,166 +153,109 @@ export default function AccountantDashboard() {
   }
 
   const quickActions = [
-    { icon: Plus, label: "Create Invoice", color: "bg-blue-50 text-blue-600", href: tenantPath("/accountant/billing/invoices/new") },
-    { icon: DollarSign, label: "Record Payment", color: "bg-green-50 text-green-600", href: tenantPath("/accountant/payments/new") },
-    { icon: TrendingUp, label: "Revenue Report", color: "bg-cyan-50 text-cyan-600", href: tenantPath("/accountant/analytics/revenue") },
-    { icon: Users, label: "View Patients", color: "bg-purple-50 text-purple-600", href: tenantPath("/accountant/patients") },
-    { icon: LineChart, label: "Financial Analysis", color: "bg-indigo-50 text-indigo-600", href: tenantPath("/accountant/analytics/financial") },
-    { icon: CheckCircle, label: "Insurance Claims", color: "bg-orange-50 text-orange-600", href: tenantPath("/accountant/insurance-claims") },
+    { icon: Plus, label: "Create Invoice", color: "bg-blue-500/10 text-blue-600 dark:text-blue-300", href: tenantPath("/accountant/billing/invoices/new") },
+    { icon: DollarSign, label: "Record Payment", color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300", href: tenantPath("/accountant/payments/new") },
+    { icon: TrendingUp, label: "Revenue Report", color: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-300", href: tenantPath("/accountant/analytics/revenue") },
+    { icon: Users, label: "View Patients", color: "bg-violet-500/10 text-violet-600 dark:text-violet-300", href: tenantPath("/accountant/patients") },
+    { icon: LineChart, label: "Financial Analysis", color: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-300", href: tenantPath("/accountant/analytics/financial") },
+    { icon: CheckCircle, label: "Insurance Claims", color: "bg-orange-500/10 text-orange-600 dark:text-orange-300", href: tenantPath("/accountant/insurance-claims") },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
-            Accountant Dashboard
-          </p>
-          <h1 className="text-3xl font-bold text-foreground mt-1">
-            Financial Overview
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Real-time financial metrics and payment tracking
-          </p>
+          <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Accountant Dashboard</p>
+          <h1 className="mt-1 text-3xl font-bold text-foreground">Financial Overview</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Real-time financial metrics and payment tracking.</p>
         </div>
         <button
-          onClick={fetchDashboardData}
+          onClick={() => void fetchDashboardData()}
           disabled={refreshing}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 text-white font-semibold hover:bg-orange-600 disabled:opacity-50 transition-all"
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 font-semibold text-white transition hover:bg-orange-600 disabled:opacity-50"
         >
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
           Refresh
         </button>
       </div>
 
-      {/* Alerts */}
-      {alerts.length > 0 && (
+      {alerts.length > 0 ? (
         <div className="space-y-2">
           {alerts.map((alert) => {
-            const bgColor = alert.type === "warning" ? "bg-yellow-50 border-yellow-200" :
-                           alert.type === "error" ? "bg-red-50 border-red-200" :
-                           alert.type === "success" ? "bg-green-50 border-green-200" :
-                           "bg-blue-50 border-blue-200";
-            const textColor = alert.type === "warning" ? "text-yellow-900" :
-                             alert.type === "error" ? "text-red-900" :
-                             alert.type === "success" ? "text-green-900" :
-                             "text-blue-900";
-            const icon = alert.type === "warning" || alert.type === "error" ? <AlertCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />;
+            const tone =
+              alert.type === "warning"
+                ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-900 dark:text-yellow-200"
+                : alert.type === "error"
+                  ? "border-red-500/30 bg-red-500/10 text-red-900 dark:text-red-200"
+                  : alert.type === "success"
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200"
+                    : "border-blue-500/30 bg-blue-500/10 text-blue-900 dark:text-blue-200";
 
             return (
-              <div key={alert.id} className={`p-4 rounded-lg border ${bgColor}`}>
+              <div key={alert.id} className={`rounded-2xl border p-4 ${tone}`}>
                 <div className="flex items-start gap-3">
-                  <div className={textColor}>
-                    {icon}
-                  </div>
-                  <div className="flex-1">
-                    <p className={`font-semibold ${textColor}`}>{alert.title}</p>
-                    <p className={`text-sm mt-1 ${textColor} opacity-90`}>{alert.message}</p>
+                  {alert.type === "warning" || alert.type === "error" ? <AlertCircle className="mt-0.5 h-4 w-4" /> : <CheckCircle className="mt-0.5 h-4 w-4" />}
+                  <div>
+                    <p className="font-semibold">{alert.title}</p>
+                    <p className="mt-1 text-sm opacity-90">{alert.message}</p>
                   </div>
                 </div>
               </div>
             );
           })}
         </div>
-      )}
+      ) : null}
 
-      {/* Primary KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Total Revenue"
-          value={`$${metrics?.totalRevenue?.toFixed(2) || "0.00"}`}
-          subtitle="Year to date"
-          icon={<DollarSign className="h-6 w-6" />}
-          trend={`${metrics?.revenueGrowth}%`}
-          trendDirection={metrics?.revenueGrowth && metrics.revenueGrowth >= 0 ? "up" : "down"}
-        />
-        <StatCard
-          title="Pending Invoices"
-          value={metrics?.pendingInvoices}
-          subtitle="Awaiting payment"
-          icon={<Bell className="h-6 w-6" />}
-        />
-        <StatCard
-          title="Outstanding Balance"
-          value={`$${metrics?.outstandingBalance?.toFixed(2) || "0.00"}`}
-          subtitle="Total due"
-          icon={<TrendingUp className="h-6 w-6" />}
-        />
-        <StatCard
-          title="Collections Rate"
-          value={`${metrics?.collectionsRate}%`}
-          subtitle="Payment success"
-          icon={<CheckCircle className="h-6 w-6" />}
-        />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard title="Total Revenue" value={`$${metrics?.totalRevenue?.toFixed(2) || "0.00"}`} subtitle="Year to date" icon={<DollarSign className="h-6 w-6" />} trend={`${metrics?.revenueGrowth}%`} trendDirection={metrics?.revenueGrowth && metrics.revenueGrowth >= 0 ? "up" : "down"} />
+        <StatCard title="Pending Invoices" value={metrics?.pendingInvoices ?? 0} subtitle="Awaiting payment" icon={<Bell className="h-6 w-6" />} />
+        <StatCard title="Outstanding Balance" value={`$${metrics?.outstandingBalance?.toFixed(2) || "0.00"}`} subtitle="Total due" icon={<TrendingUp className="h-6 w-6" />} />
+        <StatCard title="Collections Rate" value={`${metrics?.collectionsRate}%`} subtitle="Payment success" icon={<CheckCircle className="h-6 w-6" />} />
       </div>
 
-      {/* Secondary KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard
-          title="Pending Payments"
-          value={metrics?.pendingPayments}
-          subtitle="To be processed"
-          icon={<DollarSign className="h-6 w-6" />}
-        />
-        <StatCard
-          title="Total Patients"
-          value={metrics?.totalPatients}
-          subtitle="Active accounts"
-          icon={<Users className="h-6 w-6" />}
-        />
-        <StatCard
-          title="Avg Payment Time"
-          value={`${metrics?.averagePaymentTime} days`}
-          subtitle="Invoice to cash"
-          icon={<Activity className="h-6 w-6" />}
-        />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <StatCard title="Pending Payments" value={metrics?.pendingPayments ?? 0} subtitle="To be processed" icon={<DollarSign className="h-6 w-6" />} />
+        <StatCard title="Total Patients" value={metrics?.totalPatients ?? 0} subtitle="Active accounts" icon={<Users className="h-6 w-6" />} />
+        <StatCard title="Avg Payment Time" value={`${metrics?.averagePaymentTime ?? 0} days`} subtitle="Invoice to cash" icon={<Activity className="h-6 w-6" />} />
       </div>
 
-      {/* Recent Invoices & Quick Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Recent Invoices */}
-        <div className="lg:col-span-2 p-6 rounded-2xl border border-gray-200 bg-white">
-          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm xl:col-span-2">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-foreground">
             <DollarSign className="h-5 w-5 text-orange-500" />
             Recent Invoices
           </h2>
           <div className="space-y-3 max-h-96 overflow-y-auto">
             {recentInvoices.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <Bell className="h-12 w-12 mx-auto mb-2 opacity-50" />
+              <div className="py-8 text-center text-muted-foreground">
+                <Bell className="mx-auto mb-2 h-12 w-12 opacity-50" />
                 <p>No recent invoices</p>
               </div>
             ) : (
               recentInvoices.map((invoice) => (
-                <div
-                  key={invoice.id}
-                  className="p-4 rounded-lg border border-gray-100 hover:border-orange-300 hover:bg-orange-50/30 transition-all"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <p className="font-semibold text-gray-900">{invoice.patientName}</p>
-                      <p className="text-xs text-gray-500">Invoice #{invoice.id}</p>
+                <div key={invoice.id} className="rounded-xl border border-border bg-background/60 p-4 transition hover:border-orange-300/70 hover:bg-orange-500/5">
+                  <div className="mb-2 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-foreground">{invoice.patientName}</p>
+                      <p className="text-xs text-muted-foreground">Invoice #{invoice.id}</p>
                     </div>
                     <span
-                      className={`px-2 py-1 rounded-md text-xs font-semibold ${
+                      className={`rounded-md px-2 py-1 text-xs font-semibold ${
                         invoice.status === "paid"
-                          ? "bg-green-50 text-green-600"
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
                           : invoice.status === "overdue"
-                          ? "bg-red-50 text-red-600"
-                          : invoice.status === "partial"
-                          ? "bg-yellow-50 text-yellow-600"
-                          : "bg-blue-50 text-blue-600"
+                            ? "bg-red-500/10 text-red-600 dark:text-red-300"
+                            : invoice.status === "partial"
+                              ? "bg-yellow-500/10 text-yellow-700 dark:text-yellow-300"
+                              : "bg-blue-500/10 text-blue-600 dark:text-blue-300"
                       }`}
                     >
                       {invoice.status.toUpperCase()}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">
-                      Due: {new Date(invoice.dueDate).toLocaleDateString()}
-                    </span>
-                    <span className="font-semibold text-gray-900">${invoice.amount.toFixed(2)}</span>
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="text-sm text-muted-foreground">Due: {new Date(invoice.dueDate).toLocaleDateString()}</span>
+                    <span className="font-semibold text-foreground">${invoice.amount.toFixed(2)}</span>
                   </div>
                 </div>
               ))
@@ -312,9 +263,8 @@ export default function AccountantDashboard() {
           </div>
         </div>
 
-        {/* Quick Actions */}
-        <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-foreground">
             <DollarSign className="h-5 w-5 text-orange-500" />
             Quick Actions
           </h2>
@@ -323,46 +273,38 @@ export default function AccountantDashboard() {
               <Link
                 key={action.label}
                 href={action.href}
-                className={`w-full p-3 rounded-lg border border-gray-200 hover:border-orange-300 ${action.color} text-sm font-semibold transition-all text-left flex items-center gap-2`}
+                className={`flex w-full items-center gap-2 rounded-xl border border-border px-3 py-3 text-left text-sm font-semibold transition hover:border-orange-300/70 ${action.color}`}
               >
-                <action.icon className="h-4 w-4" />
-                <span>{action.label}</span>
-                <ArrowRight className="h-3 w-3 ml-auto" />
+                <action.icon className="h-4 w-4 shrink-0" />
+                <span className="truncate">{action.label}</span>
+                <ArrowRight className="ml-auto h-3 w-3 shrink-0" />
               </Link>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Recent Activity */}
-      <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-        <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+        <h2 className="mb-4 flex items-center gap-2 text-lg font-bold text-foreground">
           <Activity className="h-5 w-5 text-orange-500" />
           Recent Activity
         </h2>
         <div className="space-y-3">
           {recentActivities.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <Activity className="h-12 w-12 mx-auto mb-2 opacity-50" />
+            <div className="py-8 text-center text-muted-foreground">
+              <Activity className="mx-auto mb-2 h-12 w-12 opacity-50" />
               <p>No recent activity</p>
             </div>
           ) : (
             recentActivities.map((activity) => (
-              <div
-                key={activity.id}
-                className="flex items-start gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-all"
-              >
-                <div className="h-2 w-2 rounded-full bg-orange-500 mt-1.5" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900">{activity.title}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{activity.description}</p>
-                  <p className="text-xs text-gray-400 mt-1">{new Date(activity.timestamp).toLocaleTimeString()}</p>
+              <div key={activity.id} className="flex items-start gap-3 rounded-xl border border-border bg-background/50 p-3 transition hover:bg-muted/40">
+                <div className="mt-1.5 h-2 w-2 rounded-full bg-orange-500" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground">{activity.title}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{activity.description}</p>
+                  <p className="mt-1 text-xs text-muted-foreground/80">{new Date(activity.timestamp).toLocaleTimeString()}</p>
                 </div>
-                {activity.amount && (
-                  <p className="text-sm font-semibold text-gray-900 whitespace-nowrap">
-                    ${activity.amount.toFixed(2)}
-                  </p>
-                )}
+                {activity.amount ? <p className="whitespace-nowrap text-sm font-semibold text-foreground">${activity.amount.toFixed(2)}</p> : null}
               </div>
             ))
           )}
@@ -371,4 +313,3 @@ export default function AccountantDashboard() {
     </div>
   );
 }
-

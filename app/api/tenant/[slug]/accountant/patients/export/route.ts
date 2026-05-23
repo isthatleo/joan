@@ -48,8 +48,8 @@ export async function GET(
         p.phone,
         p.mrn,
         COUNT(DISTINCT i.id) as total_invoices,
-        COALESCE(SUM(i.amount_due), 0) as total_outstanding,
-        COALESCE(SUM(CASE WHEN pay.status = 'completed' THEN pay.amount ELSE 0 END), 0) as total_paid
+        COALESCE(SUM(i.amount_due::numeric), 0) as total_outstanding,
+        COALESCE(SUM(CASE WHEN pay.status = 'completed' THEN pay.amount::numeric ELSE 0 END), 0) as total_paid
       FROM patients p
       LEFT JOIN invoices i ON p.id = i.patient_id AND i.tenant_id = $1
       LEFT JOIN payments pay ON i.id = pay.invoice_id AND pay.tenant_id = $1

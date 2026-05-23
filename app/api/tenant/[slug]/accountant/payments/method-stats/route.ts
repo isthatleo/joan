@@ -20,7 +20,7 @@ export async function GET(
     }
 
     const rows = await db.$queryRaw`
-      SELECT method, COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount
+      SELECT method, COUNT(*) AS count, COALESCE(SUM(amount::numeric), 0) AS amount
       FROM payments
       WHERE tenant_id = ${tenantId}
       GROUP BY method

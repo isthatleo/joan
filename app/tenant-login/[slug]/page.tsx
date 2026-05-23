@@ -155,7 +155,7 @@ export default function PublicTenantLoginPage() {
       const roleRes = await fetch("/api/auth/role", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, tenantSlug: slug }),
       });
       const { role } = await roleRes.json();
       if (role && role !== selectedRole) {
@@ -165,7 +165,8 @@ export default function PublicTenantLoginPage() {
         return;
       }
       // Redirect to tenant dashboard
-      window.location.assign(getTenantDashboardPath(slug, role as AppRole, window.location.hostname));
+      const resolvedRole = (role as AppRole | null) ?? (selectedRole as AppRole);
+      window.location.assign(getTenantDashboardPath(slug, resolvedRole, window.location.hostname));
     } catch (err: any) {
       setError(err?.message || "Sign-in failed");
     } finally {

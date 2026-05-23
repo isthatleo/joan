@@ -32,6 +32,47 @@ io.on("connection", (socket) => {
       });
     });
 
+    socket.on("call:start", (data) => {
+      io.to(`user:${data.receiverId}`).emit("call:incoming", {
+        callerId: userId,
+        callType: data.callType,
+      });
+    });
+
+    socket.on("call:offer", (data) => {
+      io.to(`user:${data.receiverId}`).emit("call:offer", {
+        callerId: userId,
+        offer: data.offer,
+        callType: data.callType,
+      });
+    });
+
+    socket.on("call:answer", (data) => {
+      io.to(`user:${data.receiverId}`).emit("call:answer", {
+        answer: data.answer,
+        receiverId: userId,
+      });
+    });
+
+    socket.on("call:ice-candidate", (data) => {
+      io.to(`user:${data.receiverId}`).emit("call:ice-candidate", {
+        candidate: data.candidate,
+        senderId: userId,
+      });
+    });
+
+    socket.on("call:reject", (data) => {
+      io.to(`user:${data.receiverId}`).emit("call:reject", {
+        receiverId: userId,
+      });
+    });
+
+    socket.on("call:end", (data) => {
+      io.to(`user:${data.receiverId}`).emit("call:end", {
+        senderId: userId,
+      });
+    });
+
     // Disconnect
     socket.on("disconnect", () => {
       redis.srem("online-users", userId);

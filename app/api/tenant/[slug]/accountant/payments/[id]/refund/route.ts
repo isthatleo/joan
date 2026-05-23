@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { refundSchema } from "@/lib/accountant/route-schemas";
+import { parseJsonBody, validateFinancePayload } from "@/lib/accountant/finance-api";
 
 export async function POST(
   request: NextRequest,
@@ -15,10 +17,14 @@ export async function POST(
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    const { amount } = await request.json();
+    const jsonResult = await parseJsonBody(request);
+    if (!jsonResult.ok) return jsonResult.response;
+    const parsed = validateFinancePayload(refundSchema, jsonResult.data);
+    if (!parsed.ok) return parsed.response;
+
     await db.$queryRaw`
       UPDATE payments
-      SET refund_amount = ${String(Number(amount || 0))}, status = 'refunded', updated_at = CURRENT_TIMESTAMP
+      SET refund_amount = ${parsed.data.amount}, status = 'refunded', updated_at = CURRENT_TIMESTAMP
       WHERE tenant_id = ${tenantId} AND id = ${id}
     `;
 

@@ -40,6 +40,8 @@ interface ProfileData {
   id: string;
   email: string;
   fullName?: string;
+  role?: string;
+  canEditIdentity?: boolean;
   phone?: string;
   address?: string;
   dateOfBirth?: string;
@@ -76,18 +78,19 @@ export default function ProfilePage() {
   const { data: profile, isLoading } = useQuery({
     queryKey: ["profile", user?.id],
     queryFn: async (): Promise<ProfileData> => {
-      const response = await fetch(`/api/users/profile?userId=${user?.id}`);
+      const response = await fetch(`/api/users/profile`);
       if (!response.ok) throw new Error("Failed to fetch profile");
       return response.json();
     },
     enabled: !!user?.id,
   });
+  const allowIdentityEdit = profile?.canEditIdentity ?? false;
 
   // Update profile mutation
   const updateProfileMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       console.log("Updating profile with data:", data);
-      const response = await fetch(`/api/users/profile?userId=${user?.id}`, {
+      const response = await fetch(`/api/users/profile`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -130,7 +133,7 @@ export default function ProfilePage() {
       const formData = new FormData();
       formData.append("avatar", file);
 
-      const response = await fetch(`/api/users/avatar?userId=${user?.id}`, {
+      const response = await fetch(`/api/users/avatar`, {
         method: "POST",
         body: formData,
       });
@@ -405,7 +408,7 @@ export default function ProfilePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="fullName">Full Name</Label>
-                {isEditing ? (
+                {isEditing && allowIdentityEdit ? (
                   <Input
                     id="fullName"
                     value={formData.fullName}
@@ -413,9 +416,16 @@ export default function ProfilePage() {
                     placeholder="Enter your full name"
                   />
                 ) : (
-                  <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/50">
-                    <User className="h-4 w-4 text-muted-foreground" />
-                    <span>{profile.fullName || "Not set"}</span>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/50">
+                      <User className="h-4 w-4 text-muted-foreground" />
+                      <span>{profile.fullName || "Not set"}</span>
+                    </div>
+                    {!allowIdentityEdit && (
+                      <p className="text-xs text-muted-foreground">
+                        Name changes are managed by your organization for this account.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -426,6 +436,11 @@ export default function ProfilePage() {
                   <Mail className="h-4 w-4 text-muted-foreground" />
                   <span>{profile.email}</span>
                 </div>
+                {!allowIdentityEdit && (
+                  <p className="text-xs text-muted-foreground">
+                    Email changes are restricted for staff accounts.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -522,16 +537,11 @@ export default function ProfilePage() {
               <div>
                 <h4 className="font-medium mb-2">Permissions</h4>
                 <div className="flex flex-wrap gap-2">
-                  {profile.permissions.slice(0, 10).map((permission) => (
+                  {profile.permissions.map((permission) => (
                     <Badge key={permission} variant="secondary" className="text-xs">
                       {permission}
                     </Badge>
                   ))}
-                  {profile.permissions.length > 10 && (
-                    <Badge variant="secondary" className="text-xs">
-                      +{profile.permissions.length - 10} more
-                    </Badge>
-                  )}
                 </div>
               </div>
             </div>

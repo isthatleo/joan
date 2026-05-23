@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, boolean, jsonb, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, boolean, jsonb, integer, index, numeric, date } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 export const baseColumns = {
@@ -116,6 +116,8 @@ export const patients = pgTable("patients", {
   ...baseColumns,
   tenantId: uuid("tenant_id"),
   globalPatientId: text("global_patient_id").unique(),
+  fullName: text("full_name"),
+  mrn: text("mrn"),
   firstName: text("first_name"),
   lastName: text("last_name"),
   dob: timestamp("dob"),
@@ -123,6 +125,7 @@ export const patients = pgTable("patients", {
   phone: text("phone"),
   email: text("email"),
   address: text("address"),
+  status: text("status").default("active"),
 }, (table) => ({
   patientTenantIdx: index("patient_tenant_idx").on(table.tenantId),
 }));
@@ -240,8 +243,17 @@ export const invoices = pgTable("invoices", {
   ...baseColumns,
   tenantId: uuid("tenant_id"),
   patientId: uuid("patient_id").references(() => patients.id),
+  invoiceNumber: text("invoice_number"),
+  amount: text("amount"),
+  amountDue: text("amount_due"),
   totalAmount: text("total_amount"),
   status: text("status"),
+  dueDate: date("due_date"),
+  description: text("description"),
+  notes: text("notes"),
+  paymentTerms: text("payment_terms"),
+  items: jsonb("items").default([]),
+  createdBy: uuid("created_by"),
 }, (table) => ({
   invoicePatientIdx: index("invoice_patient_idx").on(table.patientId),
   invoiceTenantIdx: index("invoice_tenant_idx").on(table.tenantId),
@@ -261,6 +273,12 @@ export const payments = pgTable("payments", {
   method: text("method"),
   amount: text("amount"),
   status: text("status"),
+  transactionId: text("transaction_id"),
+  notes: text("notes"),
+  fee: text("fee"),
+  refundAmount: text("refund_amount"),
+  createdBy: uuid("created_by"),
+  processedAt: timestamp("processed_at"),
 });
 
 // Insurance
@@ -276,8 +294,21 @@ export const claims = pgTable("claims", {
   ...baseColumns,
   tenantId: uuid("tenant_id"),
   invoiceId: uuid("invoice_id").references(() => invoices.id),
+  policyId: uuid("policy_id").references(() => insurancePolicies.id),
   status: text("status"),
-});
+  claimAmount: numeric("claim_amount", { precision: 14, scale: 2 }).notNull().default("0"),
+  approvedAmount: numeric("approved_amount", { precision: 14, scale: 2 }).default("0"),
+  submittedAt: timestamp("submitted_at").defaultNow(),
+  processedAt: timestamp("processed_at"),
+  denialReason: text("denial_reason"),
+  appealDeadline: timestamp("appeal_deadline"),
+  notes: text("notes"),
+  documents: jsonb("documents").default([]),
+}, (table) => ({
+  claimsTenantIdx: index("claims_tenant_idx").on(table.tenantId),
+  claimsInvoiceIdx: index("claims_invoice_idx").on(table.invoiceId),
+  claimsPolicyIdx: index("claims_policy_idx").on(table.policyId),
+}));
 
 // Messaging
 export const messages = pgTable("messages", {
@@ -519,4 +550,169 @@ export const userRolesRelations = relations(userRoles, ({ one }) => ({
     references: [roles.id],
   }),
 }));
-// Added a comment to force re-evaluation by the build system.
+
+// ===== Accountant financial tables =====
+export const expenses = pgTable("expenses", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").notNull(),
+  category: text("category").notNull(),
+  vendor: text("vendor"),
+  description: text("description"),
+  amount: numeric("amount", { precision: 14, scale: 2 }).notNull().default("0"),
+  currency: text("currency").notNull().default("USD"),
+  expenseDate: date("expense_date").notNull(),
+  paymentMethod: text("payment_method"),
+  reference: text("reference"),
+  status: text("status").notNull().default("pending"),
+  receiptUrl: text("receipt_url"),
+  approvedBy: uuid("approved_by"),
+  metadata: jsonb("metadata").default({}),
+}, (t) => ({
+  expensesTenantIdx: index("expenses_tenant_idx").on(t.tenantId),
+  expensesDateIdx: index("expenses_date_idx").on(t.expenseDate),
+}));
+
+export const accountsPayable = pgTable("accounts_payable", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").notNull(),
+  vendor: text("vendor").notNull(),
+  vendorEmail: text("vendor_email"),
+  invoiceNumber: text("invoice_number"),
+  amount: numeric("amount", { precision: 14, scale: 2 }).notNull().default("0"),
+  amountPaid: numeric("amount_paid", { precision: 14, scale: 2 }).notNull().default("0"),
+  currency: text("currency").notNull().default("USD"),
+  issueDate: date("issue_date").notNull(),
+  dueDate: date("due_date"),
+  status: text("status").notNull().default("open"),
+  notes: text("notes"),
+  metadata: jsonb("metadata").default({}),
+}, (t) => ({
+  apTenantIdx: index("ap_tenant_idx").on(t.tenantId),
+  apStatusIdx: index("ap_status_idx").on(t.status),
+}));
+
+export const budgets = pgTable("budgets", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").notNull(),
+  name: text("name").notNull(),
+  category: text("category"),
+  period: text("period").notNull().default("monthly"),
+  amount: numeric("amount", { precision: 14, scale: 2 }).notNull().default("0"),
+  spent: numeric("spent", { precision: 14, scale: 2 }).notNull().default("0"),
+  currency: text("currency").notNull().default("USD"),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date"),
+  status: text("status").notNull().default("active"),
+  metadata: jsonb("metadata").default({}),
+}, (t) => ({
+  budgetsTenantIdx: index("budgets_tenant_idx").on(t.tenantId),
+}));
+
+export const journalEntries = pgTable("journal_entries", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").notNull(),
+  entryDate: date("entry_date").notNull(),
+  reference: text("reference"),
+  description: text("description"),
+  debitAccount: text("debit_account").notNull(),
+  creditAccount: text("credit_account").notNull(),
+  amount: numeric("amount", { precision: 14, scale: 2 }).notNull().default("0"),
+  currency: text("currency").notNull().default("USD"),
+  postedBy: uuid("posted_by"),
+  status: text("status").notNull().default("posted"),
+  metadata: jsonb("metadata").default({}),
+}, (t) => ({
+  journalTenantIdx: index("journal_tenant_idx").on(t.tenantId),
+  journalDateIdx: index("journal_date_idx").on(t.entryDate),
+}));
+
+export const taxRecords = pgTable("tax_records", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").notNull(),
+  period: text("period").notNull(),
+  taxType: text("tax_type").notNull(),
+  jurisdiction: text("jurisdiction"),
+  taxableAmount: numeric("taxable_amount", { precision: 14, scale: 2 }).notNull().default("0"),
+  taxAmount: numeric("tax_amount", { precision: 14, scale: 2 }).notNull().default("0"),
+  rate: numeric("rate", { precision: 6, scale: 4 }).notNull().default("0"),
+  currency: text("currency").notNull().default("USD"),
+  dueDate: date("due_date"),
+  filedAt: timestamp("filed_at"),
+  status: text("status").notNull().default("draft"),
+  reference: text("reference"),
+  metadata: jsonb("metadata").default({}),
+}, (t) => ({
+  taxRecordsTenantIdx: index("tax_records_tenant_idx").on(t.tenantId),
+}));
+
+export const emailSendLog = pgTable("email_send_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  tenantId: uuid("tenant_id"),
+  toAddress: text("to_address").notNull(),
+  fromAddress: text("from_address"),
+  subject: text("subject"),
+  template: text("template"),
+  status: text("status").notNull().default("queued"),
+  provider: text("provider").default("resend"),
+  providerMessageId: text("provider_message_id"),
+  error: text("error"),
+  metadata: jsonb("metadata").default({}),
+}, (t) => ({
+  emailLogTenantIdx: index("email_log_tenant_idx").on(t.tenantId),
+  emailLogStatusIdx: index("email_log_status_idx").on(t.status),
+}));
+
+export const accountantReportTemplates = pgTable("accountant_report_templates", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id"),
+  key: text("key").notNull(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  category: text("category").notNull(),
+  description: text("description"),
+  frequency: text("frequency").notNull().default("monthly"),
+  estimatedTime: text("estimated_time").default("1-2 minutes"),
+  config: jsonb("config").default({}),
+  isSystem: boolean("is_system").notNull().default(true),
+}, (table) => ({
+  accountantReportTemplatesTenantIdx: index("accountant_report_templates_tenant_idx").on(table.tenantId),
+  accountantReportTemplatesKeyIdx: index("accountant_report_templates_key_idx").on(table.key),
+}));
+
+export const accountantReports = pgTable("accountant_reports", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").notNull(),
+  templateId: uuid("template_id").references(() => accountantReportTemplates.id),
+  name: text("name").notNull(),
+  type: text("type").notNull(),
+  description: text("description"),
+  status: text("status").notNull().default("ready"),
+  format: text("format").notNull().default("pdf"),
+  size: text("size"),
+  generatedAt: timestamp("generated_at").defaultNow().notNull(),
+  downloadUrl: text("download_url"),
+  requestedBy: uuid("requested_by"),
+  metadata: jsonb("metadata").default({}),
+}, (table) => ({
+  accountantReportsTenantIdx: index("accountant_reports_tenant_idx").on(table.tenantId),
+  accountantReportsTemplateIdx: index("accountant_reports_template_idx").on(table.templateId),
+}));
+
+export const scheduledAccountantReports = pgTable("scheduled_accountant_reports", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").notNull(),
+  templateId: uuid("template_id").references(() => accountantReportTemplates.id),
+  name: text("name").notNull(),
+  frequency: text("frequency").notNull(),
+  nextRun: timestamp("next_run").notNull(),
+  recipients: jsonb("recipients").default([]),
+  format: text("format").notNull().default("pdf"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: uuid("created_by"),
+  metadata: jsonb("metadata").default({}),
+}, (table) => ({
+  scheduledAccountantReportsTenantIdx: index("scheduled_accountant_reports_tenant_idx").on(table.tenantId),
+  scheduledAccountantReportsTemplateIdx: index("scheduled_accountant_reports_template_idx").on(table.templateId),
+}));

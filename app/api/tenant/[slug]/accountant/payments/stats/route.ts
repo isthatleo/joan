@@ -62,7 +62,7 @@ export async function GET(
 
       // Total amount processed
       db.$queryRaw`
-        SELECT COALESCE(SUM(amount), 0) as total
+        SELECT COALESCE(SUM(amount::numeric), 0) as total
         FROM payments
         WHERE tenant_id = ${tenantId}
         AND status = 'completed'
@@ -70,7 +70,7 @@ export async function GET(
 
       // Average payment amount
       db.$queryRaw`
-        SELECT COALESCE(AVG(amount), 0) as average
+        SELECT COALESCE(AVG(amount::numeric), 0) as average
         FROM payments
         WHERE tenant_id = ${tenantId}
         AND status = 'completed'
@@ -78,10 +78,10 @@ export async function GET(
 
       // Total refunds
       db.$queryRaw`
-        SELECT COALESCE(SUM(refund_amount), 0) as total
+        SELECT COALESCE(SUM(refund_amount::numeric), 0) as total
         FROM payments
         WHERE tenant_id = ${tenantId}
-        AND refund_amount > 0
+        AND refund_amount::numeric > 0
       `,
     ]);
 

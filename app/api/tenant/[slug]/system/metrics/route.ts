@@ -5,10 +5,10 @@ import { eq, desc, gte } from "drizzle-orm";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const slug = params.slug;
+    const { slug } = await params;
     const { searchParams } = new URL(request.url);
     const hours = parseInt(searchParams.get("hours") || "24");
 
@@ -62,10 +62,10 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
-    const slug = params.slug;
+    const { slug } = await params;
     const body = await request.json();
 
     // Get tenant

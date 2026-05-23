@@ -14,258 +14,206 @@ export type Database = {
   }
   public: {
     Tables: {
-      designs: {
+      addresses: {
         Row: {
-          color: string
+          address_line_1: string
+          address_line_2: string | null
+          city: string
+          country: string
           created_at: string
-          fabric: string
-          fit: string
-          garment: string
+          full_name: string
           id: string
-          is_favorite: boolean
-          lighting: string
-          mockup_back_url: string | null
-          mockup_front_url: string | null
-          mockup_url: string | null
-          prompt: string
+          is_default: boolean
+          label: string
+          phone: string | null
+          postal_code: string
+          state: string
           updated_at: string
-          uploaded_image_url: string | null
           user_id: string
         }
         Insert: {
-          color?: string
+          address_line_1: string
+          address_line_2?: string | null
+          city: string
+          country?: string
           created_at?: string
-          fabric?: string
-          fit?: string
-          garment?: string
+          full_name: string
           id?: string
-          is_favorite?: boolean
-          lighting?: string
-          mockup_back_url?: string | null
-          mockup_front_url?: string | null
-          mockup_url?: string | null
-          prompt: string
+          is_default?: boolean
+          label?: string
+          phone?: string | null
+          postal_code: string
+          state: string
           updated_at?: string
-          uploaded_image_url?: string | null
           user_id: string
         }
         Update: {
-          color?: string
+          address_line_1?: string
+          address_line_2?: string | null
+          city?: string
+          country?: string
           created_at?: string
-          fabric?: string
-          fit?: string
-          garment?: string
+          full_name?: string
           id?: string
-          is_favorite?: boolean
-          lighting?: string
-          mockup_back_url?: string | null
-          mockup_front_url?: string | null
-          mockup_url?: string | null
-          prompt?: string
+          is_default?: boolean
+          label?: string
+          phone?: string | null
+          postal_code?: string
+          state?: string
           updated_at?: string
-          uploaded_image_url?: string | null
           user_id?: string
         }
         Relationships: []
       }
-      hospitals: {
+      order_items: {
         Row: {
-          address: string | null
           created_at: string
-          created_by: string | null
-          email: string | null
           id: string
-          is_active: boolean | null
-          logo_url: string | null
-          name: string
-          phone: string | null
-          slug: string
-          updated_at: string
+          order_id: string
+          price: number
+          product_id: string
+          product_image: string
+          product_name: string
+          quantity: number
+          size: string
         }
         Insert: {
-          address?: string | null
           created_at?: string
-          created_by?: string | null
-          email?: string | null
           id?: string
-          is_active?: boolean | null
-          logo_url?: string | null
-          name: string
-          phone?: string | null
-          slug: string
-          updated_at?: string
+          order_id: string
+          price: number
+          product_id: string
+          product_image: string
+          product_name: string
+          quantity: number
+          size: string
         }
         Update: {
-          address?: string | null
           created_at?: string
-          created_by?: string | null
-          email?: string | null
           id?: string
-          is_active?: boolean | null
-          logo_url?: string | null
-          name?: string
-          phone?: string | null
-          slug?: string
+          order_id?: string
+          price?: number
+          product_id?: string
+          product_image?: string
+          product_name?: string
+          quantity?: number
+          size?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      orders: {
+        Row: {
+          created_at: string
+          id: string
+          order_number: string
+          shipping: number
+          shipping_address: Json
+          status: string
+          subtotal: number
+          total: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          order_number: string
+          shipping?: number
+          shipping_address: Json
+          status?: string
+          subtotal: number
+          total: number
           updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          order_number?: string
+          shipping?: number
+          shipping_address?: Json
+          status?: string
+          subtotal?: number
+          total?: number
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
       profiles: {
         Row: {
-          avatar_url: string | null
           created_at: string
-          display_name: string | null
+          full_name: string | null
           id: string
+          phone: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
-          avatar_url?: string | null
           created_at?: string
-          display_name?: string | null
+          full_name?: string | null
           id?: string
+          phone?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
-          avatar_url?: string | null
           created_at?: string
-          display_name?: string | null
+          full_name?: string | null
           id?: string
+          phone?: string | null
           updated_at?: string
           user_id?: string
         }
         Relationships: []
       }
-      style_presets: {
+      wishlists: {
         Row: {
-          aesthetic: string | null
-          color_palette: Json | null
-          contrast_level: string | null
           created_at: string
-          era: string | null
           id: string
-          inspiration_notes: string | null
-          is_favorite: boolean | null
-          mood: string | null
-          name: string
-          pattern_style: string | null
-          reference_image_url: string | null
-          saturation: string | null
-          tags: string[] | null
-          texture_vibe: string | null
-          thumbnail_url: string | null
-          updated_at: string
+          product_id: string
+          product_image: string
+          product_name: string
+          product_price: number
           user_id: string
         }
         Insert: {
-          aesthetic?: string | null
-          color_palette?: Json | null
-          contrast_level?: string | null
           created_at?: string
-          era?: string | null
           id?: string
-          inspiration_notes?: string | null
-          is_favorite?: boolean | null
-          mood?: string | null
-          name: string
-          pattern_style?: string | null
-          reference_image_url?: string | null
-          saturation?: string | null
-          tags?: string[] | null
-          texture_vibe?: string | null
-          thumbnail_url?: string | null
-          updated_at?: string
+          product_id: string
+          product_image: string
+          product_name: string
+          product_price: number
           user_id: string
         }
         Update: {
-          aesthetic?: string | null
-          color_palette?: Json | null
-          contrast_level?: string | null
           created_at?: string
-          era?: string | null
           id?: string
-          inspiration_notes?: string | null
-          is_favorite?: boolean | null
-          mood?: string | null
-          name?: string
-          pattern_style?: string | null
-          reference_image_url?: string | null
-          saturation?: string | null
-          tags?: string[] | null
-          texture_vibe?: string | null
-          thumbnail_url?: string | null
-          updated_at?: string
+          product_id?: string
+          product_image?: string
+          product_name?: string
+          product_price?: number
           user_id?: string
         }
         Relationships: []
-      }
-      user_roles: {
-        Row: {
-          created_at: string
-          hospital_id: string | null
-          id: string
-          is_active: boolean | null
-          role: Database["public"]["Enums"]["app_role"]
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          hospital_id?: string | null
-          id?: string
-          is_active?: boolean | null
-          role: Database["public"]["Enums"]["app_role"]
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          hospital_id?: string | null
-          id?: string
-          is_active?: boolean | null
-          role?: Database["public"]["Enums"]["app_role"]
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "user_roles_hospital_id_fkey"
-            columns: ["hospital_id"]
-            isOneToOne: false
-            referencedRelation: "hospitals"
-            referencedColumns: ["id"]
-          },
-        ]
       }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      get_user_hospital: { Args: { _user_id: string }; Returns: string }
-      get_user_role: {
-        Args: { _user_id: string }
-        Returns: Database["public"]["Enums"]["app_role"]
-      }
-      has_role: {
-        Args: {
-          _role: Database["public"]["Enums"]["app_role"]
-          _user_id: string
-        }
-        Returns: boolean
-      }
-      is_first_user: { Args: never; Returns: boolean }
+      [_ in never]: never
     }
     Enums: {
-      app_role:
-        | "super_admin"
-        | "hospital_admin"
-        | "doctor"
-        | "nurse"
-        | "lab_technician"
-        | "pharmacist"
-        | "accountant"
-        | "receptionist"
-        | "patient"
-        | "guardian"
+      [_ in never]: never
     }
     CompositeTypes: {
       [_ in never]: never
@@ -392,19 +340,6 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {
-      app_role: [
-        "super_admin",
-        "hospital_admin",
-        "doctor",
-        "nurse",
-        "lab_technician",
-        "pharmacist",
-        "accountant",
-        "receptionist",
-        "patient",
-        "guardian",
-      ],
-    },
+    Enums: {},
   },
 } as const

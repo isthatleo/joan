@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { parseJsonBody, validateFinancePayload } from "@/lib/accountant/finance-api";
+import { paymentCreateSchema } from "@/lib/accountant/route-schemas";
 
 export async function GET(
   request: NextRequest,
@@ -33,18 +35,18 @@ export async function GET(
 
 
     let whereClause = "p.tenant_id = $1";
-    const params = [tenantId];
+    const queryParams: Array<string | number> = [tenantId];
     let paramIndex = 2;
 
     if (status) {
       whereClause += ` AND p.status = $${paramIndex}`;
-      params.push(status);
+      queryParams.push(status);
       paramIndex++;
     }
 
     if (method) {
       whereClause += ` AND p.method = $${paramIndex}`;
-      params.push(method);
+      queryParams.push(method);
       paramIndex++;
     }
 
@@ -55,7 +57,7 @@ export async function GET(
       WHERE ${whereClause}
     `;
 
-    const totalResult = await db.$queryRaw(countQuery, params);
+    const totalResult = await db.$queryRaw(countQuery, queryParams);
     const total = Number(totalResult[0]?.total || 0);
 
     // Get payments with pagination
@@ -83,8 +85,8 @@ export async function GET(
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
 
-    params.push(limit, offset);
-    const payments = await db.$queryRaw(paymentsQuery, params);
+    queryParams.push(limit, offset);
+    const payments = await db.$queryRaw(paymentsQuery, queryParams);
 
     const formattedPayments = payments.map((payment: any) => ({
       id: payment.id,
@@ -134,23 +136,10 @@ export async function POST(
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    const body = await request.json();
-    const {
-      invoiceId,
-      amount,
-      method,
-      transactionId,
-      notes,
-      fee,
-      status,
-    } = body;
-
-    if (!invoiceId || !amount) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      );
-    }
+    const jsonResult = await parseJsonBody(request);
+    if (!jsonResult.ok) return jsonResult.response;
+    const parsed = validateFinancePayload(paymentCreateSchema, jsonResult.data);
+    if (!parsed.ok) return parsed.response;
 
     const paymentInsert = await db.$queryRaw`
       INSERT INTO payments (
@@ -167,25 +156,25 @@ export async function POST(
       )
       VALUES (
         ${tenantId},
-        ${invoiceId},
-        ${String(parseFloat(amount))},
-        ${method || "credit_card"},
-        ${transactionId || null},
-        ${notes || null},
-        ${fee ? String(parseFloat(fee)) : null},
-        ${status || "pending"},
+        ${parsed.data.invoiceId},
+        ${parsed.data.amount},
+        ${parsed.data.method},
+        ${parsed.data.transactionId || null},
+        ${parsed.data.notes || null},
+        ${parsed.data.fee || null},
+        ${parsed.data.status},
         ${session.user.id},
-        ${status === "completed" ? new Date().toISOString() : null}
+        ${parsed.data.status === "completed" ? new Date().toISOString() : null}
       )
       RETURNING id, invoice_id
     `;
 
     // If payment is completed, update invoice amount due
-    if (status === "completed") {
+    if (parsed.data.status === "completed") {
       const invoiceResult = await db.$queryRaw`
         SELECT amount, amount_due, status
         FROM invoices
-        WHERE id = ${invoiceId}
+        WHERE id = ${parsed.data.invoiceId}
         LIMIT 1
       `;
       const invoice = invoiceResult[0] as
@@ -195,7 +184,7 @@ export async function POST(
       if (invoice) {
         const invoiceAmount = Number(invoice.amount || 0);
         const currentAmountDue = Number(invoice.amount_due || 0);
-        const newAmountDue = Math.max(0, currentAmountDue - parseFloat(amount));
+        const newAmountDue = Math.max(0, currentAmountDue - parseFloat(parsed.data.amount));
         const nextStatus =
           newAmountDue === 0
             ? "paid"
@@ -206,12 +195,12 @@ export async function POST(
         await db.$queryRaw`
           UPDATE invoices
           SET amount_due = ${String(newAmountDue)}, status = ${nextStatus}, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ${invoiceId}
+          WHERE id = ${parsed.data.invoiceId}
         `;
       }
     }
 
-    return NextResponse.json(paymentInsert[0]);
+    return NextResponse.json(paymentInsert[0], { status: 201 });
   } catch (error) {
     console.error("Error creating payment:", error);
     return NextResponse.json(

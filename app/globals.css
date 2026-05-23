@@ -164,11 +164,28 @@
   }
   html {
     font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    font-size: 16px;
   }
   body {
     background: hsl(var(--subtle));
     color: hsl(var(--foreground));
     -webkit-font-smoothing: antialiased;
+  }
+  .reduce-motion *,
+  .reduce-motion *::before,
+  .reduce-motion *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .high-contrast {
+    --border: 220 18% 70%;
+    --border-strong: 220 20% 56%;
+  }
+  .dark.high-contrast {
+    --border: 220 16% 38%;
+    --border-strong: 220 18% 52%;
   }
 }
 

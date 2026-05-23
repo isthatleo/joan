@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   TrendingUp, Search, Calendar, DollarSign, BarChart3, LineChart,
@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { exportElementAsPdf, exportElementAsPng } from "@/lib/export/page-export";
 
 const orange = "#F97316";
 
@@ -51,6 +52,7 @@ export default function AccountantRevenueTrackingPage() {
   const [timeRange, setTimeRange] = useState("12months");
   const [chartType, setChartType] = useState<"line" | "bar">("line");
   const [refreshing, setRefreshing] = useState(false);
+  const exportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetchRevenueData();
@@ -83,18 +85,21 @@ export default function AccountantRevenueTrackingPage() {
     toast.success("Revenue data refreshed");
   };
 
-  const exportRevenueReport = async (format: 'csv' | 'pdf') => {
+  const exportRevenueReport = async (format: "pdf" | "png") => {
+    const exportNode = exportRef.current;
+    if (!exportNode) {
+      toast.error("Nothing to export");
+      return;
+    }
+
     try {
-      const res = await fetch(`/api/tenant/${slug}/accountant/analytics/revenue/export?format=${format}&range=${timeRange}`);
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `revenue-report-${timeRange}.${format}`;
-        a.click();
-        toast.success(`Revenue report exported`);
+      const filename = `revenue-report-${timeRange}.${format}`;
+      if (format === "pdf") {
+        await exportElementAsPdf(exportNode, filename);
+      } else {
+        await exportElementAsPng(exportNode, filename);
       }
+      toast.success("Revenue report exported");
     } catch (error) {
       toast.error("Failed to export revenue report");
     }
@@ -113,7 +118,6 @@ export default function AccountantRevenueTrackingPage() {
     return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`;
   };
 
-  // Mock chart data for visualization
   const chartData = revenueData.map(item => ({
     period: item.period,
     revenue: item.totalRevenue,
@@ -121,9 +125,29 @@ export default function AccountantRevenueTrackingPage() {
     selfPay: item.selfPayRevenue,
     other: item.otherRevenue,
   }));
+  const chartMax = Math.max(
+    1,
+    ...chartData.flatMap((item) => [item.insurance, item.selfPay, item.other, item.revenue])
+  );
+  const chartPoints = chartData.map((item, index) => {
+    const x = chartData.length === 1 ? 40 : 40 + (index * 720) / Math.max(chartData.length - 1, 1);
+    return {
+      label: item.period,
+      x,
+      insuranceY: 220 - (item.insurance / chartMax) * 180,
+      selfPayY: 220 - (item.selfPay / chartMax) * 180,
+      otherY: 220 - (item.other / chartMax) * 180,
+      totalY: 220 - (item.revenue / chartMax) * 180,
+      insuranceHeight: (item.insurance / chartMax) * 180,
+      selfPayHeight: (item.selfPay / chartMax) * 180,
+      otherHeight: (item.other / chartMax) * 180,
+    };
+  });
+  const linePath = (key: "insuranceY" | "selfPayY" | "otherY" | "totalY") =>
+    chartPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point[key]}`).join(" ");
 
   return (
-    <div className="space-y-6">
+    <div ref={exportRef} className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
@@ -141,11 +165,18 @@ export default function AccountantRevenueTrackingPage() {
             Refresh
           </button>
           <button
-            onClick={() => exportRevenueReport('csv')}
+            onClick={() => exportRevenueReport("pdf")}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
           >
             <Download className="size-4" />
-            Export
+            Export PDF
+          </button>
+          <button
+            onClick={() => exportRevenueReport("png")}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
+          >
+            <Eye className="size-4" />
+            Export PNG
           </button>
         </div>
       </div>
@@ -283,13 +314,66 @@ export default function AccountantRevenueTrackingPage() {
           <div className="flex items-center justify-center py-16">
             <Loader2 className="size-6 text-orange-500 animate-spin mx-auto" />
           </div>
-        ) : (
-          <div className="h-80 flex items-center justify-center text-muted-foreground">
+        ) : chartPoints.length === 0 ? (
+          <div className="flex h-80 items-center justify-center text-muted-foreground">
             <div className="text-center">
               <BarChart3 className="size-12 mx-auto mb-4 opacity-50" />
-              <p>Revenue chart visualization</p>
-              <p className="text-sm mt-1">Chart component would be integrated here</p>
+              <p>No revenue data available for this range</p>
             </div>
+          </div>
+        ) : chartType === "line" ? (
+          <div className="overflow-x-auto">
+            <svg viewBox="0 0 800 260" className="h-80 w-full min-w-[720px]">
+              {[0, 1, 2, 3].map((step) => (
+                <line
+                  key={step}
+                  x1="40"
+                  y1={40 + step * 45}
+                  x2="760"
+                  y2={40 + step * 45}
+                  stroke="#E2E8F0"
+                  strokeDasharray="4 6"
+                />
+              ))}
+              <path d={linePath("insuranceY")} fill="none" stroke="#3B82F6" strokeWidth="3" />
+              <path d={linePath("selfPayY")} fill="none" stroke="#22C55E" strokeWidth="3" />
+              <path d={linePath("otherY")} fill="none" stroke="#A855F7" strokeWidth="3" />
+              <path d={linePath("totalY")} fill="none" stroke={orange} strokeWidth="3" strokeDasharray="10 6" />
+              {chartPoints.map((point) => (
+                <g key={point.label}>
+                  <circle cx={point.x} cy={point.totalY} r="4" fill={orange} />
+                  <text x={point.x} y="248" textAnchor="middle" className="fill-muted-foreground text-[10px]">
+                    {point.label}
+                  </text>
+                </g>
+              ))}
+            </svg>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <svg viewBox="0 0 800 260" className="h-80 w-full min-w-[720px]">
+              {[0, 1, 2, 3].map((step) => (
+                <line
+                  key={step}
+                  x1="40"
+                  y1={40 + step * 45}
+                  x2="760"
+                  y2={40 + step * 45}
+                  stroke="#E2E8F0"
+                  strokeDasharray="4 6"
+                />
+              ))}
+              {chartPoints.map((point) => (
+                <g key={point.label}>
+                  <rect x={point.x - 16} y={220 - point.insuranceHeight} width="10" height={point.insuranceHeight} rx="3" fill="#3B82F6" />
+                  <rect x={point.x - 4} y={220 - point.selfPayHeight} width="10" height={point.selfPayHeight} rx="3" fill="#22C55E" />
+                  <rect x={point.x + 8} y={220 - point.otherHeight} width="10" height={point.otherHeight} rx="3" fill="#A855F7" />
+                  <text x={point.x} y="248" textAnchor="middle" className="fill-muted-foreground text-[10px]">
+                    {point.label}
+                  </text>
+                </g>
+              ))}
+            </svg>
           </div>
         )}
       </div>

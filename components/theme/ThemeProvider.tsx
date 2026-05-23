@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, createContext, useContext, ReactNode } from "react";
+import { applyThemePreference, readStoredThemePreference, type ThemePreference } from "@/lib/user-preferences";
 
-type Theme = "light" | "dark";
+type Theme = ThemePreference;
 
 interface ThemeContextValue {
   theme: Theme;
@@ -12,28 +13,26 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
-const STORAGE_KEY = "joan-theme";
-
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("light");
+  const [theme, setThemeState] = useState<Theme>("system");
 
   // Load from localStorage on mount
   useEffect(() => {
-    const saved = (typeof window !== "undefined" && (localStorage.getItem(STORAGE_KEY) as Theme | null)) || null;
+    if (typeof window === "undefined") return;
+
+    const saved = readStoredThemePreference();
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    
-    const prefersDark = mediaQuery.matches;
-    const initial: Theme = saved ?? (prefersDark ? "dark" : "light");
-    
-    applyTheme(initial);
+
+    const initial: Theme = saved;
+
+    applyThemePreference(initial);
     setThemeState(initial);
 
-    // Listen for system theme changes if no saved preference exists
+    // Listen for system theme changes while the user preference is "system"
     const handler = (e: MediaQueryListEvent) => {
-      if (!localStorage.getItem(STORAGE_KEY)) {
-        const next = e.matches ? "dark" : "light";
-        applyTheme(next);
-        setThemeState(next);
+      if (readStoredThemePreference() === "system") {
+        applyThemePreference("system");
+        setThemeState("system");
       }
     };
 
@@ -41,19 +40,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => mediaQuery.removeEventListener("change", handler);
   }, []);
 
-  function applyTheme(next: Theme) {
-    if (typeof document === "undefined") return;
-    const root = document.documentElement;
-    root.classList.toggle("dark", next === "dark");
-  }
-
   const setTheme = (next: Theme) => {
-    applyTheme(next);
-    if (typeof window !== "undefined") localStorage.setItem(STORAGE_KEY, next);
+    applyThemePreference(next);
     setThemeState(next);
   };
 
-  const toggle = () => setTheme(theme === "dark" ? "light" : "dark");
+  const toggle = () => {
+    const effectiveDark =
+      typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+    setTheme(effectiveDark ? "light" : "dark");
+  };
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme, toggle }}>

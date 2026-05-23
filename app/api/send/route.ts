@@ -1,23 +1,40 @@
-import { EmailTemplate } from '@/components/email-template';
-import { Resend } from 'resend';
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
+import { sendEmail, sendEmailSchema } from "@/lib/email/send-email";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+export async function POST(request: NextRequest) {
+  try {
+    const session = await auth.api.getSession({ headers: request.headers });
+    const internalKey = request.headers.get("x-internal-key");
 
-export async function POST() {
-    try {
-        const { data, error } = await resend.emails.send({
-            from: 'Acme <onboarding@resend.dev>',
-            to: ['delivered@resend.dev'],
-            subject: 'Hello world',
-            react: EmailTemplate({ firstName: 'John' }),
-        });
-
-        if (error) {
-            return Response.json({ error }, { status: 500 });
-        }
-
-        return Response.json(data);
-    } catch (error) {
-        return Response.json({ error }, { status: 500 });
+    if (!session?.user?.id && internalKey !== process.env.INTERNAL_API_KEY) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    let json: unknown;
+    try {
+      json = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Request body must be valid JSON" }, { status: 400 });
+    }
+
+    const parsed = sendEmailSchema.safeParse(json);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parsed.error.flatten() },
+        { status: 422 }
+      );
+    }
+
+    const idempotencyKey = request.headers.get("x-idempotency-key")?.trim() || undefined;
+    const result = await sendEmail(parsed.data, { idempotencyKey });
+    if (!result.ok) {
+      return result.response;
+    }
+
+    return NextResponse.json(result.data);
+  } catch (error) {
+    console.error("Failed to send email:", error);
+    return NextResponse.json({ error: "Failed to send email" }, { status: 500 });
+  }
 }

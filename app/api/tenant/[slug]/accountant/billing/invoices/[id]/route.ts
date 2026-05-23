@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { parseJsonBody, validateFinancePayload } from "@/lib/accountant/finance-api";
+import { invoiceUpdateSchema } from "@/lib/accountant/route-schemas";
 
 export async function GET(
   request: NextRequest,
@@ -20,7 +22,7 @@ export async function GET(
         i.*,
         p.full_name AS patient_name,
         p.email AS patient_email,
-        COALESCE(SUM(pay.amount), 0) AS paid_amount
+        COALESCE(SUM(pay.amount::numeric), 0) AS paid_amount
       FROM invoices i
       LEFT JOIN patients p ON i.patient_id = p.id
       LEFT JOIN payments pay ON pay.invoice_id = i.id AND pay.status = 'completed'
@@ -50,7 +52,10 @@ export async function GET(
       paymentTerms: invoice.payment_terms || "",
       items: (() => {
         try {
-          return invoice.items ? JSON.parse(invoice.items) : [];
+          if (!invoice.items) return [];
+          if (Array.isArray(invoice.items)) return invoice.items;
+          if (typeof invoice.items === "string") return JSON.parse(invoice.items);
+          return [];
         } catch {
           return [];
         }
@@ -74,25 +79,42 @@ export async function PATCH(
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    const body = await request.json();
-    const amount = Number(body.totalAmount ?? body.amount ?? 0);
-    const paidAmount = Number(body.paidAmount ?? 0);
-    const amountDue = Math.max(0, Number(body.amountDue ?? amount - paidAmount));
+    const jsonResult = await parseJsonBody(request);
+    if (!jsonResult.ok) return jsonResult.response;
+    const parsed = validateFinancePayload(invoiceUpdateSchema, jsonResult.data);
+    if (!parsed.ok) return parsed.response;
 
-    await db.$queryRaw`
+    const amount = parsed.data.amount ? Number(parsed.data.amount) : undefined;
+    const paidAmount =
+      jsonResult.data && typeof jsonResult.data === "object" && "paidAmount" in jsonResult.data
+        ? Number((jsonResult.data as Record<string, unknown>).paidAmount ?? 0)
+        : undefined;
+    const amountDue = parsed.data.amountDue
+      ? Number(parsed.data.amountDue)
+      : amount != null
+        ? Math.max(0, amount - Number(paidAmount ?? 0))
+        : undefined;
+
+    const updated = await db.$queryRaw`
       UPDATE invoices
       SET
-        amount = ${String(amount)},
-        amount_due = ${String(amountDue)},
-        status = ${body.status || "draft"},
-        due_date = ${body.dueDate || null},
-        description = ${body.description || null},
-        notes = ${body.notes || null},
-        payment_terms = ${body.paymentTerms || null},
-        items = ${body.items ? JSON.stringify(body.items) : null},
+        total_amount = COALESCE(${amount != null ? String(amount) : null}, total_amount),
+        amount = COALESCE(${amount != null ? String(amount) : null}, amount),
+        amount_due = COALESCE(${amountDue != null ? String(amountDue) : null}, amount_due),
+        status = COALESCE(${parsed.data.status || null}, status),
+        due_date = COALESCE(${parsed.data.dueDate || null}, due_date),
+        description = COALESCE(${parsed.data.description || null}, description),
+        notes = COALESCE(${parsed.data.notes || null}, notes),
+        payment_terms = COALESCE(${parsed.data.paymentTerms || null}, payment_terms),
+        items = COALESCE(${parsed.data.items ? JSON.stringify(parsed.data.items) : null}, items),
         updated_at = CURRENT_TIMESTAMP
       WHERE tenant_id = ${tenantId} AND id = ${id}
+      RETURNING id
     `;
+
+    if (!(updated as any[])[0]?.id) {
+      return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

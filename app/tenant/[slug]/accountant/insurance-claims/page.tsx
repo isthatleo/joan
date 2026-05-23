@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   ShieldCheck, Search, Plus, AlertCircle, CheckCircle, Loader2,
   Clock, FileText, TrendingUp, Calendar, Download, Filter, Eye,
   Edit, MoreHorizontal, ChevronDown, ArrowUpDown, Receipt,
-  DollarSign, Building2, User, Phone, Mail
+  DollarSign, Building2, User, Phone, Mail, RefreshCw, X
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useTenantPath } from "@/hooks/useTenantPath";
+import { exportElementAsPdf, exportElementAsPng } from "@/lib/export/page-export";
 
 const orange = "#F97316";
 
@@ -56,6 +57,29 @@ interface InsuranceProvider {
   averageProcessingDays: number;
 }
 
+interface InsuranceProviderDetail {
+  provider: string;
+  totalClaims: number;
+  approvedClaims: number;
+  deniedClaims: number;
+  pendingClaims: number;
+  totalClaimed: number;
+  totalApproved: number;
+  averageProcessingDays: number;
+  recentClaims: Array<{
+    id: string;
+    invoiceId: string | null;
+    policyNumber: string;
+    patientName: string;
+    claimAmount: number;
+    approvedAmount: number | null;
+    status: InsuranceClaim["status"];
+    submittedAt: string;
+    processedAt: string | null;
+    denialReason: string | null;
+  }>;
+}
+
 export default function AccountantInsuranceClaimsPage() {
   const params = useParams();
   const slug = params?.slug as string;
@@ -64,6 +88,8 @@ export default function AccountantInsuranceClaimsPage() {
   const [stats, setStats] = useState<ClaimStats | null>(null);
   const [providers, setProviders] = useState<InsuranceProvider[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [providerFilter, setProviderFilter] = useState("all");
@@ -71,13 +97,22 @@ export default function AccountantInsuranceClaimsPage() {
   const [sortBy, setSortBy] = useState("submittedAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [selectedClaims, setSelectedClaims] = useState<string[]>([]);
+  const [appealTarget, setAppealTarget] = useState<InsuranceClaim | null>(null);
+  const [appealReason, setAppealReason] = useState("");
+  const [submittingAppeal, setSubmittingAppeal] = useState(false);
+  const [activeProvider, setActiveProvider] = useState<InsuranceProvider | null>(null);
+  const [providerDetail, setProviderDetail] = useState<InsuranceProviderDetail | null>(null);
+  const [loadingProviderDetail, setLoadingProviderDetail] = useState(false);
+  const exportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetchClaims();
   }, [slug]);
 
   const fetchClaims = async () => {
-    setLoading(true);
+    setLoading((current) => current && !refreshing);
+    setRefreshing(true);
+    setErrorMessage(null);
     try {
       const [claimsRes, statsRes, providersRes] = await Promise.all([
         fetch(`/api/tenant/${slug}/accountant/insurance-claims`),
@@ -90,9 +125,11 @@ export default function AccountantInsuranceClaimsPage() {
       if (providersRes.ok) setProviders(await providersRes.json());
     } catch (error) {
       console.error('Failed to fetch insurance claims:', error);
+      setErrorMessage("Failed to load insurance claims. Check the claims endpoints and try again.");
       toast.error("Failed to load insurance claims");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -186,47 +223,81 @@ export default function AccountantInsuranceClaimsPage() {
     }
   };
 
-  const submitAppeal = async (claimId: string) => {
-    const reason = prompt("Enter appeal reason:");
-    if (!reason) return;
-
+  const submitAppeal = async () => {
+    if (!appealTarget) return;
+    if (!appealReason.trim()) {
+      toast.error("Appeal reason is required");
+      return;
+    }
+    setSubmittingAppeal(true);
     try {
-      const res = await fetch(`/api/tenant/${slug}/accountant/insurance-claims/${claimId}/appeal`, {
+      const res = await fetch(`/api/tenant/${slug}/accountant/insurance-claims/${appealTarget.id}/appeal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason })
+        body: JSON.stringify({ reason: appealReason.trim() })
       });
 
       if (res.ok) {
         toast.success("Appeal submitted successfully");
+        setAppealTarget(null);
+        setAppealReason("");
         fetchClaims();
       } else {
         toast.error("Failed to submit appeal");
       }
     } catch (error) {
       toast.error("Failed to submit appeal");
+    } finally {
+      setSubmittingAppeal(false);
     }
   };
 
-  const exportClaims = async (format: 'csv' | 'pdf') => {
+  const exportClaims = async (format: "csv" | "pdf" | "png") => {
     try {
-      const res = await fetch(`/api/tenant/${slug}/accountant/insurance-claims/export?format=${format}&ids=${selectedClaims.join(',')}`);
-      if (res.ok) {
+      if (format === "csv") {
+        const res = await fetch(`/api/tenant/${slug}/accountant/insurance-claims/export?format=${format}&ids=${selectedClaims.join(",")}`);
+        if (!res.ok) throw new Error("Failed to export claims");
         const blob = await res.blob();
         const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
+        const a = document.createElement("a");
         a.href = url;
-        a.download = `insurance-claims.${format}`;
+        a.download = "insurance-claims.csv";
         a.click();
-        toast.success(`Exported ${selectedClaims.length} claims`);
+      } else {
+        if (!exportRef.current) throw new Error("Nothing to export");
+        const filename = `insurance-claims-${selectedClaims.length ? "selected" : "all"}.${format}`;
+        if (format === "pdf") {
+          await exportElementAsPdf(exportRef.current, filename);
+        } else {
+          await exportElementAsPng(exportRef.current, filename);
+        }
       }
+      toast.success(`Exported insurance claims as ${format.toUpperCase()}`);
     } catch (error) {
       toast.error("Failed to export claims");
     }
   };
 
+  const openProviderDetail = async (provider: InsuranceProvider) => {
+    setActiveProvider(provider);
+    setProviderDetail(null);
+    setLoadingProviderDetail(true);
+    try {
+      const response = await fetch(`/api/tenant/${slug}/accountant/insurance-claims/providers/${encodeURIComponent(provider.id)}`);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load insurer detail");
+      }
+      setProviderDetail(payload);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to load insurer detail");
+    } finally {
+      setLoadingProviderDetail(false);
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <div ref={exportRef} className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
@@ -236,11 +307,33 @@ export default function AccountantInsuranceClaimsPage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => exportClaims('csv')}
+            onClick={() => fetchClaims()}
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <button
+            onClick={() => exportClaims("pdf")}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
           >
             <Download className="size-4" />
-            Export
+            Export PDF
+          </button>
+          <button
+            onClick={() => exportClaims("png")}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
+          >
+            <Eye className="size-4" />
+            Export PNG
+          </button>
+          <button
+            onClick={() => exportClaims("csv")}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
+          >
+            <FileText className="size-4" />
+            Export CSV
           </button>
           <Link
             href={tenantPath("/accountant/insurance-claims/new")}
@@ -252,6 +345,12 @@ export default function AccountantInsuranceClaimsPage() {
           </Link>
         </div>
       </div>
+
+      {errorMessage && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMessage}
+        </div>
+      )}
 
       {/* Claims Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -324,8 +423,17 @@ export default function AccountantInsuranceClaimsPage() {
           <Building2 className="size-5 text-muted-foreground" />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {providers.slice(0, 6).map(provider => (
-            <div key={provider.id} className="p-4 border border-border rounded-lg">
+          {providers.length === 0 ? (
+            <div className="col-span-full rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+              No insurer performance data available yet.
+            </div>
+          ) : providers.slice(0, 6).map(provider => (
+            <button
+              key={provider.id}
+              type="button"
+              onClick={() => openProviderDetail(provider)}
+              className="rounded-lg border border-border p-4 text-left transition hover:border-orange-300 hover:bg-orange-500/5"
+            >
               <div className="flex items-center justify-between mb-2">
                 <p className="font-semibold text-foreground">{provider.name}</p>
                 <span className="text-sm text-muted-foreground">{provider.claimsCount} claims</span>
@@ -343,10 +451,10 @@ export default function AccountantInsuranceClaimsPage() {
                   <div
                     className="bg-green-500 h-2 rounded-full"
                     style={{ width: `${provider.approvalRate}%` }}
-                  ></div>
+                  />
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -488,7 +596,20 @@ export default function AccountantInsuranceClaimsPage() {
                 <tr><td colSpan={8} className="py-16 text-center">
                   <ShieldCheck className="size-10 text-muted mx-auto mb-2" />
                   <p className="text-muted-foreground font-medium">No insurance claims found</p>
-                  <p className="text-xs text-muted-foreground mt-1">Try adjusting your filters</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {search || statusFilter !== "all" || providerFilter !== "all" || dateFilter !== "all"
+                      ? "Try adjusting your filters"
+                      : "Create the first claim to start tracking insurer collections"}
+                  </p>
+                  {!search && statusFilter === "all" && providerFilter === "all" && dateFilter === "all" && (
+                    <Link
+                      href={tenantPath("/accountant/insurance-claims/new")}
+                      className="mt-4 inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+                    >
+                      <Plus className="size-4" />
+                      New Claim
+                    </Link>
+                  )}
                 </td></tr>
               ) : (
                 filteredClaims.map(claim => (
@@ -574,7 +695,10 @@ export default function AccountantInsuranceClaimsPage() {
                         </Link>
                         {claim.status === 'denied' && (
                           <button
-                            onClick={() => submitAppeal(claim.id)}
+                            onClick={() => {
+                              setAppealTarget(claim);
+                              setAppealReason(claim.denialReason ? `Reconsider denial: ${claim.denialReason}` : "");
+                            }}
                             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-orange-600 hover:bg-orange-50 font-medium text-xs transition-colors"
                           >
                             <TrendingUp className="size-3" />
@@ -590,6 +714,168 @@ export default function AccountantInsuranceClaimsPage() {
           </table>
         </div>
       </div>
+
+      {appealTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Submit Appeal</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Appeal denied claim for {appealTarget.patientName}.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setAppealTarget(null);
+                  setAppealReason("");
+                }}
+                className="rounded-lg p-2 text-muted-foreground hover:bg-muted"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-xl border border-border bg-background/60 p-3 text-sm">
+                <p className="font-medium text-foreground">Claim #{appealTarget.id}</p>
+                <p className="text-muted-foreground">Provider: {appealTarget.insuranceProvider}</p>
+              </div>
+              <label className="block text-sm font-medium text-foreground">
+                Appeal reason
+                <textarea
+                  value={appealReason}
+                  onChange={(event) => setAppealReason(event.target.value)}
+                  rows={5}
+                  className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2"
+                  placeholder="Describe the justification, supporting corrections, or missing documentation."
+                />
+              </label>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setAppealTarget(null);
+                  setAppealReason("");
+                }}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => submitAppeal()}
+                disabled={submittingAppeal}
+                className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {submittingAppeal && <Loader2 className="size-4 animate-spin" />}
+                Submit Appeal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeProvider && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-3xl rounded-2xl border border-border bg-card p-6 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">{activeProvider.name} Performance</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Claim outcomes, throughput, and recent submissions for this insurer.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setActiveProvider(null);
+                  setProviderDetail(null);
+                }}
+                className="rounded-lg p-2 text-muted-foreground hover:bg-muted"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {loadingProviderDetail ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="size-6 animate-spin text-orange-500" />
+              </div>
+            ) : providerDetail ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  <MetricTile label="Claims" value={String(providerDetail.totalClaims)} />
+                  <MetricTile label="Approved" value={String(providerDetail.approvedClaims)} />
+                  <MetricTile label="Denied" value={String(providerDetail.deniedClaims)} />
+                  <MetricTile label="Pending" value={String(providerDetail.pendingClaims)} />
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <MetricTile label="Total Claimed" value={`$${providerDetail.totalClaimed.toFixed(2)}`} />
+                  <MetricTile label="Total Approved" value={`$${providerDetail.totalApproved.toFixed(2)}`} />
+                  <MetricTile label="Avg Processing" value={`${providerDetail.averageProcessingDays} days`} />
+                </div>
+
+                <div className="rounded-xl border border-border">
+                  <div className="border-b border-border px-4 py-3">
+                    <p className="font-medium text-foreground">Recent Claims</p>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {providerDetail.recentClaims.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        No claims recorded for this insurer yet.
+                      </div>
+                    ) : providerDetail.recentClaims.map((claim) => (
+                      <div key={claim.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">{claim.patientName}</p>
+                          <p className="text-xs text-muted-foreground">Policy {claim.policyNumber}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-semibold text-foreground">${claim.claimAmount.toFixed(2)}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(claim.submittedAt).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      setProviderFilter(activeProvider.name);
+                      setActiveProvider(null);
+                    }}
+                    className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
+                  >
+                    Filter Table By Provider
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveProvider(null);
+                      setProviderDetail(null);
+                    }}
+                    className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="py-10 text-center text-sm text-muted-foreground">No detail available for this provider.</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetricTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-background/60 px-4 py-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-foreground">{value}</p>
     </div>
   );
 }

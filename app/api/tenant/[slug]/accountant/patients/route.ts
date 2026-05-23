@@ -44,8 +44,8 @@ export async function GET(
         p.mrn,
         p.status,
         COUNT(DISTINCT i.id) as total_invoices,
-        COALESCE(SUM(i.amount_due), 0) as total_outstanding,
-        COALESCE(SUM(CASE WHEN pay.status = 'completed' THEN pay.amount ELSE 0 END), 0) as total_paid,
+        COALESCE(SUM(i.amount_due::numeric), 0) as total_outstanding,
+        COALESCE(SUM(CASE WHEN pay.status = 'completed' THEN pay.amount::numeric ELSE 0 END), 0) as total_paid,
         MAX(pay.created_at) as last_payment_date,
         MAX(i.created_at) as last_invoice_date
       FROM patients p

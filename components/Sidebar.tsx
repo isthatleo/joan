@@ -9,6 +9,7 @@ import {
   TrendingUp, Receipt, MessageSquare, UserCheck, Baby, History, Wallet,
   Layers, Briefcase, ShieldAlert, ServerCog, ChevronLeft, GraduationCap,
   Megaphone,
+  Mail,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
@@ -45,7 +46,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Platform Settings", path: "/settings", icon: Settings, category: "System" },
   ],
   hospital_admin: [
-    { label: "Dashboard", path: "/", icon: LayoutDashboard, category: "Main" },
+    { label: "Dashboard", path: "/admin", icon: LayoutDashboard, category: "Main" },
     { label: "Patients", path: "/patients", icon: Users, category: "Management" },
     { label: "Patient Analytics", path: "/analytics/patients", icon: BarChart3, category: "Management" },
     { label: "Appointments", path: "/appointments", icon: Calendar, category: "Management" },
@@ -73,7 +74,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Prescriptions", path: "/doctor/prescriptions", icon: Pill, category: "Orders" },
     { label: "Patient History", path: "/doctor/analytics/my-patients", icon: History, category: "Analytics" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
-    { label: "Settings", path: "/doctor/settings", icon: Settings, category: "Account" },
+    { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
   ],
    nurse: [
      { label: "Dashboard", path: "/nurse", icon: LayoutDashboard, category: "Main" },
@@ -85,7 +86,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
      { label: "Queue", path: "/nurse/queue", icon: ClipboardList, category: "Ward" },
      { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
      { label: "Reports", path: "/nurse/analytics/nursing", icon: BarChart3, category: "Reports" },
-     { label: "Settings", path: "/nurse/settings", icon: Settings, category: "Account" },
+     { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
    ],
    lab_technician: [
      { label: "Dashboard", path: "/lab", icon: LayoutDashboard, category: "Main" },
@@ -96,7 +97,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
      { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
      { label: "Analytics", path: "/lab/lab-analytics", icon: BarChart3, category: "Reports" },
      { label: "Performance", path: "/analytics/lab-performance", icon: TrendingUp, category: "Reports" },
-     { label: "Settings", path: "/lab/settings", icon: Settings, category: "Account" },
+     { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
    ],
   pharmacist: [
     { label: "Dashboard", path: "/pharmacy", icon: LayoutDashboard, category: "Main" },
@@ -109,6 +110,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
     { label: "Analytics", path: "/pharmacy/analytics", icon: BarChart3, category: "Reports" },
     { label: "Reports", path: "/pharmacy/analytics/pharmacy", icon: FileText, category: "Reports" },
+    { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
   ],
   accountant: [
     { label: "Dashboard", path: "/accountant", icon: LayoutDashboard, category: "Main" },
@@ -120,6 +122,8 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Reports", path: "/accountant/reports", icon: FileText, category: "Reports" },
     { label: "Financial Analysis", path: "/accountant/analytics/financial", icon: BarChart3, category: "Reports" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
+    { label: "Email Activity", path: "/accountant/messages", icon: Mail, category: "Communication" },
+    { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
   ],
   receptionist: [
     { label: "Dashboard", path: "/reception", icon: LayoutDashboard, category: "Main" },
@@ -130,6 +134,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Waiting Room", path: "/reception/waiting", icon: BedDouble, category: "Front Desk" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
     { label: "Emergency", path: "/emergency", icon: AlertOctagon, category: "Emergency" },
+    { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
   ],
   patient: [
     { label: "Dashboard", path: "/my-health", icon: LayoutDashboard, category: "Main" },
@@ -141,6 +146,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Lab Results", path: "/patient-portal/results", icon: Microscope, category: "Health" },
     { label: "Billing", path: "/billing", icon: Wallet, category: "Account" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Account" },
+    { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
   ],
   guardian: [
     { label: "Dashboard", path: "/guardian", icon: LayoutDashboard, category: "Main" },
@@ -152,6 +158,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Vaccinations", path: "/guardian/vaccinations", icon: ShieldCheck, category: "Family" },
     { label: "Alerts & Reminders", path: "/guardian/alerts", icon: Bell, category: "Family" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
+    { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
   ],
 };
 
