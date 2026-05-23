@@ -1,12 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuthStore } from "@/stores/auth";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { socket } from "@/lib/socket";
 import {
-  PageHeader,
-  SectionCard,
   Button,
   Input,
   Avatar,
@@ -14,47 +12,38 @@ import {
   AvatarImage,
   Badge,
   Skeleton,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Textarea,
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui";
 import {
   MessageSquare,
   Send,
   Search,
-  MoreVertical,
   Phone,
   Video,
   Info,
-  Users,
-  Megaphone,
-  ArrowLeft,
   Check,
   CheckCheck,
-  Circle,
   Plus,
+  Trash2,
+  PhoneOff,
+  VideoOff,
+  Loader2,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface User {
   id: string;
-  fullName?: string;
+  fullName?: string | null;
   email: string;
   role?: string;
+  avatar?: string | null;
 }
 
 interface Conversation {
@@ -78,6 +67,29 @@ interface Message {
   receiver: User;
 }
 
+interface IncomingCallState {
+  callerId: string;
+  callType: "audio" | "video";
+  offer?: RTCSessionDescriptionInit;
+}
+
+type ActiveCallState =
+  | { status: "calling"; targetUserId: string; callType: "audio" | "video" }
+  | { status: "connected"; targetUserId: string; callType: "audio" | "video" }
+  | null;
+
+const rtcConfig: RTCConfiguration = {
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+};
+
+function getDisplayName(user?: User | null) {
+  return user?.fullName || user?.email || "User";
+}
+
+function getInitial(user?: User | null) {
+  return getDisplayName(user).charAt(0).toUpperCase();
+}
+
 export default function MessagesPage() {
   const { user } = useAuthStore();
   const searchParams = useSearchParams();
@@ -87,83 +99,156 @@ export default function MessagesPage() {
   const [messageInput, setMessageInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [broadcastDialogOpen, setBroadcastDialogOpen] = useState(false);
-  const [broadcastData, setBroadcastData] = useState({
-    target: "",
-    message: "",
-  });
-  
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false);
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [typingUsers, setTypingUsers] = useState<Set<string>>(new Set());
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+  const [incomingCall, setIncomingCall] = useState<IncomingCallState | null>(null);
+  const [activeCall, setActiveCall] = useState<ActiveCallState>(null);
+  const [callError, setCallError] = useState<string | null>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
-  // Get user's role to determine features
-  const userRole = user?.role || "patient";
-  const canBroadcast = ["super_admin", "hospital_admin"].includes(userRole);
+  const stopMediaTracks = () => {
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    remoteStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localStreamRef.current = null;
+    remoteStreamRef.current = null;
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+  };
 
-  // WebSocket Integration
+  const endCallCleanup = (emitSignal = false) => {
+    if (emitSignal && activeCall?.targetUserId) {
+      socket.emit("call:end", { receiverId: activeCall.targetUserId });
+    }
+    peerConnectionRef.current?.close();
+    peerConnectionRef.current = null;
+    stopMediaTracks();
+    setIncomingCall(null);
+    setActiveCall(null);
+    setCallError(null);
+  };
+
   useEffect(() => {
     if (!user?.id) return;
 
-    // Connect and authenticate
-    socket.auth = { 
+    socket.auth = {
       userId: user.id,
-      tenantId: user.hospitalId,
+      tenantId: user.tenantId || user.hospitalId,
     };
     socket.connect();
 
-    socket.on("connect", () => {
+    const onConnect = () => {
       console.log("Connected to messaging socket");
-    });
+    };
 
-    socket.on("user-status", ({ userId, status }) => {
-      setOnlineUsers(prev => {
+    const onUserStatus = ({ userId, status }: { userId: string; status: string }) => {
+      setOnlineUsers((prev) => {
         const next = new Set(prev);
         if (status === "online") next.add(userId);
         else next.delete(userId);
         return next;
       });
-    });
+    };
 
-    socket.on("user-typing", ({ userId, isTyping }) => {
-      setTypingUsers(prev => {
+    const onUserTyping = ({ userId, isTyping }: { userId: string; isTyping: boolean }) => {
+      setTypingUsers((prev) => {
         const next = new Set(prev);
         if (isTyping) next.add(userId);
         else next.delete(userId);
         return next;
       });
-    });
+    };
 
-    socket.on("notification", (payload) => {
+    const onNotification = (payload: any) => {
       if (payload.type === "message") {
-        queryClient.invalidateQueries({ queryKey: ["conversations"] });
+        queryClient.invalidateQueries({ queryKey: ["conversations", user.id] });
         if (payload.metadata?.senderId === selectedChat) {
-          queryClient.invalidateQueries({ queryKey: ["chat"] });
+          queryClient.invalidateQueries({ queryKey: ["chat", user.id, selectedChat] });
         }
       }
-    });
+    };
+
+    const onIncomingCall = ({ callerId, callType }: { callerId: string; callType: "audio" | "video" }) => {
+      setIncomingCall((current) =>
+        current?.callerId === callerId ? { ...current, callType } : { callerId, callType }
+      );
+    };
+
+    const onCallOffer = ({ callerId, offer, callType }: { callerId: string; offer: RTCSessionDescriptionInit; callType: "audio" | "video" }) => {
+      setIncomingCall({ callerId, offer, callType });
+    };
+
+    const onCallAnswer = async ({ answer }: { answer: RTCSessionDescriptionInit }) => {
+      if (!peerConnectionRef.current) return;
+      await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+      setActiveCall((current) => (current ? { ...current, status: "connected" } : current));
+    };
+
+    const onIceCandidate = async ({ candidate }: { candidate: RTCIceCandidateInit }) => {
+      if (!peerConnectionRef.current || !candidate) return;
+      try {
+        await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (error) {
+        console.error("Failed to add ICE candidate", error);
+      }
+    };
+
+    const onCallReject = () => {
+      toast.error("Call declined");
+      endCallCleanup();
+    };
+
+    const onCallEnd = () => {
+      toast.info("Call ended");
+      endCallCleanup();
+    };
+
+    socket.on("connect", onConnect);
+    socket.on("user-status", onUserStatus);
+    socket.on("user-typing", onUserTyping);
+    socket.on("notification", onNotification);
+    socket.on("call:incoming", onIncomingCall);
+    socket.on("call:offer", onCallOffer);
+    socket.on("call:answer", onCallAnswer);
+    socket.on("call:ice-candidate", onIceCandidate);
+    socket.on("call:reject", onCallReject);
+    socket.on("call:end", onCallEnd);
 
     return () => {
+      socket.off("connect", onConnect);
+      socket.off("user-status", onUserStatus);
+      socket.off("user-typing", onUserTyping);
+      socket.off("notification", onNotification);
+      socket.off("call:incoming", onIncomingCall);
+      socket.off("call:offer", onCallOffer);
+      socket.off("call:answer", onCallAnswer);
+      socket.off("call:ice-candidate", onIceCandidate);
+      socket.off("call:reject", onCallReject);
+      socket.off("call:end", onCallEnd);
       socket.disconnect();
+      endCallCleanup(false);
     };
-  }, [user?.id, selectedChat, queryClient]);
+  }, [queryClient, selectedChat, user?.id, user?.tenantId]);
 
-  // Handle typing status
   const handleTyping = () => {
     if (!selectedChat) return;
-    
+
     socket.emit("typing", { receiverId: selectedChat, isTyping: true });
-    
+
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    
+
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit("typing", { receiverId: selectedChat, isTyping: false });
     }, 3000);
   };
 
-  // Fetch users for new chat
   const { data: usersData, isLoading: usersLoading } = useQuery({
     queryKey: ["users-search", userSearchQuery, user?.id],
     queryFn: async () => {
@@ -174,33 +259,40 @@ export default function MessagesPage() {
     enabled: newChatDialogOpen && !!user?.id,
   });
 
-  // Fetch conversations
   const { data: conversationsData, isLoading: conversationsLoading } = useQuery({
     queryKey: ["conversations", user?.id],
     queryFn: async () => {
-      const response = await fetch(`/api/messages?userId=${user?.id}&type=conversations`);
+      const response = await fetch(`/api/messages?type=conversations`);
       if (!response.ok) throw new Error("Failed to fetch conversations");
       return response.json();
     },
     enabled: !!user?.id,
-    refetchInterval: 30000, // Fallback refetch
+    refetchInterval: 30000,
   });
 
-  // Fetch chat messages
   const { data: chatData, isLoading: chatLoading } = useQuery({
     queryKey: ["chat", user?.id, selectedChat],
     queryFn: async () => {
-      const response = await fetch(`/api/messages?userId=${user?.id}&otherUserId=${selectedChat}&type=chat`);
+      const response = await fetch(`/api/messages?type=chat&otherUserId=${selectedChat}`);
       if (!response.ok) throw new Error("Failed to fetch messages");
       return response.json();
     },
     enabled: !!user?.id && !!selectedChat,
   });
 
-  // Send message mutation
+  const conversations = conversationsData?.conversations || [];
+  const messages = chatData?.messages || [];
+
+  const selectedConversation = useMemo(
+    () =>
+      conversations.find((conv: Conversation) => conv.user.id === selectedChat) ||
+      (chatData?.otherUser ? { user: chatData.otherUser } : null),
+    [chatData?.otherUser, conversations, selectedChat]
+  );
+
   const sendMessageMutation = useMutation({
     mutationFn: async (message: string) => {
-      const response = await fetch("/api/messages", {
+      const response = await fetch(`/api/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -212,59 +304,228 @@ export default function MessagesPage() {
       if (!response.ok) throw new Error("Failed to send message");
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (payload) => {
+      const createdMessage = payload?.message;
+      if (createdMessage && selectedChat) {
+        queryClient.setQueryData(["chat", user?.id, selectedChat], (current: any) => {
+          const existingMessages = Array.isArray(current?.messages) ? current.messages : [];
+          const alreadyExists = existingMessages.some((entry: any) => entry.id === createdMessage.id);
+          if (alreadyExists) return current;
+          return {
+            ...current,
+            otherUser: current?.otherUser || selectedConversation?.user || null,
+            messages: [
+              ...existingMessages,
+              {
+                ...createdMessage,
+                sender: {
+                  id: user?.id,
+                  fullName: user?.fullName,
+                  email: user?.email,
+                  avatar: user?.avatar || null,
+                },
+                receiver: selectedConversation?.user || { id: selectedChat, fullName: "", email: "", avatar: null },
+              },
+            ],
+          };
+        });
+      }
       setMessageInput("");
       socket.emit("typing", { receiverId: selectedChat, isTyping: false });
-      queryClient.invalidateQueries({ queryKey: ["chat"] });
-      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["chat", user?.id, selectedChat] });
+      queryClient.invalidateQueries({ queryKey: ["conversations", user?.id] });
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to send message");
     },
   });
 
-  // Send broadcast mutation
-  const sendBroadcastMutation = useMutation({
-    mutationFn: async (data: typeof broadcastData) => {
-      const response = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          senderId: user?.id,
-          message: data.message,
-          type: "broadcast",
-          ...(data.target === "role" ? { roleTarget: "doctor" } : { tenantTarget: true }),
-        }),
+  const deleteMessageMutation = useMutation({
+    mutationFn: async (messageId: string) => {
+      const response = await fetch(`/api/messages/${messageId}`, {
+        method: "DELETE",
       });
-      if (!response.ok) throw new Error("Failed to send broadcast");
-      return response.json();
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Failed to delete message");
+      return { messageId };
+    },
+    onSuccess: ({ messageId }) => {
+      queryClient.setQueryData(["chat", user?.id, selectedChat], (current: any) => ({
+        ...current,
+        messages: Array.isArray(current?.messages)
+          ? current.messages.filter((entry: Message) => entry.id !== messageId)
+          : [],
+      }));
+      queryClient.invalidateQueries({ queryKey: ["conversations", user?.id] });
+      toast.success("Message deleted");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to delete message");
+    },
+  });
+
+  const clearChatMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedChat) throw new Error("No conversation selected");
+      const response = await fetch(`/api/messages/chat/${selectedChat}`, {
+        method: "DELETE",
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Failed to clear chat");
+      return payload;
     },
     onSuccess: () => {
-      setBroadcastDialogOpen(false);
-      setBroadcastData({ target: "", message: "" });
-      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      queryClient.setQueryData(["chat", user?.id, selectedChat], (current: any) => ({
+        ...current,
+        messages: [],
+      }));
+      queryClient.invalidateQueries({ queryKey: ["conversations", user?.id] });
+      setProfileDialogOpen(false);
+      toast.success("Chat cleared");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to clear chat");
     },
   });
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatData?.messages]);
 
-  // Handle userId from query parameter
   useEffect(() => {
     if (userIdFromQuery) {
       setSelectedChat(userIdFromQuery);
     }
   }, [userIdFromQuery]);
 
-  const conversations = conversationsData?.conversations || [];
-  const messages = chatData?.messages || [];
-
-  const filteredConversations = conversations.filter((conv: Conversation) =>
+  const filteredConversations = conversations.filter(conv =>
     conv.user.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     conv.user.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const selectedConversation = conversations.find((conv: Conversation) => conv.user.id === selectedChat) ||
-    (chatData?.otherUser ? { user: chatData.otherUser } : null);
+  const activeRemoteUser = selectedConversation?.user || null;
+  const activeCallerUser = incomingCall
+    ? conversations.find((conv: Conversation) => conv.user.id === incomingCall.callerId)?.user ||
+      usersData?.find((entry: User) => entry.id === incomingCall.callerId) ||
+      (chatData?.otherUser?.id === incomingCall.callerId ? chatData.otherUser : null)
+    : null;
+
+  const attachLocalStream = (stream: MediaStream) => {
+    localStreamRef.current = stream;
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = stream;
+    }
+  };
+
+  const attachRemoteStream = (stream: MediaStream) => {
+    remoteStreamRef.current = stream;
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = stream;
+    }
+  };
+
+  const ensureMedia = async (callType: "audio" | "video") => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Media devices are not available in this browser");
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: callType === "video",
+    });
+    attachLocalStream(stream);
+    return stream;
+  };
+
+  const createPeerConnection = (targetUserId: string, callType: "audio" | "video") => {
+    const peer = new RTCPeerConnection(rtcConfig);
+    peer.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("call:ice-candidate", {
+          receiverId: targetUserId,
+          candidate: event.candidate.toJSON(),
+        });
+      }
+    };
+    peer.ontrack = (event) => {
+      const [stream] = event.streams;
+      if (stream) attachRemoteStream(stream);
+    };
+    peer.onconnectionstatechange = () => {
+      if (peer.connectionState === "connected") {
+        setActiveCall({ status: "connected", targetUserId, callType });
+      }
+      if (["failed", "closed", "disconnected"].includes(peer.connectionState)) {
+        endCallCleanup(false);
+      }
+    };
+    peerConnectionRef.current = peer;
+    return peer;
+  };
+
+  const startCall = async (callType: "audio" | "video") => {
+    if (!selectedChat) return;
+
+    try {
+      setCallError(null);
+      const stream = await ensureMedia(callType);
+      const peer = createPeerConnection(selectedChat, callType);
+      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+      socket.emit("call:start", { receiverId: selectedChat, callType });
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
+      socket.emit("call:offer", {
+        receiverId: selectedChat,
+        offer,
+        callType,
+      });
+      setActiveCall({ status: "calling", targetUserId: selectedChat, callType });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to start call";
+      setCallError(message);
+      toast.error(message);
+      endCallCleanup(false);
+    }
+  };
+
+  const acceptCall = async () => {
+    if (!incomingCall) return;
+    if (!incomingCall.offer) {
+      toast.error("Call setup is still in progress. Try again.");
+      return;
+    }
+
+    try {
+      setCallError(null);
+      const stream = await ensureMedia(incomingCall.callType);
+      const peer = createPeerConnection(incomingCall.callerId, incomingCall.callType);
+      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+      await peer.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+      socket.emit("call:answer", {
+        receiverId: incomingCall.callerId,
+        answer,
+      });
+      setActiveCall({
+        status: "connected",
+        targetUserId: incomingCall.callerId,
+        callType: incomingCall.callType,
+      });
+      setIncomingCall(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to answer call";
+      setCallError(message);
+      toast.error(message);
+      endCallCleanup(false);
+    }
+  };
+
+  const rejectCall = () => {
+    if (!incomingCall) return;
+    socket.emit("call:reject", { receiverId: incomingCall.callerId });
+    setIncomingCall(null);
+  };
 
   const handleSendMessage = () => {
     if (messageInput.trim() && selectedChat) {
@@ -316,17 +577,6 @@ export default function MessagesPage() {
               >
                 <Plus className="h-4 w-4" />
               </Button>
-              {canBroadcast && (
-                <Button
-                  size="icon"
-                  variant="outline"
-                  onClick={() => setBroadcastDialogOpen(true)}
-                  title="Broadcast"
-                  className="rounded-full"
-                >
-                  <Megaphone className="h-4 w-4" />
-                </Button>
-              )}
             </div>
           </div>
 
@@ -362,24 +612,22 @@ export default function MessagesPage() {
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {filteredConversations.map((conversation: Conversation) => (
+              {filteredConversations.map((conversation) => (
                 <button
                   key={conversation.user.id}
                   onClick={() => setSelectedChat(conversation.user.id)}
                   className={cn(
                     "w-full px-4 py-3 text-left transition-all duration-200",
-                    selectedChat === conversation.user.id 
-                      ? "bg-primary/10 border-r-4 border-primary" 
+                    selectedChat === conversation.user.id
+                      ? "bg-primary/10 border-r-4 border-primary"
                       : "hover:bg-muted/50 border-r-4 border-transparent"
                   )}
                 >
                   <div className="flex items-center gap-3">
                     <div className="relative">
                       <Avatar className="h-10 w-10">
-                        <AvatarImage src="" />
-                        <AvatarFallback>
-                          {(conversation.user.fullName || conversation.user.email).charAt(0).toUpperCase()}
-                        </AvatarFallback>
+                        <AvatarImage src={conversation.user.avatar || undefined} />
+                        <AvatarFallback>{getInitial(conversation.user)}</AvatarFallback>
                       </Avatar>
                       {onlineUsers.has(conversation.user.id) && (
                         <div className="absolute -bottom-1 -right-1 h-3 w-3 bg-green-500 border-2 border-background rounded-full" />
@@ -423,14 +671,12 @@ export default function MessagesPage() {
             <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-muted/30">
               <div className="flex items-center gap-3">
                 <Avatar className="h-10 w-10">
-                  <AvatarImage src="" />
-                  <AvatarFallback>
-                    {(selectedConversation?.user.fullName || selectedConversation?.user.email || "U").charAt(0).toUpperCase()}
-                  </AvatarFallback>
+                  <AvatarImage src={activeRemoteUser?.avatar || undefined} />
+                  <AvatarFallback>{getInitial(activeRemoteUser)}</AvatarFallback>
                 </Avatar>
                 <div>
                   <p className="font-medium">
-                    {selectedConversation?.user.fullName || selectedConversation?.user.email || "New Conversation"}
+                    {getDisplayName(activeRemoteUser)}
                   </p>
                   <div className="flex items-center gap-2">
                     {onlineUsers.has(selectedChat) ? (
@@ -446,13 +692,33 @@ export default function MessagesPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon" className="rounded-full">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full"
+                  onClick={() => startCall("audio")}
+                  disabled={!!activeCall || !!incomingCall}
+                  title="Start voice call"
+                >
                   <Phone className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="icon" className="rounded-full">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full"
+                  onClick={() => startCall("video")}
+                  disabled={!!activeCall || !!incomingCall}
+                  title="Start video call"
+                >
                   <Video className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="icon" className="rounded-full">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full"
+                  onClick={() => setProfileDialogOpen(true)}
+                  title="Open chat profile"
+                >
                   <Info className="h-4 w-4" />
                 </Button>
               </div>
@@ -480,8 +746,14 @@ export default function MessagesPage() {
                   return (
                     <div
                       key={message.id}
-                      className={cn("flex", isOwnMessage ? "justify-end" : "justify-start")}
+                      className={cn("group flex items-end gap-2", isOwnMessage ? "justify-end" : "justify-start")}
                     >
+                      {!isOwnMessage && (
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={message.sender.avatar || undefined} />
+                          <AvatarFallback>{getInitial(message.sender)}</AvatarFallback>
+                        </Avatar>
+                      )}
                       <div
                         className={cn(
                           "max-w-xs lg:max-w-md px-6 py-3 rounded-[2rem]",
@@ -504,6 +776,18 @@ export default function MessagesPage() {
                           )}
                         </div>
                       </div>
+                      {isOwnMessage && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-full opacity-0 transition-opacity group-hover:opacity-100"
+                          title="Delete message"
+                          onClick={() => deleteMessageMutation.mutate(message.id)}
+                          disabled={deleteMessageMutation.isPending}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   );
                 })
@@ -520,7 +804,7 @@ export default function MessagesPage() {
                     setMessageInput(e.target.value);
                     handleTyping();
                   }}
-                  onKeyPress={handleKeyPress}
+                  onKeyDown={handleKeyPress}
                   placeholder="Type a message..."
                   className="min-h-[44px] max-h-32 resize-none rounded-[1.5rem] bg-background py-3 px-4"
                   rows={1}
@@ -531,7 +815,7 @@ export default function MessagesPage() {
                   size="sm"
                   className="h-10 w-10 p-0 rounded-full"
                 >
-                  <Send className="h-4 w-4" />
+                  {sendMessageMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 </Button>
               </div>
             </div>
@@ -541,7 +825,7 @@ export default function MessagesPage() {
             <MessageSquare className="h-16 w-16 mb-4" />
             <h3 className="text-lg font-medium mb-2">Select a conversation</h3>
             <p>Choose a conversation from the sidebar to start messaging</p>
-            <Button 
+            <Button
               className="mt-4"
               onClick={() => setNewChatDialogOpen(true)}
             >
@@ -589,10 +873,11 @@ export default function MessagesPage() {
                     className="w-full flex items-center gap-3 p-2 hover:bg-muted rounded-lg transition-colors"
                   >
                     <Avatar className="h-8 w-8">
-                      <AvatarFallback>{(u.fullName || u.email).charAt(0).toUpperCase()}</AvatarFallback>
+                      <AvatarImage src={u.avatar || undefined} />
+                      <AvatarFallback>{getInitial(u)}</AvatarFallback>
                     </Avatar>
                     <div className="text-left">
-                      <p className="text-sm font-medium">{u.fullName || u.email}</p>
+                      <p className="text-sm font-medium">{getDisplayName(u)}</p>
                       <p className="text-xs text-muted-foreground">
                         {[u.role ? String(u.role).replace(/_/g, " ") : null, u.email].filter(Boolean).join(" · ")}
                       </p>
@@ -605,64 +890,160 @@ export default function MessagesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Broadcast Dialog */}
-      <Dialog open={broadcastDialogOpen} onOpenChange={setBroadcastDialogOpen}>
+      <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Send Broadcast Message</DialogTitle>
+            <DialogTitle>Chat Profile</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Target Audience</label>
-              <Select
-                value={broadcastData.target}
-                onValueChange={(value) => setBroadcastData({ ...broadcastData, target: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select target audience" />
-                </SelectTrigger>
-                <SelectContent>
-                  {userRole === "super_admin" ? (
-                    <>
-                      <SelectItem value="all">Every user in the system</SelectItem>
-                      <SelectItem value="hospital_admins">All Hospital Admins</SelectItem>
-                    </>
-                  ) : userRole === "hospital_admin" ? (
-                    <>
-                      <SelectItem value="tenant">All hospital employees</SelectItem>
-                      <SelectItem value="role:doctor">All doctors</SelectItem>
-                      <SelectItem value="role:nurse">All nurses</SelectItem>
-                    </>
-                  ) : (
-                    <SelectItem value="tenant">My organization</SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+          <div className="space-y-6">
+            <div className="flex items-center gap-4">
+              <Avatar className="h-16 w-16">
+                <AvatarImage src={activeRemoteUser?.avatar || undefined} />
+                <AvatarFallback>{getInitial(activeRemoteUser)}</AvatarFallback>
+              </Avatar>
+              <div>
+                <p className="text-lg font-semibold">{getDisplayName(activeRemoteUser)}</p>
+                <p className="text-sm text-muted-foreground">{activeRemoteUser?.email}</p>
+                {activeRemoteUser?.role && (
+                  <p className="text-sm capitalize text-muted-foreground">
+                    {String(activeRemoteUser.role).replace(/_/g, " ")}
+                  </p>
+                )}
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Message</label>
-              <Textarea
-                value={broadcastData.message}
-                onChange={(e) => setBroadcastData({ ...broadcastData, message: e.target.value })}
-                placeholder="Enter your broadcast message..."
-                rows={4}
-              />
+            <div className="rounded-2xl border border-border bg-muted/30 p-4">
+              <p className="text-sm font-medium">Conversation actions</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Clear this chat to remove the current conversation history.
+              </p>
+              <Button
+                variant="destructive"
+                className="mt-4"
+                onClick={() => {
+                  if (window.confirm("Clear this chat? This removes the current conversation history.")) {
+                    clearChatMutation.mutate();
+                  }
+                }}
+                disabled={clearChatMutation.isPending}
+              >
+                {clearChatMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                Clear Chat
+              </Button>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBroadcastDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => sendBroadcastMutation.mutate(broadcastData)}
-              disabled={!broadcastData.target || !broadcastData.message.trim() || sendBroadcastMutation.isPending}
-            >
-              {sendBroadcastMutation.isPending ? "Sending..." : "Send Broadcast"}
-            </Button>
-          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!incomingCall} onOpenChange={(open) => !open && rejectCall()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{incomingCall?.callType === "video" ? "Incoming video call" : "Incoming voice call"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+              {incomingCall?.callType === "video" ? <Video className="h-7 w-7" /> : <Phone className="h-7 w-7" />}
+            </div>
+            <Avatar className="mx-auto h-24 w-24 border-4 border-background shadow-sm">
+              <AvatarImage src={activeCallerUser?.avatar || undefined} />
+              <AvatarFallback>{getInitial(activeCallerUser)}</AvatarFallback>
+            </Avatar>
+            <div>
+              <p className="text-xl font-semibold">{getDisplayName(activeCallerUser)}</p>
+              <p className="text-sm text-muted-foreground">{activeCallerUser?.email}</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {incomingCall?.callType === "video"
+                  ? "Camera and microphone access will be requested when you answer."
+                  : "Microphone access will be requested when you answer."}
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Button variant="destructive" onClick={rejectCall} className="h-11">
+                <PhoneOff className="mr-2 h-4 w-4" />
+                Decline
+              </Button>
+              <Button onClick={acceptCall} className="h-11">
+                {incomingCall?.callType === "video" ? <Video className="mr-2 h-4 w-4" /> : <Phone className="mr-2 h-4 w-4" />}
+                Accept
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!activeCall} onOpenChange={(open) => !open && endCallCleanup(true)}>
+        <DialogContent className={cn(activeCall?.callType === "video" ? "sm:max-w-5xl" : "sm:max-w-md")}>
+          <DialogHeader>
+            <DialogTitle>
+              {activeCall?.callType === "video" ? "Video Call" : "Voice Call"} with {getDisplayName(activeRemoteUser)}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between rounded-xl border border-border bg-muted/30 px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">
+                  {activeCall?.status === "calling" ? "Connecting" : "Live"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {activeCall?.status === "calling"
+                    ? "Waiting for the other participant to answer."
+                    : "Media connection established."}
+                </p>
+              </div>
+              <div className={cn(
+                "rounded-full px-3 py-1 text-xs font-medium",
+                activeCall?.status === "calling"
+                  ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                  : "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+              )}>
+                {activeCall?.status === "calling" ? "Ringing" : "Connected"}
+              </div>
+            </div>
+            {callError && (
+              <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+                {callError}
+              </div>
+            )}
+
+            {activeCall?.callType === "video" ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="overflow-hidden rounded-2xl border border-border bg-black/90">
+                  <video ref={remoteVideoRef} autoPlay playsInline className="aspect-video w-full object-cover" />
+                </div>
+                <div className="overflow-hidden rounded-2xl border border-border bg-black/90">
+                  <video ref={localVideoRef} autoPlay muted playsInline className="aspect-video w-full object-cover" />
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-border bg-muted/30 p-6 text-center">
+                <Avatar className="mx-auto h-20 w-20">
+                  <AvatarImage src={activeRemoteUser?.avatar || undefined} />
+                  <AvatarFallback>{getInitial(activeRemoteUser)}</AvatarFallback>
+                </Avatar>
+                <p className="mt-4 text-lg font-semibold">{getDisplayName(activeRemoteUser)}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {activeCall?.status === "calling" ? "Calling..." : "Connected"}
+                </p>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Keep this dialog open while the call is active.
+                </p>
+                <div className="hidden">
+                  <video ref={remoteVideoRef} autoPlay playsInline />
+                  <video ref={localVideoRef} autoPlay muted playsInline />
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-center border-t border-border pt-2">
+              <Button variant="destructive" onClick={() => endCallCleanup(true)} className="h-11 min-w-40">
+                {activeCall?.callType === "video" ? <VideoOff className="mr-2 h-4 w-4" /> : <PhoneOff className="mr-2 h-4 w-4" />}
+                End Call
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
   );
 }
+

@@ -3,7 +3,7 @@ import { MessagingService } from "@/lib/services/messaging.service";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
-import { and, eq, ilike } from "drizzle-orm";
+import { and, eq, ilike, isNull } from "drizzle-orm";
 
 const service = new MessagingService();
 
@@ -14,7 +14,7 @@ async function resolveCurrentAppUser(request: NextRequest) {
   }
 
   const appUser = await db.query.users.findFirst({
-    where: ilike(users.email, session.user.email),
+    where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
     columns: { id: true },
   });
 
@@ -24,7 +24,7 @@ async function resolveCurrentAppUser(request: NextRequest) {
 async function canAccessUser(sessionEmail: string | undefined, userId: string) {
   if (!sessionEmail) return false;
   const matchingUser = await db.query.users.findFirst({
-    where: and(eq(users.id, userId), ilike(users.email, sessionEmail)),
+    where: and(eq(users.id, userId), ilike(users.email, sessionEmail), isNull(users.deletedAt)),
     columns: { id: true },
   });
   return !!matchingUser;
@@ -67,11 +67,13 @@ export async function GET(request: NextRequest) {
           const { users } = await import("@/lib/db/schema");
           const { eq } = await import("drizzle-orm");
           otherUser = await db.query.users.findFirst({
-            where: eq(users.id, otherUserId),
+            where: and(eq(users.id, otherUserId), isNull(users.deletedAt)),
             columns: {
               id: true,
               fullName: true,
               email: true,
+              avatar: true,
+              role: true,
             },
           });
         }

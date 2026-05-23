@@ -942,21 +942,29 @@ export default function MessagesPage() {
           <DialogHeader>
             <DialogTitle>{incomingCall?.callType === "video" ? "Incoming video call" : "Incoming voice call"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 text-center">
-            <Avatar className="mx-auto h-20 w-20">
+          <div className="space-y-6 text-center">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
+              {incomingCall?.callType === "video" ? <Video className="h-7 w-7" /> : <Phone className="h-7 w-7" />}
+            </div>
+            <Avatar className="mx-auto h-24 w-24 border-4 border-background shadow-sm">
               <AvatarImage src={activeCallerUser?.avatar || undefined} />
               <AvatarFallback>{getInitial(activeCallerUser)}</AvatarFallback>
             </Avatar>
             <div>
-              <p className="text-lg font-semibold">{getDisplayName(activeCallerUser)}</p>
+              <p className="text-xl font-semibold">{getDisplayName(activeCallerUser)}</p>
               <p className="text-sm text-muted-foreground">{activeCallerUser?.email}</p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {incomingCall?.callType === "video"
+                  ? "Camera and microphone access will be requested when you answer."
+                  : "Microphone access will be requested when you answer."}
+              </p>
             </div>
-            <div className="flex justify-center gap-3">
-              <Button variant="destructive" onClick={rejectCall}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Button variant="destructive" onClick={rejectCall} className="h-11">
                 <PhoneOff className="mr-2 h-4 w-4" />
                 Decline
               </Button>
-              <Button onClick={acceptCall}>
+              <Button onClick={acceptCall} className="h-11">
                 {incomingCall?.callType === "video" ? <Video className="mr-2 h-4 w-4" /> : <Phone className="mr-2 h-4 w-4" />}
                 Accept
               </Button>
@@ -973,6 +981,26 @@ export default function MessagesPage() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            <div className="flex items-center justify-between rounded-xl border border-border bg-muted/30 px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">
+                  {activeCall?.status === "calling" ? "Connecting" : "Live"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {activeCall?.status === "calling"
+                    ? "Waiting for the other participant to answer."
+                    : "Media connection established."}
+                </p>
+              </div>
+              <div className={cn(
+                "rounded-full px-3 py-1 text-xs font-medium",
+                activeCall?.status === "calling"
+                  ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                  : "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+              )}>
+                {activeCall?.status === "calling" ? "Ringing" : "Connected"}
+              </div>
+            </div>
             {callError && (
               <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
                 {callError}
@@ -998,6 +1026,9 @@ export default function MessagesPage() {
                 <p className="mt-1 text-sm text-muted-foreground">
                   {activeCall?.status === "calling" ? "Calling..." : "Connected"}
                 </p>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Keep this dialog open while the call is active.
+                </p>
                 <div className="hidden">
                   <video ref={remoteVideoRef} autoPlay playsInline />
                   <video ref={localVideoRef} autoPlay muted playsInline />
@@ -1005,8 +1036,8 @@ export default function MessagesPage() {
               </div>
             )}
 
-            <div className="flex justify-center">
-              <Button variant="destructive" onClick={() => endCallCleanup(true)}>
+            <div className="flex justify-center border-t border-border pt-2">
+              <Button variant="destructive" onClick={() => endCallCleanup(true)} className="h-11 min-w-40">
                 {activeCall?.callType === "video" ? <VideoOff className="mr-2 h-4 w-4" /> : <PhoneOff className="mr-2 h-4 w-4" />}
                 End Call
               </Button>
