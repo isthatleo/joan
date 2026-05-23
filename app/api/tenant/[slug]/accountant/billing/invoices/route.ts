@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { parseJsonBody, validateFinancePayload } from "@/lib/accountant/finance-api";
+import { invoiceCreateSchema } from "@/lib/accountant/route-schemas";
 
 export async function GET(
   request: NextRequest,
@@ -34,18 +36,18 @@ export async function GET(
 
 
     let whereClause = "i.tenant_id = $1";
-    const params = [tenantId];
+    const queryParams: Array<string | number> = [tenantId];
     let paramIndex = 2;
 
     if (status) {
       whereClause += ` AND i.status = $${paramIndex}`;
-      params.push(status);
+      queryParams.push(status);
       paramIndex++;
     }
 
     if (patientId) {
       whereClause += ` AND i.patient_id = $${paramIndex}`;
-      params.push(patientId);
+      queryParams.push(patientId);
       paramIndex++;
     }
 
@@ -60,7 +62,7 @@ export async function GET(
       WHERE ${whereClause}
     `;
 
-    const totalResult = await db.$queryRaw(countQuery, params);
+    const totalResult = await db.$queryRaw(countQuery, queryParams);
     const total = Number(totalResult[0]?.total || 0);
 
     // Get invoices with pagination
@@ -78,7 +80,7 @@ export async function GET(
         p.full_name as patient_name,
         p.id as patient_id,
         p.email as patient_email,
-        COALESCE(SUM(pay.amount), 0) as paid_amount
+        COALESCE(SUM(pay.amount::numeric), 0) as paid_amount
       FROM invoices i
       LEFT JOIN patients p ON i.patient_id = p.id
       LEFT JOIN payments pay ON pay.invoice_id = i.id AND pay.status = 'completed'
@@ -88,8 +90,8 @@ export async function GET(
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
     `;
 
-    params.push(limit, offset);
-    const invoices = await db.$queryRaw(invoicesQuery, params);
+    queryParams.push(limit, offset);
+    const invoices = await db.$queryRaw(invoicesQuery, queryParams);
 
     const formattedInvoices = invoices.map((invoice: any) => ({
       id: invoice.id,
@@ -97,11 +99,13 @@ export async function GET(
       patientName: invoice.patient_name || "Unknown Patient",
       patientId: invoice.patient_id,
       patientEmail: invoice.patient_email,
+      amount: Number(invoice.amount),
       totalAmount: Number(invoice.amount),
       amountDue: Number(invoice.amount_due),
       paidAmount: Number(invoice.paid_amount || 0),
       status: invoice.status,
       dueDate: invoice.due_date,
+      createdAt: invoice.issue_date,
       issueDate: invoice.issue_date,
       updatedAt: invoice.updated_at,
     }));
@@ -138,25 +142,10 @@ export async function POST(
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    const body = await request.json();
-    const {
-      patientId,
-      amount,
-      amountDue,
-      dueDate,
-      description,
-      notes,
-      paymentTerms,
-      items,
-      status,
-    } = body;
-
-    if (!patientId || !amount || !dueDate) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      );
-    }
+    const jsonResult = await parseJsonBody(request);
+    if (!jsonResult.ok) return jsonResult.response;
+    const parsed = validateFinancePayload(invoiceCreateSchema, jsonResult.data);
+    if (!parsed.ok) return parsed.response;
 
     const invoiceNumber = `INV-${Date.now()}`;
     const insertResult = await db.$queryRaw`
@@ -164,6 +153,7 @@ export async function POST(
         tenant_id,
         patient_id,
         invoice_number,
+        total_amount,
         amount,
         amount_due,
         status,
@@ -176,22 +166,23 @@ export async function POST(
       )
       VALUES (
         ${tenantId},
-        ${patientId},
+        ${parsed.data.patientId},
         ${invoiceNumber},
-        ${String(parseFloat(amount))},
-        ${String(amountDue ? parseFloat(amountDue) : parseFloat(amount))},
-        ${status || "draft"},
-        ${dueDate},
-        ${description || null},
-        ${notes || null},
-        ${paymentTerms || null},
-        ${items ? JSON.stringify(items) : null},
+        ${parsed.data.amount},
+        ${parsed.data.amount},
+        ${parsed.data.amountDue || parsed.data.amount},
+        ${parsed.data.status},
+        ${parsed.data.dueDate},
+        ${parsed.data.description || null},
+        ${parsed.data.notes || null},
+        ${parsed.data.paymentTerms || null},
+        ${parsed.data.items ? JSON.stringify(parsed.data.items) : null},
         ${session.user.id}
       )
       RETURNING id, invoice_number
     `;
 
-    return NextResponse.json(insertResult[0]);
+    return NextResponse.json(insertResult[0], { status: 201 });
   } catch (error) {
     console.error("Error creating invoice:", error);
     return NextResponse.json(

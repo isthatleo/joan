@@ -14,10 +14,12 @@ const orange = "#F97316";
 
 interface Patient {
   id: string;
+  fullName?: string;
   full_name: string;
   email: string;
   phone?: string;
   mrn?: string;
+  medicalRecordNumber?: string;
 }
 
 interface InvoiceItem {
@@ -40,7 +42,7 @@ export default function CreateInvoicePage() {
 
   const [formData, setFormData] = useState({
     patientId: "",
-    dueDate: "",
+    dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString().slice(0, 10),
     description: "",
     notes: "",
     paymentTerms: "Net 30",
@@ -62,7 +64,7 @@ export default function CreateInvoicePage() {
       const res = await fetch(`/api/tenant/${slug}/patients`);
       if (res.ok) {
         const data = await res.json();
-        setPatients(data || []);
+        setPatients(Array.isArray(data) ? data : []);
       } else {
         toast.error("Failed to load patients");
       }
@@ -101,7 +103,9 @@ export default function CreateInvoicePage() {
   };
 
   const addItem = () => {
-    const newId = Math.random().toString();
+    const newId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${items.length + 1}`;
     setItems((prev) => [
       ...prev,
       { id: newId, description: "", quantity: 1, unitPrice: 0, category: "service" },
@@ -243,7 +247,7 @@ export default function CreateInvoicePage() {
                   <option value="">Select a patient...</option>
                   {patients.map((patient) => (
                     <option key={patient.id} value={patient.id}>
-                      {patient.full_name} ({patient.mrn || "No MRN"})
+                      {patient.full_name || patient.fullName || "Unnamed patient"} ({patient.mrn || patient.medicalRecordNumber || "No MRN"})
                     </option>
                   ))}
                 </select>
@@ -261,7 +265,7 @@ export default function CreateInvoicePage() {
                         <p className="text-sm font-medium text-blue-900">{patient.full_name}</p>
                         <p className="text-xs text-blue-700">
                           {patient.email}
-                          {patient.phone && ` • ${patient.phone}`}
+                          {patient.phone && ` - ${patient.phone}`}
                         </p>
                       </div>
                     ) : null;
@@ -528,4 +532,5 @@ export default function CreateInvoicePage() {
     </div>
   );
 }
+
 

@@ -22,7 +22,10 @@ export default function AccountantPatientDetailPage() {
         fetch(`/api/tenant/${slug}/accountant/payments`),
       ]);
       if (patientsRes.ok) setPatients(await patientsRes.json());
-      if (invoicesRes.ok) setInvoices(await invoicesRes.json());
+      if (invoicesRes.ok) {
+        const payload = await invoicesRes.json();
+        setInvoices(Array.isArray(payload) ? payload : payload.invoices || []);
+      }
       if (paymentsRes.ok) setPayments(await paymentsRes.json());
       setLoading(false);
     };

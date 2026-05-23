@@ -11,8 +11,16 @@ import {
 import SuperAdminDashboard from "./super-admin/page";
 
 export default function Dashboard() {
-  const { user } = useAuthStore();
-  const role = (user?.role as string) || "doctor";
+  const { user, isLoading } = useAuthStore();
+  const role = user?.role as string | undefined;
+
+  if (isLoading || !role) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+        Loading dashboard...
+      </div>
+    );
+  }
 
   switch (role) {
     case "super_admin":
@@ -46,7 +54,11 @@ export default function Dashboard() {
       return <GuardianDashboard />;
 
     default:
-      return <DoctorDashboard />;
+      return (
+        <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+          No dashboard available for this role.
+        </div>
+      );
   }
 }
 

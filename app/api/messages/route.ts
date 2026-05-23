@@ -1,17 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MessagingService } from "@/lib/services/messaging.service";
+import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
+import { and, eq, ilike } from "drizzle-orm";
 
 const service = new MessagingService();
 
+async function resolveCurrentAppUser(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session?.user?.email) {
+    return { session, appUser: null };
+  }
+
+  const appUser = await db.query.users.findFirst({
+    where: ilike(users.email, session.user.email),
+    columns: { id: true },
+  });
+
+  return { session, appUser };
+}
+
+async function canAccessUser(sessionEmail: string | undefined, userId: string) {
+  if (!sessionEmail) return false;
+  const matchingUser = await db.query.users.findFirst({
+    where: and(eq(users.id, userId), ilike(users.email, sessionEmail)),
+    columns: { id: true },
+  });
+  return !!matchingUser;
+}
+
 export async function GET(request: NextRequest) {
   try {
+    const { session, appUser } = await resolveCurrentAppUser(request);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get("userId");
+    const userId = searchParams.get("userId") || appUser?.id || (session.user.id as string);
     const otherUserId = searchParams.get("otherUserId");
     const type = searchParams.get("type") || "conversations";
+    const search = searchParams.get("search") || undefined;
 
     if (!userId) {
       return NextResponse.json({ error: "User ID required" }, { status: 400 });
+    }
+    if (!(await canAccessUser(session.user.email, userId))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     switch (type) {
@@ -49,6 +85,10 @@ export async function GET(request: NextRequest) {
         const unreadCount = await service.getInboxCount(userId);
         return NextResponse.json({ unreadCount });
 
+      case "available-users":
+        const users = await service.getAvailableContacts(userId, search);
+        return NextResponse.json(users);
+
       default:
         return NextResponse.json({ error: "Invalid type" }, { status: 400 });
     }
@@ -60,7 +100,19 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const { session, appUser } = await resolveCurrentAppUser(request);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const data = await request.json();
+    if (!appUser) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    if (data.senderId && !(await canAccessUser(session.user.email, data.senderId))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    data.senderId = appUser.id;
 
     if (data.type === "broadcast") {
       const messages = await service.sendBroadcast(data);

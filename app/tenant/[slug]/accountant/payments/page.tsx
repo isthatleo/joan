@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   DollarSign, Search, Plus, CreditCard, AlertCircle,
   CheckCircle, Loader2, Settings, Clock, TrendingUp, Calendar,
   FileText, PieChart, BarChart3, Download, Filter, Eye, Edit,
   MoreHorizontal, ChevronDown, ArrowUpDown, Receipt, Banknote,
-  Wallet, TrendingDown
+  Wallet, TrendingDown, RefreshCw, X
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useTenantPath } from "@/hooks/useTenantPath";
+import { exportElementAsPdf, exportElementAsPng } from "@/lib/export/page-export";
 
 const orange = "#F97316";
 
@@ -49,6 +50,29 @@ interface PaymentMethodStats {
   percentage: number;
 }
 
+interface PaymentMethodDetail {
+  method: string;
+  totalCount: number;
+  completedCount: number;
+  pendingCount: number;
+  failedCount: number;
+  refundedCount: number;
+  totalAmount: number;
+  averageAmount: number;
+  totalFees: number;
+  refundTotal: number;
+  recentPayments: Array<{
+    id: string;
+    invoiceId: string;
+    patientName: string;
+    amount: number;
+    status: Payment["status"];
+    transactionId?: string | null;
+    createdAt: string;
+    processedAt?: string | null;
+  }>;
+}
+
 export default function AccountantPaymentsPage() {
   const params = useParams();
   const slug = params?.slug as string;
@@ -57,6 +81,8 @@ export default function AccountantPaymentsPage() {
   const [stats, setStats] = useState<PaymentStats | null>(null);
   const [methodStats, setMethodStats] = useState<PaymentMethodStats[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [methodFilter, setMethodFilter] = useState("all");
@@ -64,13 +90,22 @@ export default function AccountantPaymentsPage() {
   const [sortBy, setSortBy] = useState("createdAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [selectedPayments, setSelectedPayments] = useState<string[]>([]);
+  const [refundTarget, setRefundTarget] = useState<Payment | null>(null);
+  const [refundAmount, setRefundAmount] = useState("");
+  const [submittingRefund, setSubmittingRefund] = useState(false);
+  const [activeMethod, setActiveMethod] = useState<string | null>(null);
+  const [methodDetail, setMethodDetail] = useState<PaymentMethodDetail | null>(null);
+  const [loadingMethodDetail, setLoadingMethodDetail] = useState(false);
+  const exportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetchPayments();
   }, [slug]);
 
   const fetchPayments = async () => {
-    setLoading(true);
+    setLoading((current) => current && !refreshing);
+    setRefreshing(true);
+    setErrorMessage(null);
     try {
       const [paymentsRes, statsRes, methodsRes] = await Promise.all([
         fetch(`/api/tenant/${slug}/accountant/payments`),
@@ -83,9 +118,11 @@ export default function AccountantPaymentsPage() {
       if (methodsRes.ok) setMethodStats(await methodsRes.json());
     } catch (error) {
       console.error('Failed to fetch payments:', error);
+      setErrorMessage("Failed to load payments. Check the accountant payment endpoints and try again.");
       toast.error("Failed to load payments");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -190,47 +227,101 @@ export default function AccountantPaymentsPage() {
     }
   };
 
-  const processRefund = async (paymentId: string) => {
-    const amount = prompt("Enter refund amount:");
-    if (!amount || isNaN(Number(amount))) return;
-
+  const processRefund = async () => {
+    if (!refundTarget) return;
+    const normalizedAmount = Number(refundAmount);
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+      toast.error("Enter a valid refund amount");
+      return;
+    }
+    setSubmittingRefund(true);
     try {
-      const res = await fetch(`/api/tenant/${slug}/accountant/payments/${paymentId}/refund`, {
+      const res = await fetch(`/api/tenant/${slug}/accountant/payments/${refundTarget.id}/refund`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: Number(amount) })
+        body: JSON.stringify({ amount: normalizedAmount })
       });
 
       if (res.ok) {
         toast.success("Refund processed successfully");
+        setRefundTarget(null);
+        setRefundAmount("");
         fetchPayments();
       } else {
         toast.error("Failed to process refund");
       }
     } catch (error) {
       toast.error("Failed to process refund");
+    } finally {
+      setSubmittingRefund(false);
     }
   };
 
-  const exportPayments = async (format: 'csv' | 'pdf') => {
+  const retryFailedPayment = async (paymentId: string) => {
     try {
-      const res = await fetch(`/api/tenant/${slug}/accountant/payments/export?format=${format}&ids=${selectedPayments.join(',')}`);
+      const res = await fetch(`/api/tenant/${slug}/accountant/payments/bulk-action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'retry_failed', paymentIds: [paymentId] })
+      });
+
       if (res.ok) {
+        toast.success("Payment moved back to pending");
+        fetchPayments();
+      } else {
+        toast.error("Failed to retry payment");
+      }
+    } catch (error) {
+      toast.error("Failed to retry payment");
+    }
+  };
+
+  const openMethodDetail = async (method: string) => {
+    setActiveMethod(method);
+    setMethodDetail(null);
+    setLoadingMethodDetail(true);
+    try {
+      const response = await fetch(`/api/tenant/${slug}/accountant/payments/method-stats/${encodeURIComponent(method)}`);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load payment method detail");
+      }
+      setMethodDetail(payload);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to load payment method detail");
+    } finally {
+      setLoadingMethodDetail(false);
+    }
+  };
+
+  const exportPayments = async (format: "csv" | "pdf" | "png") => {
+    try {
+      if (format === "csv") {
+        const res = await fetch(`/api/tenant/${slug}/accountant/payments/export?format=${format}&ids=${selectedPayments.join(",")}`);
+        if (!res.ok) throw new Error("Failed to export payments");
         const blob = await res.blob();
         const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
+        const a = document.createElement("a");
         a.href = url;
-        a.download = `payments.${format}`;
+        a.download = "payments.csv";
         a.click();
-        toast.success(`Exported ${selectedPayments.length} payments`);
+      } else {
+        if (!exportRef.current) throw new Error("Nothing to export");
+        const filename = `payments-${selectedPayments.length ? "selected" : "all"}.${format}`;
+        if (format === "pdf") {
+          await exportElementAsPdf(exportRef.current, filename);
+        } else {
+          await exportElementAsPng(exportRef.current, filename);
+        }
       }
+      toast.success(`Exported payments as ${format.toUpperCase()}`);
     } catch (error) {
       toast.error("Failed to export payments");
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div ref={exportRef} className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
@@ -240,11 +331,33 @@ export default function AccountantPaymentsPage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => exportPayments('csv')}
+            onClick={() => fetchPayments()}
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <button
+            onClick={() => exportPayments("pdf")}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
           >
             <Download className="size-4" />
-            Export
+            Export PDF
+          </button>
+          <button
+            onClick={() => exportPayments("png")}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
+          >
+            <Eye className="size-4" />
+            Export PNG
+          </button>
+          <button
+            onClick={() => exportPayments("csv")}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
+          >
+            <FileText className="size-4" />
+            Export CSV
           </button>
           <Link
             href={tenantPath("/accountant/payments/new")}
@@ -256,6 +369,12 @@ export default function AccountantPaymentsPage() {
           </Link>
         </div>
       </div>
+
+      {errorMessage && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMessage}
+        </div>
+      )}
 
       {/* Payment Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -328,8 +447,17 @@ export default function AccountantPaymentsPage() {
           <BarChart3 className="size-5 text-muted-foreground" />
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          {methodStats.map(method => (
-            <div key={method.method} className="text-center">
+          {methodStats.length === 0 ? (
+            <div className="col-span-full rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+              No processed payment method mix yet.
+            </div>
+          ) : methodStats.map(method => (
+            <button
+              key={method.method}
+              type="button"
+              onClick={() => openMethodDetail(method.method)}
+              className="rounded-xl border border-border px-3 py-4 text-center transition hover:border-orange-300 hover:bg-orange-500/5"
+            >
               <div className="flex items-center justify-center mb-2">
                 {getMethodIcon(method.method)}
               </div>
@@ -342,7 +470,7 @@ export default function AccountantPaymentsPage() {
                   style={{ width: `${method.percentage}%` }}
                 ></div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -483,7 +611,20 @@ export default function AccountantPaymentsPage() {
                 <tr><td colSpan={8} className="py-16 text-center">
                   <DollarSign className="size-10 text-muted mx-auto mb-2" />
                   <p className="text-muted-foreground font-medium">No payments found</p>
-                  <p className="text-xs text-muted-foreground mt-1">Try adjusting your filters</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {search || statusFilter !== "all" || methodFilter !== "all" || dateFilter !== "all"
+                      ? "Try adjusting your filters"
+                      : "Record the first payment to start your ledger"}
+                  </p>
+                  {!search && statusFilter === "all" && methodFilter === "all" && dateFilter === "all" && (
+                    <Link
+                      href={tenantPath("/accountant/payments/new")}
+                      className="mt-4 inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+                    >
+                      <Plus className="size-4" />
+                      Record Payment
+                    </Link>
+                  )}
                 </td></tr>
               ) : (
                 filteredPayments.map(payment => (
@@ -570,7 +711,10 @@ export default function AccountantPaymentsPage() {
                         </Link>
                         {payment.status === 'completed' && (
                           <button
-                            onClick={() => processRefund(payment.id)}
+                            onClick={() => {
+                              setRefundTarget(payment);
+                              setRefundAmount(payment.amount.toFixed(2));
+                            }}
                             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-50 font-medium text-xs transition-colors"
                           >
                             <TrendingDown className="size-3" />
@@ -579,7 +723,7 @@ export default function AccountantPaymentsPage() {
                         )}
                         {payment.status === 'failed' && (
                           <button
-                            onClick={() => handleBulkAction('retry_failed')}
+                            onClick={() => retryFailedPayment(payment.id)}
                             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-green-600 hover:bg-green-50 font-medium text-xs transition-colors"
                           >
                             <CheckCircle className="size-3" />
@@ -595,6 +739,170 @@ export default function AccountantPaymentsPage() {
           </table>
         </div>
       </div>
+
+      {refundTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Process Refund</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Refund payment for {refundTarget.patientName}.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setRefundTarget(null);
+                  setRefundAmount("");
+                }}
+                className="rounded-lg p-2 text-muted-foreground hover:bg-muted"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-xl border border-border bg-background/60 p-3 text-sm">
+                <p className="font-medium text-foreground">Payment #{refundTarget.id}</p>
+                <p className="text-muted-foreground">Original amount: ${refundTarget.amount.toFixed(2)}</p>
+              </div>
+              <label className="block text-sm font-medium text-foreground">
+                Refund amount
+                <input
+                  value={refundAmount}
+                  onChange={(event) => setRefundAmount(event.target.value)}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3"
+                />
+              </label>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setRefundTarget(null);
+                  setRefundAmount("");
+                }}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => processRefund()}
+                disabled={submittingRefund}
+                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {submittingRefund && <Loader2 className="size-4 animate-spin" />}
+                Confirm Refund
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeMethod && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-3xl rounded-2xl border border-border bg-card p-6 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">{getMethodLabel(activeMethod)} Details</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Payment-method performance and recent transactions.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setActiveMethod(null);
+                  setMethodDetail(null);
+                }}
+                className="rounded-lg p-2 text-muted-foreground hover:bg-muted"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {loadingMethodDetail ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="size-6 animate-spin text-orange-500" />
+              </div>
+            ) : methodDetail ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  <MetricTile label="Transactions" value={String(methodDetail.totalCount)} />
+                  <MetricTile label="Completed" value={String(methodDetail.completedCount)} />
+                  <MetricTile label="Average" value={`$${methodDetail.averageAmount.toFixed(2)}`} />
+                  <MetricTile label="Fees" value={`$${methodDetail.totalFees.toFixed(2)}`} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  <MetricTile label="Pending" value={String(methodDetail.pendingCount)} />
+                  <MetricTile label="Failed" value={String(methodDetail.failedCount)} />
+                  <MetricTile label="Refunded" value={String(methodDetail.refundedCount)} />
+                  <MetricTile label="Refund Total" value={`$${methodDetail.refundTotal.toFixed(2)}`} />
+                </div>
+
+                <div className="rounded-xl border border-border">
+                  <div className="border-b border-border px-4 py-3">
+                    <p className="font-medium text-foreground">Recent Transactions</p>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {methodDetail.recentPayments.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        No transactions recorded for this payment method yet.
+                      </div>
+                    ) : methodDetail.recentPayments.map((payment) => (
+                      <div key={payment.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">{payment.patientName}</p>
+                          <p className="text-xs text-muted-foreground">Invoice #{payment.invoiceId}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-semibold text-foreground">${payment.amount.toFixed(2)}</p>
+                          <p className="text-xs text-muted-foreground">{new Date(payment.createdAt).toLocaleString()}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      setMethodFilter(activeMethod);
+                      setActiveMethod(null);
+                    }}
+                    className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted"
+                  >
+                    Filter Table By Method
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveMethod(null);
+                      setMethodDetail(null);
+                    }}
+                    className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="py-10 text-center text-sm text-muted-foreground">No detail available for this method.</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetricTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-background/60 px-4 py-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-foreground">{value}</p>
     </div>
   );
 }

@@ -39,6 +39,7 @@ export default function RecordPaymentPage() {
     invoiceId: "",
     amount: "",
     method: "credit_card" as const,
+    status: "completed" as const,
     transactionId: "",
     notes: "",
     fee: "",
@@ -129,17 +130,17 @@ export default function RecordPaymentPage() {
           transactionId: formData.transactionId,
           notes: formData.notes,
           fee: formData.fee ? parseFloat(formData.fee) : undefined,
-          status: "pending",
+          status: formData.status,
         }),
       });
 
       if (res.ok) {
         const payment = await res.json();
         toast.success("Payment recorded successfully");
-        router.push(tenantPath("/accountant/payments"));
+        router.push(tenantPath(`/accountant/payments/${payment.id}`));
       } else {
         const error = await res.json();
-        toast.error(error.message || "Failed to record payment");
+        toast.error(error.error || error.message || "Failed to record payment");
       }
     } catch (error) {
       console.error("Error recording payment:", error);
@@ -346,6 +347,22 @@ export default function RecordPaymentPage() {
                     <option value="cash">Cash</option>
                     <option value="check">Check</option>
                     <option value="insurance">Insurance</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">
+                    Payment Status <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    name="status"
+                    value={formData.status}
+                    onChange={handleInputChange}
+                    className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:border-orange-300"
+                  >
+                    <option value="completed">Completed</option>
+                    <option value="pending">Pending</option>
+                    <option value="failed">Failed</option>
                   </select>
                 </div>
 

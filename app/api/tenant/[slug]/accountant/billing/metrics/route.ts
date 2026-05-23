@@ -26,10 +26,12 @@ export async function GET(
       overdueInvoicesResult,
       totalInvoicesResult,
       averageInvoiceResult,
+      monthlyRevenueResult,
+      collectionRateResult,
     ] = await Promise.all([
       // Total revenue
       db.$queryRaw`
-        SELECT COALESCE(SUM(amount), 0) as total
+        SELECT COALESCE(SUM(amount::numeric), 0) as total
         FROM payments
         WHERE tenant_id = ${tenantId}
         AND status = 'completed'
@@ -62,10 +64,26 @@ export async function GET(
 
       // Average invoice value
       db.$queryRaw`
-        SELECT COALESCE(AVG(total_amount), 0) as average
+        SELECT COALESCE(AVG(amount::numeric), 0) as average
         FROM invoices
         WHERE tenant_id = ${tenantId}
         AND status IN ('paid', 'sent', 'viewed')
+      `,
+
+      db.$queryRaw`
+        SELECT COALESCE(SUM(amount::numeric), 0) as total
+        FROM payments
+        WHERE tenant_id = ${tenantId}
+        AND status = 'completed'
+        AND created_at >= date_trunc('month', CURRENT_DATE)
+      `,
+
+      db.$queryRaw`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'paid') as paid_count,
+          COUNT(*) FILTER (WHERE status IN ('paid', 'partial', 'overdue', 'sent', 'viewed')) as collectible_count
+        FROM invoices
+        WHERE tenant_id = ${tenantId}
       `,
     ]);
 
@@ -74,13 +92,19 @@ export async function GET(
     const overdueInvoices = Number(overdueInvoicesResult[0]?.count || 0);
     const totalInvoices = Number(totalInvoicesResult[0]?.count || 0);
     const averageInvoiceValue = Number(averageInvoiceResult[0]?.average || 0);
+    const monthlyRevenue = Number(monthlyRevenueResult[0]?.total || 0);
+    const collectibleCount = Number(collectionRateResult[0]?.collectible_count || 0);
+    const paidCount = Number(collectionRateResult[0]?.paid_count || 0);
+    const collectionRate = collectibleCount > 0 ? Math.round((paidCount / collectibleCount) * 100) : 0;
 
     const metrics = {
       totalRevenue,
+      monthlyRevenue,
       pendingInvoices,
       overdueInvoices,
       totalInvoices,
       averageInvoiceValue,
+      collectionRate,
     };
 
     return NextResponse.json(metrics);

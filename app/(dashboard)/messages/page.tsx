@@ -54,6 +54,7 @@ interface User {
   id: string;
   fullName?: string;
   email: string;
+  role?: string;
 }
 
 interface Conversation {
@@ -166,11 +167,11 @@ export default function MessagesPage() {
   const { data: usersData, isLoading: usersLoading } = useQuery({
     queryKey: ["users-search", userSearchQuery, user?.id],
     queryFn: async () => {
-      const response = await fetch(`/api/users?search=${userSearchQuery}&messagingFilter=true`);
+      const response = await fetch(`/api/messages?type=available-users&search=${encodeURIComponent(userSearchQuery)}`);
       if (!response.ok) throw new Error("Failed to fetch users");
       return response.json();
     },
-    enabled: newChatDialogOpen && userSearchQuery.length > 2,
+    enabled: newChatDialogOpen && !!user?.id,
   });
 
   // Fetch conversations
@@ -560,7 +561,7 @@ export default function MessagesPage() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search users by name or email..."
+                placeholder="Search users by name, role, or email..."
                 value={userSearchQuery}
                 onChange={(e) => setUserSearchQuery(e.target.value)}
                 className="pl-10"
@@ -574,7 +575,7 @@ export default function MessagesPage() {
                 </div>
               ) : usersData?.length === 0 ? (
                 <p className="text-center text-sm text-muted-foreground py-4">
-                  {userSearchQuery.length < 3 ? "Type at least 3 characters to search" : "No users found"}
+                  {userSearchQuery.trim().length === 0 ? "No available contacts found" : "No users found"}
                 </p>
               ) : (
                 usersData?.map((u: any) => (
@@ -592,7 +593,9 @@ export default function MessagesPage() {
                     </Avatar>
                     <div className="text-left">
                       <p className="text-sm font-medium">{u.fullName || u.email}</p>
-                      <p className="text-xs text-muted-foreground">{u.email}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {[u.role ? String(u.role).replace(/_/g, " ") : null, u.email].filter(Boolean).join(" · ")}
+                      </p>
                     </div>
                   </button>
                 ))

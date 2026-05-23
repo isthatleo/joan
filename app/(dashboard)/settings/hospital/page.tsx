@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "next-themes";
+import { IntegrationManager } from "@/components/integrations/integration-manager";
 
 /* ============ Types ============ */
 type SectionId =
@@ -21,7 +22,7 @@ type SectionId =
   | "language" | "communication" | "devices"
   | "hospital" | "branding" | "contact" | "modules"
   | "billing" | "compliance" | "integrations" | "audit" | "communication-channels"
-  | "preferences" | "workflow" | "danger-zone" | "api-management";
+  | "preferences" | "workflow" | "danger-zone" | "api-management" | "system";
 
 interface SectionDef {
   id: SectionId;
@@ -61,6 +62,14 @@ interface TenantSettings {
   communication: {
     emailProvider: string;
     smsProvider: string;
+    integrationsSync?: {
+      configuredProviders?: string[];
+      activeProviders?: string[];
+      emailProviders?: string[];
+      communicationProviders?: string[];
+      calendarProviders?: string[];
+      syncedAt?: string;
+    };
     notificationPreferences: {
       emailEnabled: boolean;
       smsEnabled: boolean;
@@ -469,7 +478,7 @@ function SectionContent({
     case "security":
       return <SecuritySection settings={settings} onSettingsChange={onSettingsChange} />;
     case "integrations":
-      return <IntegrationsSection tenantId={settings.tenant?.id} />;
+      return <IntegrationsSection tenantSlug={settings.tenant?.slug} />;
     case "api-management":
       return <APIManagementSection tenantId={settings.tenant?.id} />;
     case "workflow":
@@ -681,7 +690,7 @@ function HospitalProfileSection({
                 })
               }
               placeholder="Abbreviation (e.g., JJH)"
-              maxLength="5"
+              maxLength={5}
             />
           </Field>
           <Field label="Slug" hint="URL-friendly identifier">
@@ -1142,6 +1151,47 @@ function CommunicationChannelsSection({
   onSettingsChange: (updates: Partial<TenantSettings>) => void;
 }) {
   const { user } = useAuthStore();
+  const emailProviders = settings.communication.integrationsSync?.emailProviders || [];
+  const communicationProviders = settings.communication.integrationsSync?.communicationProviders || [];
+
+  const handleIntegrationSync = useCallback((payload: { integrations: Array<Record<string, any>> }) => {
+    const activeIntegrations = (payload.integrations || []).filter(
+      (integration) => integration.isActive && integration.status === "active"
+    );
+    const integrationsMap = Object.fromEntries(
+      (payload.integrations || []).map((integration) => [integration.provider, integration])
+    );
+    const activeEmailProviders = activeIntegrations
+      .filter((integration) =>
+        ["resend", "sendgrid", "brevo", "mailgun", "mailgram", "gmail"].includes(integration.provider)
+      )
+      .map((integration) => integration.provider);
+    const activeCommunicationProviders = activeIntegrations
+      .filter((integration) => ["twilio"].includes(integration.provider))
+      .map((integration) => integration.provider);
+
+    onSettingsChange({
+      integrations: integrationsMap,
+      communication: {
+        ...settings.communication,
+        emailProvider:
+          activeEmailProviders.includes(settings.communication.emailProvider)
+            ? settings.communication.emailProvider
+            : settings.communication.emailProvider || activeEmailProviders[0] || "resend",
+        smsProvider:
+          activeCommunicationProviders.includes(settings.communication.smsProvider)
+            ? settings.communication.smsProvider
+            : settings.communication.smsProvider || activeCommunicationProviders[0] || "twilio",
+        integrationsSync: {
+          configuredProviders: (payload.integrations || []).map((integration) => integration.provider),
+          activeProviders: activeIntegrations.map((integration) => integration.provider),
+          emailProviders: activeEmailProviders,
+          communicationProviders: activeCommunicationProviders,
+          syncedAt: new Date().toISOString(),
+        },
+      },
+    });
+  }, [onSettingsChange, settings.communication]);
 
   return (
     <>
@@ -1164,9 +1214,15 @@ function CommunicationChannelsSection({
               }
             >
               <option value="resend">Resend</option>
+              <option value="brevo">Brevo</option>
               <option value="sendgrid">SendGrid</option>
               <option value="mailgun">Mailgun</option>
+              <option value="mailgram">Mailgram</option>
+              <option value="gmail">Gmail</option>
             </SelectInput>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Verified email providers: {emailProviders.length ? emailProviders.join(", ") : "none"}
+            </p>
           </Field>
           <Field label="SMS Provider">
             <SelectInput
@@ -1183,6 +1239,9 @@ function CommunicationChannelsSection({
               <option value="twilio">Twilio</option>
               <option value="aws_sns">AWS SNS</option>
             </SelectInput>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Verified communication providers: {communicationProviders.length ? communicationProviders.join(", ") : "none"}
+            </p>
           </Field>
         </div>
       </Card>
@@ -1274,6 +1333,15 @@ function CommunicationChannelsSection({
           />
         </Row>
       </Card>
+
+      <IntegrationManager
+        slug={settings.tenant?.slug}
+        title="Communication Service Credentials"
+        description="Configure secure provider credentials for transactional email, messaging, and calendar delivery. Saved and verified integrations sync across tenant workflows."
+        initialCategory="email"
+        allowedCategories={["email", "communication", "calendar"]}
+        onChange={handleIntegrationSync}
+      />
     </>
   );
 }
@@ -1390,331 +1458,15 @@ function BillingSection({
   );
 }
 
-function IntegrationsSection({ tenantId }: { tenantId?: string }) {
-  const [integrations, setIntegrations] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState("");
-  const [connecting, setConnecting] = useState(false);
-  const [formData, setFormData] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    if (!tenantId) return;
-
-    const fetchIntegrations = async () => {
-      try {
-        const res = await fetch(
-          `/api/hospital/integrations?tenantId=${tenantId}`
-        );
-        if (res.ok) {
-          const data = await res.json();
-          setIntegrations(data);
-        }
-      } catch (error) {
-        console.error("Error fetching integrations:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchIntegrations();
-  }, [tenantId]);
-
-  const handleConnect = async () => {
-    if (!tenantId || !selectedProvider) return;
-
-    setConnecting(true);
-    try {
-      const res = await fetch(`/api/hospital/integrations?tenantId=${tenantId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: selectedProvider,
-          ...formData,
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        toast.success("Integration connected successfully");
-
-        // Refresh integrations list
-        const refreshRes = await fetch(`/api/hospital/integrations?tenantId=${tenantId}`);
-        if (refreshRes.ok) {
-          const refreshedData = await refreshRes.json();
-          setIntegrations(refreshedData);
-        }
-
-        // Reset modal
-        setShowAddModal(false);
-        setSelectedProvider("");
-        setFormData({});
-      } else {
-        const error = await res.json();
-        toast.error(error.error || "Failed to connect integration");
-      }
-    } catch (error) {
-      console.error("Error connecting integration:", error);
-      toast.error("Failed to connect integration");
-    } finally {
-      setConnecting(false);
-    }
-  };
-
-  const handleTestConnection = async (integrationId: string) => {
-    try {
-      const res = await fetch(
-        `/api/hospital/integrations?tenantId=${tenantId}&integrationId=${integrationId}`,
-        { method: "PATCH" }
-      );
-
-      if (res.ok) {
-        const data = await res.json();
-        toast.success(data.message);
-
-        // Refresh integrations list
-        const refreshRes = await fetch(`/api/hospital/integrations?tenantId=${tenantId}`);
-        if (refreshRes.ok) {
-          const refreshedData = await refreshRes.json();
-          setIntegrations(refreshedData);
-        }
-      } else {
-        const error = await res.json();
-        toast.error(error.error || "Test failed");
-      }
-    } catch (error) {
-      console.error("Error testing connection:", error);
-      toast.error("Test failed");
-    }
-  };
-
-  const handleDeleteIntegration = async (integrationId: string) => {
-    if (!confirm("Are you sure you want to delete this integration?")) return;
-
-    try {
-      const res = await fetch(
-        `/api/hospital/integrations?tenantId=${tenantId}&integrationId=${integrationId}`,
-        { method: "DELETE" }
-      );
-
-      if (res.ok) {
-        toast.success("Integration deleted successfully");
-        setIntegrations(integrations.filter(int => int.id !== integrationId));
-      } else {
-        const error = await res.json();
-        toast.error(error.error || "Failed to delete integration");
-      }
-    } catch (error) {
-      console.error("Error deleting integration:", error);
-      toast.error("Failed to delete integration");
-    }
-  };
-
-  const providers = [
-    {
-      name: "twilio",
-      label: "Twilio",
-      icon: "📱",
-      description: "SMS, Voice, and WhatsApp messaging",
-      fields: [
-        { key: "accountSid", label: "Account SID", type: "password" },
-        { key: "apiSecret", label: "Auth Token", type: "password" },
-        { key: "accountName", label: "Account Name", type: "text" },
-        { key: "phoneNumber", label: "Phone Number", type: "text" },
-      ],
-    },
-    {
-      name: "resend",
-      label: "Resend",
-      icon: "📧",
-      description: "Transactional email service",
-      fields: [
-        { key: "apiKey", label: "API Key", type: "password" },
-        { key: "accountName", label: "Account Name", type: "text" },
-      ],
-    },
-    {
-      name: "sendgrid",
-      label: "SendGrid",
-      icon: "📧",
-      description: "Email marketing and transactional email",
-      fields: [
-        { key: "apiKey", label: "API Key", type: "password" },
-        { key: "accountName", label: "Account Name", type: "text" },
-      ],
-    },
-    {
-      name: "stripe",
-      label: "Stripe",
-      icon: "💳",
-      description: "Payment processing",
-      fields: [
-        { key: "apiKey", label: "Publishable Key", type: "password" },
-        { key: "apiSecret", label: "Secret Key", type: "password" },
-        { key: "accountName", label: "Account Name", type: "text" },
-      ],
-    },
-    {
-      name: "aws_s3",
-      label: "AWS S3",
-      icon: "☁️",
-      description: "Cloud file storage",
-      fields: [
-        { key: "accessKeyId", label: "Access Key ID", type: "password" },
-        { key: "apiSecret", label: "Secret Access Key", type: "password" },
-        { key: "accountName", label: "Bucket Name", type: "text" },
-      ],
-    },
-  ];
-
-  const selectedProviderData = providers.find(p => p.name === selectedProvider);
-
+function IntegrationsSection({ tenantSlug }: { tenantSlug?: string }) {
   return (
-    <>
-      <Card
-        title="Connected Integrations"
-        description="Manage third-party service integrations"
-        action={
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold"
-          >
-            <Plus className="size-3" /> Add
-          </button>
-        }
-      >
-        {loading ? (
-          <p className="text-sm text-muted-foreground">Loading integrations...</p>
-        ) : integrations.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No integrations configured yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {integrations.map((int) => (
-              <div
-                key={int.id}
-                className="p-4 rounded-lg border border-border flex items-center justify-between"
-              >
-                <div>
-                  <p className="text-sm font-semibold capitalize">
-                    {int.provider}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {int.accountName || "No account name"}
-                  </p>
-                  {int.lastTestedAt && (
-                    <p className="text-xs text-muted-foreground">
-                      Last tested: {new Date(int.lastTestedAt).toLocaleDateString()}
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${
-                      int.status === "active"
-                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
-                        : int.status === "error"
-                        ? "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400"
-                        : "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    {int.status.toUpperCase()}
-                  </span>
-                  <button
-                    onClick={() => handleTestConnection(int.id)}
-                    className="p-1.5 rounded hover:bg-muted"
-                    title="Test connection"
-                  >
-                    <Zap className="size-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteIntegration(int.id)}
-                    className="p-1.5 rounded hover:bg-red-50 text-red-600"
-                    title="Delete integration"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {showAddModal && (
-        <Card title="Add Integration" description="Select a service to integrate">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {providers.map((provider) => (
-              <button
-                key={provider.name}
-                onClick={() => {
-                  setSelectedProvider(provider.name);
-                  setFormData({});
-                }}
-                className={`p-4 rounded-lg border text-left transition-all ${
-                  selectedProvider === provider.name
-                    ? "border-orange-500 bg-orange-50/50 dark:bg-orange-500/10"
-                    : "border-border hover:border-orange-300"
-                }`}
-              >
-                <div className="text-2xl mb-2">{provider.icon}</div>
-                <p className="text-sm font-semibold">{provider.label}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {provider.description}
-                </p>
-              </button>
-            ))}
-          </div>
-
-          {selectedProviderData && (
-            <div className="mt-4 p-4 rounded-lg border border-border bg-background">
-              <h4 className="text-sm font-semibold mb-3">
-                Configure {selectedProviderData.label}
-              </h4>
-              <p className="text-xs text-muted-foreground mb-3">
-                Enter your {selectedProviderData.label} API credentials
-              </p>
-              <div className="space-y-3">
-                {selectedProviderData.fields.map((field) => (
-                  <Field key={field.key} label={field.label}>
-                    <TextInput
-                      type={field.type}
-                      value={formData[field.key] || ""}
-                      onChange={(e) =>
-                        setFormData({ ...formData, [field.key]: e.target.value })
-                      }
-                      placeholder={`Enter ${field.label.toLowerCase()}`}
-                    />
-                  </Field>
-                ))}
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      setShowAddModal(false);
-                      setSelectedProvider("");
-                      setFormData({});
-                    }}
-                    className="flex-1 px-3 py-2 rounded-lg border border-border hover:bg-muted text-sm font-semibold"
-                    disabled={connecting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleConnect}
-                    disabled={connecting || !Object.values(formData).some(v => v.trim())}
-                    className="flex-1 px-3 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold"
-                  >
-                    {connecting ? "Connecting..." : "Connect"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </Card>
-      )}
-    </>
+    <IntegrationManager
+      slug={tenantSlug}
+      title="All Tenant Integrations"
+      description="Manage secure API keys, OAuth tokens, sender identities, data connectors, and provider status across the hospital tenant."
+    />
   );
 }
-
 function ComplianceSection({
   settings,
   onSettingsChange,
@@ -3440,3 +3192,4 @@ function SystemMonitorSection() {
     </Card>
   );
 }
+

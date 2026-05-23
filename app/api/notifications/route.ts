@@ -1,19 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { notifications, users } from "@/lib/db/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
+import { getTenantIdBySlug } from "@/lib/accountant/server";
 import { z } from "zod";
+
+const uuidSchema = z.string().uuid();
+
+async function resolveTenantFilter(rawTenantId: string | null) {
+  if (!rawTenantId) return null;
+  const parsedUuid = uuidSchema.safeParse(rawTenantId);
+  if (parsedUuid.success) return parsedUuid.data;
+  return getTenantIdBySlug(rawTenantId);
+}
 
 export async function GET(request: NextRequest) {
   try {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get("userId");
-    const tenantId = searchParams.get("tenantId");
+    const userId = searchParams.get("userId") || (session.user.id as string);
+    const tenantId = await resolveTenantFilter(searchParams.get("tenantId"));
     const countOnly = searchParams.get("countOnly") === "true";
     const unreadOnly = searchParams.get("unreadOnly") === "true";
 
     if (!userId) {
       return NextResponse.json({ error: "User ID required" }, { status: 400 });
+    }
+    if (userId !== session.user.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     if (countOnly) {
@@ -61,6 +80,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const action = searchParams.get("action") || "create";
     const data = await request.json();
@@ -74,6 +98,10 @@ export async function POST(request: NextRequest) {
         message: z.string(),
         metadata: z.record(z.any()).optional(),
       }).parse(data);
+
+      if (userId !== session.user.id) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
 
       // Create notification
       const notification = await db.insert(notifications).values({
@@ -158,6 +186,10 @@ export async function POST(request: NextRequest) {
       const { userId } = z.object({
         userId: z.string().uuid(),
       }).parse(data);
+
+      if (userId !== session.user.id) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
 
       await db
         .update(notifications)

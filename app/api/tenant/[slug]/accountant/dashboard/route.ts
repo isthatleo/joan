@@ -36,7 +36,7 @@ export async function GET(
     ] = await Promise.all([
       // Total revenue year to date
       db.$queryRaw`
-        SELECT COALESCE(SUM(amount), 0) as total
+        SELECT COALESCE(SUM(amount::numeric), 0) as total
         FROM payments
         WHERE tenant_id = ${tenantId}
         AND status = 'completed'
@@ -69,7 +69,7 @@ export async function GET(
 
       // Outstanding balance
       db.$queryRaw`
-        SELECT COALESCE(SUM(amount_due), 0) as total
+        SELECT COALESCE(SUM(amount_due::numeric), 0) as total
         FROM invoices
         WHERE tenant_id = ${tenantId}
         AND status IN ('sent', 'viewed', 'overdue')
@@ -114,7 +114,7 @@ export async function GET(
     previousPeriodStart.setFullYear(previousPeriodStart.getFullYear() - 1);
 
     const previousRevenueResult = await db.$queryRaw`
-      SELECT COALESCE(SUM(amount), 0) as total
+      SELECT COALESCE(SUM(amount::numeric), 0) as total
       FROM payments
       WHERE tenant_id = ${tenantId}
       AND status = 'completed'

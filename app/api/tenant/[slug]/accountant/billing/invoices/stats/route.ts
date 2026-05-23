@@ -41,8 +41,8 @@ export async function GET(
         COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_invoices,
         COUNT(CASE WHEN status IN ('sent', 'viewed', 'pending') THEN 1 END) as pending_invoices,
         COUNT(CASE WHEN status = 'overdue' THEN 1 END) as overdue_invoices,
-        COALESCE(SUM(amount), 0) as total_revenue,
-        COALESCE(AVG(amount), 0) as average_invoice_value
+          COALESCE(SUM(amount::numeric), 0) as total_revenue,
+          COALESCE(AVG(amount::numeric), 0) as average_invoice_value
       FROM invoices
       WHERE tenant_id = ${tenantId}
     `;

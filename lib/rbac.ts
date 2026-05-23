@@ -35,7 +35,7 @@ export const ROLE_LABELS: Record<AppRole, string> = {
  */
 export const ROLE_HOME: Record<AppRole, string> = {
   super_admin: "/super-admin",
-  hospital_admin: "/hospital-admin",
+  hospital_admin: "/admin",
   doctor: "/doctor",
   nurse: "/nurse",
   lab_technician: "/lab-technician",

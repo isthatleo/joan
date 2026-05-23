@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   BarChart3, TrendingUp, TrendingDown, DollarSign, PieChart,
@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { exportElementAsPdf, exportElementAsPng } from "@/lib/export/page-export";
 
 const orange = "#F97316";
 
@@ -59,6 +60,7 @@ export default function AccountantFinancialAnalysisPage() {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState("12months");
   const [refreshing, setRefreshing] = useState(false);
+  const exportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetchFinancialData();
@@ -70,7 +72,7 @@ export default function AccountantFinancialAnalysisPage() {
       const [metricsRes, trendsRes, ratiosRes, cashFlowRes] = await Promise.all([
         fetch(`/api/tenant/${slug}/accountant/analytics/financial/metrics?range=${timeRange}`),
         fetch(`/api/tenant/${slug}/accountant/analytics/financial/trends?range=${timeRange}`),
-        fetch(`/api/tenant/${slug}/accountant/analytics/financial/ratios`),
+        fetch(`/api/tenant/${slug}/accountant/analytics/financial/ratios?range=${timeRange}`),
         fetch(`/api/tenant/${slug}/accountant/analytics/financial/cashflow?range=${timeRange}`)
       ]);
 
@@ -93,18 +95,21 @@ export default function AccountantFinancialAnalysisPage() {
     toast.success("Financial data refreshed");
   };
 
-  const exportAnalysis = async (format: 'pdf' | 'excel') => {
+  const exportAnalysis = async (format: "pdf" | "png") => {
+    const exportNode = exportRef.current;
+    if (!exportNode) {
+      toast.error("Nothing to export");
+      return;
+    }
+
     try {
-      const res = await fetch(`/api/tenant/${slug}/accountant/analytics/financial/export?format=${format}&range=${timeRange}`);
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `financial-analysis-${timeRange}.${format}`;
-        a.click();
-        toast.success(`Financial analysis exported`);
+      const filename = `financial-analysis-${timeRange}.${format}`;
+      if (format === "pdf") {
+        await exportElementAsPdf(exportNode, filename);
+      } else {
+        await exportElementAsPng(exportNode, filename);
       }
+      toast.success("Financial analysis exported");
     } catch (error) {
       toast.error("Failed to export analysis");
     }
@@ -141,8 +146,26 @@ export default function AccountantFinancialAnalysisPage() {
     }
   };
 
+  const latestGrowth = trendData.length ? trendData[trendData.length - 1]?.growth || 0 : 0;
+  const chartMax = Math.max(
+    1,
+    ...trendData.flatMap((item) => [item.revenue, item.expenses, item.profit])
+  );
+  const chartPoints = trendData.map((item, index) => {
+    const x = trendData.length === 1 ? 40 : 40 + (index * 720) / Math.max(trendData.length - 1, 1);
+    return {
+      label: item.period,
+      x,
+      revenueY: 220 - (item.revenue / chartMax) * 180,
+      expensesY: 220 - (item.expenses / chartMax) * 180,
+      profitY: 220 - (item.profit / chartMax) * 180,
+    };
+  });
+  const linePath = (key: "revenueY" | "expensesY" | "profitY") =>
+    chartPoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point[key]}`).join(" ");
+
   return (
-    <div className="space-y-6">
+    <div ref={exportRef} className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
@@ -160,11 +183,18 @@ export default function AccountantFinancialAnalysisPage() {
             Refresh
           </button>
           <button
-            onClick={() => exportAnalysis('pdf')}
+            onClick={() => exportAnalysis("pdf")}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
           >
             <Download className="size-4" />
-            Export
+            Export PDF
+          </button>
+          <button
+            onClick={() => exportAnalysis("png")}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
+          >
+            <Eye className="size-4" />
+            Export PNG
           </button>
         </div>
       </div>
@@ -207,7 +237,7 @@ export default function AccountantFinancialAnalysisPage() {
               </p>
               <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
                 <TrendingUp className="size-3" />
-                {formatPercentage(12.5)} from last period
+                {formatPercentage(latestGrowth)} from last period
               </p>
             </div>
             <div className="size-12 rounded-full bg-green-50 flex items-center justify-center text-green-600">
@@ -289,13 +319,39 @@ export default function AccountantFinancialAnalysisPage() {
           <div className="flex items-center justify-center py-16">
             <Loader2 className="size-6 text-orange-500 animate-spin mx-auto" />
           </div>
-        ) : (
-          <div className="h-80 flex items-center justify-center text-muted-foreground">
+        ) : chartPoints.length === 0 ? (
+          <div className="flex h-80 items-center justify-center text-muted-foreground">
             <div className="text-center">
               <BarChart3 className="size-12 mx-auto mb-4 opacity-50" />
-              <p>Financial trends chart</p>
-              <p className="text-sm mt-1">Chart component would be integrated here</p>
+              <p>No financial trend data available for this range</p>
             </div>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <svg viewBox="0 0 800 260" className="h-80 w-full min-w-[720px]">
+              {[0, 1, 2, 3].map((step) => (
+                <line
+                  key={step}
+                  x1="40"
+                  y1={40 + step * 45}
+                  x2="760"
+                  y2={40 + step * 45}
+                  stroke="#E2E8F0"
+                  strokeDasharray="4 6"
+                />
+              ))}
+              <path d={linePath("revenueY")} fill="none" stroke="#22C55E" strokeWidth="3" />
+              <path d={linePath("expensesY")} fill="none" stroke="#EF4444" strokeWidth="3" />
+              <path d={linePath("profitY")} fill="none" stroke="#3B82F6" strokeWidth="3" />
+              {chartPoints.map((point) => (
+                <g key={point.label}>
+                  <circle cx={point.x} cy={point.profitY} r="4" fill="#3B82F6" />
+                  <text x={point.x} y="248" textAnchor="middle" className="fill-muted-foreground text-[10px]">
+                    {point.label}
+                  </text>
+                </g>
+              ))}
+            </svg>
           </div>
         )}
       </div>

@@ -92,6 +92,20 @@
       "when": 1779393954489,
       "tag": "0012_freezing_praxagora",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1779500000000,
+      "tag": "0013_accountant_financials",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1779536049556,
+      "tag": "0014_quiet_blob",
+      "breakpoints": true
     }
   ]
 }

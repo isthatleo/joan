@@ -47,6 +47,8 @@ interface PaymentMethod {
   fee?: number;
 }
 
+type InvoiceListPayload = Invoice[] | { invoices?: Invoice[] };
+
 export default function AccountantBillingPage() {
   const params = useParams();
   const slug = params?.slug as string;
@@ -75,12 +77,35 @@ export default function AccountantBillingPage() {
       const [invoicesRes, metricsRes, methodsRes] = await Promise.all([
         fetch(`/api/tenant/${slug}/accountant/billing/invoices`),
         fetch(`/api/tenant/${slug}/accountant/billing/metrics`),
-        fetch(`/api/tenant/${slug}/accountant/billing/payment-methods`)
+        fetch(`/api/tenant/${slug}/accountant/payments/method-stats`)
       ]);
 
-      if (invoicesRes.ok) setInvoices(await invoicesRes.json());
+      if (invoicesRes.ok) {
+        const payload = (await invoicesRes.json()) as InvoiceListPayload;
+        setInvoices(Array.isArray(payload) ? payload : payload.invoices || []);
+      }
       if (metricsRes.ok) setMetrics(await metricsRes.json());
-      if (methodsRes.ok) setPaymentMethods(await methodsRes.json());
+      if (methodsRes.ok) {
+        const payload = (await methodsRes.json()) as Array<{ method: string; count?: number; percentage?: number }>;
+        const defaults: PaymentMethod[] = [
+          { id: "credit_card", name: "Credit Card", enabled: false },
+          { id: "bank_transfer", name: "Bank Transfer", enabled: false },
+          { id: "cash", name: "Cash", enabled: false },
+          { id: "insurance", name: "Insurance", enabled: false },
+          { id: "mobile_money", name: "Mobile Money", enabled: false },
+        ];
+        const byMethod = new Map(payload.map((entry) => [entry.method, entry]));
+        setPaymentMethods(
+          defaults.map((method) => {
+            const stats = byMethod.get(method.id);
+            return {
+              ...method,
+              enabled: Boolean(stats && Number(stats.count || 0) > 0),
+              fee: stats?.percentage,
+            };
+          })
+        );
+      }
     } catch (error) {
       console.error('Failed to fetch billing data:', error);
       toast.error("Failed to load billing data");
@@ -152,7 +177,7 @@ export default function AccountantBillingPage() {
     if (selectedInvoices.length === 0) return;
 
     try {
-      const res = await fetch(`/api/tenant/${slug}/accountant/billing/bulk-action`, {
+      const res = await fetch(`/api/tenant/${slug}/accountant/billing/invoices/bulk-action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, invoiceIds: selectedInvoices })
@@ -172,7 +197,7 @@ export default function AccountantBillingPage() {
 
   const exportInvoices = async (format: 'csv' | 'pdf') => {
     try {
-      const res = await fetch(`/api/tenant/${slug}/accountant/billing/export?format=${format}&ids=${selectedInvoices.join(',')}`);
+      const res = await fetch(`/api/tenant/${slug}/accountant/billing/invoices/export?format=${format}&ids=${selectedInvoices.join(',')}`);
       if (res.ok) {
         const blob = await res.blob();
         const url = window.URL.createObjectURL(blob);
@@ -226,7 +251,7 @@ export default function AccountantBillingPage() {
               </p>
               <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
                 <TrendingUp className="size-3" />
-                +12.5% from last month
+                ${metrics?.monthlyRevenue?.toLocaleString() || '0'} collected this month
               </p>
             </div>
             <div className="size-12 rounded-full bg-green-50 flex items-center justify-center text-green-600">
@@ -257,7 +282,7 @@ export default function AccountantBillingPage() {
               <p className="text-2xl font-bold text-foreground">
                 {metrics?.collectionRate || 0}%
               </p>
-              <p className="text-xs text-blue-600 mt-1">Above target</p>
+              <p className="text-xs text-blue-600 mt-1">Based on current collectible invoices</p>
             </div>
             <div className="size-12 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
               <BarChart3 className="size-6" />
@@ -499,12 +524,7 @@ export default function AccountantBillingPage() {
             <Settings className="size-5 text-muted-foreground" />
             <h3 className="text-lg font-semibold text-foreground">Payment Methods</h3>
           </div>
-          <Link
-            href={tenantPath("/accountant/settings?tab=payment-methods")}
-            className="text-sm text-orange-600 hover:underline"
-          >
-            Configure Methods
-          </Link>
+          <span className="text-sm text-muted-foreground">Managed by hospital admin</span>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {paymentMethods.map(method => (

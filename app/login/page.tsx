@@ -97,6 +97,14 @@ export default function LoginPage() {
   const [isFirstUser, setIsFirstUser] = useState(false);
 
   useEffect(() => {
+    try {
+      document.cookie = "x-tenant-slug=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      sessionStorage.removeItem("active_tenant_slug");
+      sessionStorage.removeItem("active_tenant_id");
+      sessionStorage.removeItem("active_tenant_name");
+      sessionStorage.removeItem("active_tenant_logo");
+    } catch {}
+
     fetch("/api/auth/first-user")
       .then((r) => r.json())
       .then((d) => setIsFirstUser(!!d.isFirst))
@@ -119,7 +127,7 @@ export default function LoginPage() {
       const roleRes = await fetch("/api/auth/role", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, tenantSlug: typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null }),
       });
       const { role } = await roleRes.json();
       if (role && role !== selectedRole) {
@@ -128,7 +136,8 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      window.location.assign(ROLE_HOME[role as AppRole] ?? "/");
+      const resolvedRole = (role as AppRole | null) ?? (selectedRole as AppRole);
+      window.location.assign(ROLE_HOME[resolvedRole] ?? "/");
     } catch (err: any) {
       setError(err?.message || "Sign-in failed");
     } finally {

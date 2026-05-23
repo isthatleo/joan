@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, ChevronDown, Home, LogOut, Settings, User, Sliders } from "lucide-react";
+import { Bell, ChevronDown, Home, LogOut, Settings, User } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { authClient } from "@/lib/auth-client";
 import { getResolvedTenantLoginPath, getTenantDashboardPath, resolveTenantSlug, withTenantPrefix } from "@/lib/tenant-routing";
@@ -61,6 +61,7 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
   const dashboardHref = tenantSlug
     ? getTenantDashboardPath(tenantSlug, user?.role ?? null, hostname)
     : "/";
+  const showTenantSettings = user?.role === "hospital_admin";
 
   const crumbs = useMemo(
     () => (breadcrumbs && breadcrumbs.length ? breadcrumbs : deriveBreadcrumbs(pathname)),
@@ -281,7 +282,7 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
                  >
                    <Settings className="h-4 w-4" /> Settings
                  </Link>
-                 {tenantSlug && (
+                 {tenantSlug && showTenantSettings && (
                    <>
                      <div className="my-1 border-t border-border" />
                      <Link
@@ -289,7 +290,7 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
                        className="flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-muted"
                        onClick={() => setProfileOpen(false)}
                      >
-                       <Sliders className="h-4 w-4" /> Workspace Settings
+                       <Settings className="h-4 w-4" /> Hospital Settings
                      </Link>
                    </>
                  )}

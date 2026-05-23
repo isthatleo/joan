@@ -7,7 +7,7 @@ const PRODUCTION_TENANT_DOMAINS = [
 ];
 
 export const TENANT_ROLE_HOME: Record<Exclude<AppRole, "super_admin">, string> = {
-  hospital_admin: "",
+  hospital_admin: "admin",
   doctor: "doctor",
   nurse: "nurse",
   lab_technician: "lab",
@@ -19,8 +19,8 @@ export const TENANT_ROLE_HOME: Record<Exclude<AppRole, "super_admin">, string> =
 };
 
 export const TENANT_ROUTE_ALIASES: Record<string, string> = {
-  "/hospital-admin": "",
-  "/admin": "",
+  "/hospital-admin": "admin",
+  "/admin": "admin",
   "/doctor": "doctor",
   "/nurse": "nurse",
   "/lab": "lab",

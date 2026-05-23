@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { startDateForAccountantRange } from "@/lib/accountant/analytics";
 
 export async function GET(
   request: NextRequest,
@@ -23,25 +24,7 @@ export async function GET(
     }
 
     // Calculate date range
-    const now = new Date();
-    let startDate: Date;
-
-    switch (range) {
-      case "3months":
-        startDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-        break;
-      case "6months":
-        startDate = new Date(now.getFullYear(), now.getMonth() - 6, 1);
-        break;
-      case "12months":
-        startDate = new Date(now.getFullYear() - 1, now.getMonth() + 1, 1);
-        break;
-      case "24months":
-        startDate = new Date(now.getFullYear() - 2, now.getMonth() + 1, 1);
-        break;
-      default:
-        startDate = new Date(now.getFullYear() - 1, now.getMonth() + 1, 1);
-    }
+    const startDate = startDateForAccountantRange(range);
 
     // Get revenue metrics
     const [
@@ -55,7 +38,7 @@ export async function GET(
     ] = await Promise.all([
       // Total revenue in period
       db.$queryRaw`
-        SELECT COALESCE(SUM(amount), 0) as total
+        SELECT COALESCE(SUM(amount::numeric), 0) as total
         FROM payments
         WHERE tenant_id = ${tenantId}
         AND status = 'completed'
@@ -66,11 +49,11 @@ export async function GET(
       db.$queryRaw`
         SELECT
           COALESCE(
-            (SUM(CASE WHEN created_at >= date_trunc('month', CURRENT_DATE) THEN amount END) -
+            (SUM(CASE WHEN created_at >= date_trunc('month', CURRENT_DATE) THEN amount::numeric END) -
              SUM(CASE WHEN created_at >= date_trunc('month', CURRENT_DATE - interval '1 month')
-                          AND created_at < date_trunc('month', CURRENT_DATE) THEN amount END)) /
+                          AND created_at < date_trunc('month', CURRENT_DATE) THEN amount::numeric END)) /
             NULLIF(SUM(CASE WHEN created_at >= date_trunc('month', CURRENT_DATE - interval '1 month')
-                               AND created_at < date_trunc('month', CURRENT_DATE) THEN amount END), 0) * 100,
+                               AND created_at < date_trunc('month', CURRENT_DATE) THEN amount::numeric END), 0) * 100,
             0
           ) as growth
         FROM payments
@@ -81,7 +64,7 @@ export async function GET(
 
       // Average transaction value
       db.$queryRaw`
-        SELECT COALESCE(AVG(amount), 0) as average
+        SELECT COALESCE(AVG(amount::numeric), 0) as average
         FROM payments
         WHERE tenant_id = ${tenantId}
         AND status = 'completed'
@@ -108,7 +91,7 @@ export async function GET(
 
       // Outstanding balance
       db.$queryRaw`
-        SELECT COALESCE(SUM(amount_due), 0) as total
+        SELECT COALESCE(SUM(amount_due::numeric), 0) as total
         FROM invoices
         WHERE tenant_id = ${tenantId}
         AND status IN ('sent', 'viewed', 'overdue')
@@ -118,7 +101,7 @@ export async function GET(
       db.$queryRaw`
         SELECT COALESCE(AVG(monthly_total) * 1.05, 0) as projected
         FROM (
-          SELECT SUM(amount) as monthly_total
+          SELECT SUM(amount::numeric) as monthly_total
           FROM payments
           WHERE tenant_id = ${tenantId}
           AND status = 'completed'

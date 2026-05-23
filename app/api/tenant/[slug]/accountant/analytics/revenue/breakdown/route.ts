@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { startDateForAccountantRange } from "@/lib/accountant/analytics";
 
 const COLORS: Record<string, string> = {
   Insurance: "#3b82f6",
@@ -19,6 +20,8 @@ export async function GET(
 
     const { slug } = await params;
     const tenantId = await getTenantIdBySlug(slug);
+    const range = new URL(request.url).searchParams.get("range");
+    const startDate = startDateForAccountantRange(range);
     if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
     const rows = await db.$queryRaw`
@@ -31,7 +34,9 @@ export async function GET(
         COALESCE(SUM(amount::numeric), 0) AS amount,
         COUNT(*) AS transactions
       FROM payments
-      WHERE tenant_id = ${tenantId} AND status = 'completed'
+      WHERE tenant_id = ${tenantId}
+        AND status = 'completed'
+        AND created_at >= ${startDate}
       GROUP BY 1
       ORDER BY amount DESC
     `;

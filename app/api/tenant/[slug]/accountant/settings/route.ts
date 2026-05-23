@@ -1,7 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { userSettings } from "@/lib/db/schema";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { parseJsonBody, validateFinancePayload } from "@/lib/accountant/finance-api";
+import { accountantSettingsSchema } from "@/lib/accountant/route-schemas";
+import { eq } from "drizzle-orm";
+
+const defaultAccountantSettings = (session: { user: { id: string; name?: string | null; email?: string | null; image?: string | null } }) => ({
+  profile: {
+    name: session.user.name || "",
+    email: session.user.email || "",
+    phone: "",
+    avatar: session.user.image || "",
+  },
+  notifications: {
+    emailNotifications: true,
+    paymentReminders: true,
+    reportAlerts: true,
+    systemUpdates: false,
+  },
+  preferences: {
+    currency: "USD",
+    dateFormat: "MM/DD/YYYY",
+    theme: "system",
+    language: "en",
+  },
+  security: {
+    twoFactorEnabled: false,
+    sessionTimeout: 60,
+    passwordLastChanged: new Date().toISOString(),
+  },
+  billing: {
+    defaultPaymentTerms: 30,
+    lateFeePercentage: 1.5,
+    autoSendInvoices: true,
+    autoSendReminders: true,
+  },
+});
 
 export async function GET(
   request: NextRequest,
@@ -19,48 +55,39 @@ export async function GET(
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    // Get user settings from database
-    const userSettings = await db.$queryRaw`
-      SELECT settings
-      FROM user_settings
-      WHERE user_id = ${session.user.id}
-      LIMIT 1
-    `;
+    const [storedSettings] = await db
+      .select({ settings: userSettings.settings })
+      .from(userSettings)
+      .where(eq(userSettings.userId, session.user.id as string))
+      .limit(1);
 
-    // Default settings if none exist
-    const defaultSettings = {
-      profile: {
-        name: session.user.name || "",
-        email: session.user.email || "",
-        phone: "",
-        avatar: session.user.image || "",
-      },
-      notifications: {
-        emailNotifications: true,
-        paymentReminders: true,
-        reportAlerts: true,
-        systemUpdates: false,
-      },
-      preferences: {
-        currency: "USD",
-        dateFormat: "MM/DD/YYYY",
-        theme: "system",
-        language: "en",
-      },
-      security: {
-        twoFactorEnabled: false,
-        sessionTimeout: 60,
-        passwordLastChanged: new Date().toISOString(),
-      },
-      billing: {
-        defaultPaymentTerms: 30,
-        lateFeePercentage: 1.5,
-        autoSendInvoices: true,
-        autoSendReminders: true,
-      },
-    };
-
-    const settings = userSettings[0]?.settings || defaultSettings;
+    const defaults = defaultAccountantSettings(session as any);
+    const settings = storedSettings?.settings && typeof storedSettings.settings === "object"
+      ? {
+          ...defaults,
+          ...(storedSettings.settings as Record<string, unknown>),
+          profile: {
+            ...defaults.profile,
+            ...((storedSettings.settings as any).profile || {}),
+          },
+          notifications: {
+            ...defaults.notifications,
+            ...((storedSettings.settings as any).notifications || {}),
+          },
+          preferences: {
+            ...defaults.preferences,
+            ...((storedSettings.settings as any).preferences || {}),
+          },
+          security: {
+            ...defaults.security,
+            ...((storedSettings.settings as any).security || {}),
+          },
+          billing: {
+            ...defaults.billing,
+            ...((storedSettings.settings as any).billing || {}),
+          },
+        }
+      : defaults;
 
     return NextResponse.json(settings);
   } catch (error) {
@@ -84,21 +111,28 @@ export async function PUT(
 
     const { slug } = await params;
     const tenantId = await getTenantIdBySlug(slug);
-    const settings = await request.json();
-
     if (!tenantId) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    // Update or insert user settings
-    await db.$queryRaw`
-      INSERT INTO user_settings (user_id, settings, created_at, updated_at)
-      VALUES (${session.user.id}, ${JSON.stringify(settings)}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      ON CONFLICT (user_id)
-      DO UPDATE SET
-        settings = EXCLUDED.settings,
-        updated_at = CURRENT_TIMESTAMP
-    `;
+    const jsonResult = await parseJsonBody(request);
+    if (!jsonResult.ok) return jsonResult.response;
+    const parsed = validateFinancePayload(accountantSettingsSchema, jsonResult.data);
+    if (!parsed.ok) return parsed.response;
+
+    await db
+      .insert(userSettings)
+      .values({
+        userId: session.user.id as string,
+        settings: parsed.data,
+      })
+      .onConflictDoUpdate({
+        target: userSettings.userId,
+        set: {
+          settings: parsed.data,
+          updatedAt: new Date(),
+        },
+      });
 
     return NextResponse.json({ success: true });
   } catch (error) {
