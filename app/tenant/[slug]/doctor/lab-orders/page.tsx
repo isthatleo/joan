@@ -1,703 +1,358 @@
-"use client";
+﻿"use client";
 
-import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
-import {
-  PageHeader,
-  SectionCard,
-  Button,
-  Input,
-  Badge,
-  Skeleton,
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Textarea,
-} from "@/components/ui";
-import {
-  FlaskConical,
-  Search,
-  Plus,
-  Filter,
-  Clock,
-  CheckCircle,
-  AlertCircle,
-  User,
-  Calendar,
-  FileText,
-  Microscope,
-  TestTube,
-  Activity,
-  MoreVertical,
-  Eye,
-  Edit,
-} from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
+import { AlertTriangle, Clock3, FilePlus2, FlaskConical, History, Loader2, RefreshCw, Search, ShieldAlert, UserRound } from "lucide-react";
+import { toast } from "sonner";
+import { KPICard } from "@/components/KPICard";
+import { useTenantPath } from "@/hooks/useTenantPath";
 
-interface LabOrder {
+type LabOrder = {
   id: string;
   patientId: string;
   patientName: string;
-  patientEmail: string;
-  patientPhone: string;
-  testName: string;
-  testCode: string;
-  category: string;
-  priority: "routine" | "urgent" | "stat";
-  status: "ordered" | "collected" | "processing" | "completed" | "cancelled";
-  orderedBy: string;
-  orderedAt: string;
-  collectedAt?: string;
-  completedAt?: string;
-  results?: string;
-  notes?: string;
-  dueDate?: string;
-  labLocation?: string;
+  patientEmail: string | null;
+  patientPhone: string | null;
+  globalPatientId: string | null;
+  testName: string | null;
+  testCode: string | null;
+  category: string | null;
+  priority: string | null;
+  status: string | null;
+  orderedAt: string | null;
+  completedAt: string | null;
+  dueDate: string | null;
+  labLocation: string | null;
+  notes: string | null;
+  resultId?: string | null;
+};
+
+type OrdersResponse = {
+  orders: LabOrder[];
+  stats: {
+    total: number;
+    pending: number;
+    inProgress: number;
+    completed: number;
+    critical: number;
+  };
+};
+
+const priorities = ["all", "routine", "urgent", "critical"];
+const statuses = ["all", "ordered", "in_progress", "completed", "cancelled"];
+
+function badgeTone(status: string | null) {
+  switch (status) {
+    case "completed":
+      return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+    case "in_progress":
+      return "bg-blue-500/10 text-blue-700 dark:text-blue-300";
+    case "cancelled":
+      return "bg-rose-500/10 text-rose-700 dark:text-rose-300";
+    default:
+      return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  }
 }
 
-interface LabTest {
-  code: string;
-  name: string;
-  category: string;
-  description: string;
-  turnaroundTime: string;
-  price: number;
+function priorityTone(priority: string | null) {
+  switch (priority) {
+    case "critical":
+      return "bg-rose-500/10 text-rose-700 dark:text-rose-300";
+    case "urgent":
+      return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
 }
 
-export default function DoctorLabOrdersPage() {
-  const params = useParams();
-  const slug = params?.slug as string;
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [selectedOrder, setSelectedOrder] = useState<LabOrder | null>(null);
-  const [showOrderModal, setShowOrderModal] = useState(false);
-  const [showNewOrderModal, setShowNewOrderModal] = useState(false);
-
+export default function LabOrdersPage() {
   const queryClient = useQueryClient();
+  const tenantPath = useTenantPath();
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
+  const [priority, setPriority] = useState("all");
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
 
-  // Fetch lab orders
-  const { data: labOrders, isLoading } = useQuery({
-    queryKey: ["doctor-lab-orders", slug, statusFilter, categoryFilter],
+  const ordersQuery = useQuery<OrdersResponse>({
+    queryKey: ["doctor-lab-orders", search, status, priority],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        status: statusFilter,
-        category: categoryFilter,
-        search: searchTerm,
-      });
-      const response = await fetch(`/api/doctor/lab-orders?${params}&slug=${slug}`);
-      if (!response.ok) throw new Error("Failed to fetch lab orders");
+      const params = new URLSearchParams();
+      if (search.trim()) params.set("search", search.trim());
+      if (status !== "all") params.set("status", status);
+      if (priority !== "all") params.set("priority", priority);
+      const response = await fetch(`/api/doctor/lab-orders?${params.toString()}`);
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to load lab orders");
+      }
       return response.json();
     },
   });
 
-  // Fetch available lab tests
-  const { data: labTests } = useQuery({
-    queryKey: ["lab-tests", slug],
-    queryFn: async () => {
-      const response = await fetch(`/api/lab/tests?slug=${slug}`);
-      if (!response.ok) throw new Error("Failed to fetch lab tests");
-      return response.json();
-    },
-  });
-
-  // Fetch patients for new orders
-  const { data: patients } = useQuery({
-    queryKey: ["patients", slug],
-    queryFn: async () => {
-      const response = await fetch(`/api/patients?slug=${slug}&limit=100`);
-      if (!response.ok) throw new Error("Failed to fetch patients");
-      return response.json();
-    },
-  });
-
-  // Create lab order mutation
-  const createOrderMutation = useMutation({
-    mutationFn: async (orderData: Partial<LabOrder>) => {
-      const response = await fetch("/api/doctor/lab-orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...orderData, slug }),
-      });
-      if (!response.ok) throw new Error("Failed to create lab order");
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["doctor-lab-orders"] });
-      setShowNewOrderModal(false);
-    },
-  });
-
-  // Update lab order mutation
-  const updateOrderMutation = useMutation({
-    mutationFn: async ({ id, updates }: { id: string; updates: Partial<LabOrder> }) => {
+  const orderAction = useMutation({
+    mutationFn: async ({ id, nextStatus }: { id: string; nextStatus: string }) => {
+      setActiveOrderId(id);
       const response = await fetch(`/api/doctor/lab-orders/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...updates, slug }),
+        body: JSON.stringify({ status: nextStatus }),
       });
-      if (!response.ok) throw new Error("Failed to update lab order");
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to update lab order");
+      }
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["doctor-lab-orders"] });
+    onSuccess: async (_, variables) => {
+      toast.success(`Lab order updated to ${variables.nextStatus.replace("_", " ")}.`);
+      await queryClient.invalidateQueries({ queryKey: ["doctor-lab-orders"] });
+      setActiveOrderId(null);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+      setActiveOrderId(null);
     },
   });
 
-  const filteredOrders = labOrders?.filter((order: LabOrder) => {
-    const matchesSearch = order.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         order.testName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         order.testCode.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesSearch;
-  }) || [];
-
-  const getStatusColor = (status: LabOrder["status"]) => {
-    switch (status) {
-      case "ordered": return "bg-blue-50 text-blue-700 border-blue-200";
-      case "collected": return "bg-yellow-50 text-yellow-700 border-yellow-200";
-      case "processing": return "bg-purple-50 text-purple-700 border-purple-200";
-      case "completed": return "bg-green-50 text-green-700 border-green-200";
-      case "cancelled": return "bg-red-50 text-red-700 border-red-200";
-      default: return "bg-gray-50 text-gray-700 border-gray-200";
-    }
-  };
-
-  const getPriorityColor = (priority: LabOrder["priority"]) => {
-    switch (priority) {
-      case "stat": return "bg-red-100 text-red-800";
-      case "urgent": return "bg-orange-100 text-orange-800";
-      case "routine": return "bg-blue-100 text-blue-800";
-      default: return "bg-gray-100 text-gray-800";
-    }
-  };
-
-  const getCategoryIcon = (category: string) => {
-    switch (category.toLowerCase()) {
-      case "hematology": return <TestTube className="h-4 w-4" />;
-      case "chemistry": return <FlaskConical className="h-4 w-4" />;
-      case "microbiology": return <Microscope className="h-4 w-4" />;
-      case "immunology": return <Activity className="h-4 w-4" />;
-      default: return <FlaskConical className="h-4 w-4" />;
-    }
-  };
+  const orders = useMemo(() => ordersQuery.data?.orders ?? [], [ordersQuery.data?.orders]);
+  const stats = ordersQuery.data?.stats;
+  const dueSoon = useMemo(
+    () =>
+      orders.filter((order) => {
+        if (!order.dueDate || order.status === "completed" || order.status === "cancelled") return false;
+        return new Date(order.dueDate).getTime() - Date.now() < 1000 * 60 * 60 * 24;
+      }).length,
+    [orders]
+  );
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Lab Orders"
-        subtitle="Order and track laboratory tests for your patients"
-      />
-
-      {/* Filters and Actions */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="flex flex-col sm:flex-row gap-4 flex-1">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Search orders..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="ordered">Ordered</SelectItem>
-              <SelectItem value="collected">Collected</SelectItem>
-              <SelectItem value="processing">Processing</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Category" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Categories</SelectItem>
-              <SelectItem value="hematology">Hematology</SelectItem>
-              <SelectItem value="chemistry">Chemistry</SelectItem>
-              <SelectItem value="microbiology">Microbiology</SelectItem>
-              <SelectItem value="immunology">Immunology</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <Button onClick={() => setShowNewOrderModal(true)} className="flex items-center gap-2">
-          <Plus className="h-4 w-4" />
-          New Lab Order
-        </Button>
-      </div>
-
-      {/* Lab Orders List */}
-      <SectionCard>
-        {isLoading ? (
-          <div className="space-y-4">
-            {[...Array(5)].map((_, i) => (
-              <Skeleton key={i} className="h-24 w-full" />
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {filteredOrders.length === 0 ? (
-              <div className="text-center py-12">
-                <FlaskConical className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No lab orders found</h3>
-                <p className="text-gray-500">Try adjusting your filters or create a new lab order.</p>
-              </div>
-            ) : (
-              filteredOrders.map((order: LabOrder) => (
-                <div
-                  key={order.id}
-                  className="p-6 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-start gap-4">
-                      <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center">
-                        {getCategoryIcon(order.category)}
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900">{order.testName}</h3>
-                        <p className="text-sm text-gray-600">Patient: {order.patientName}</p>
-                        <div className="flex items-center gap-2 mt-2">
-                          <Badge variant="outline" className="text-xs">
-                            {order.testCode}
-                          </Badge>
-                          <Badge className={getPriorityColor(order.priority)}>
-                            {order.priority}
-                          </Badge>
-                          <Badge variant="outline" className={getStatusColor(order.status)}>
-                            {order.status}
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-500">Ordered by</p>
-                      <p className="text-sm font-medium text-gray-900">{order.orderedBy}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {format(new Date(order.orderedAt), "MMM dd, yyyy")}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 text-sm">
-                    <div>
-                      <p className="text-gray-500">Category</p>
-                      <p className="font-medium text-gray-900">{order.category}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Due Date</p>
-                      <p className="font-medium text-gray-900">
-                        {order.dueDate ? format(new Date(order.dueDate), "MMM dd") : "N/A"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Lab Location</p>
-                      <p className="font-medium text-gray-900">{order.labLocation || "Main Lab"}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Status Timeline</p>
-                      <div className="flex items-center gap-1">
-                        {order.status === "completed" && <CheckCircle className="h-4 w-4 text-green-500" />}
-                        {order.status === "processing" && <Clock className="h-4 w-4 text-purple-500" />}
-                        {order.status === "collected" && <AlertCircle className="h-4 w-4 text-yellow-500" />}
-                        <span className="text-xs text-gray-600">
-                          {order.completedAt ? format(new Date(order.completedAt), "MMM dd") :
-                           order.collectedAt ? "Collected" : "Pending"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {order.notes && (
-                    <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                      <p className="text-sm text-gray-700">{order.notes}</p>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <User className="h-4 w-4" />
-                      {order.patientName}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setSelectedOrder(order)}
-                      >
-                        <Eye className="h-4 w-4 mr-2" />
-                        View Details
-                      </Button>
-                      {order.status === "ordered" && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => updateOrderMutation.mutate({
-                            id: order.id,
-                            updates: { status: "cancelled" }
-                          })}
-                          disabled={updateOrderMutation.isPending}
-                        >
-                          Cancel
-                        </Button>
-                      )}
-                      {order.status === "completed" && order.results && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setSelectedOrder(order)}
-                        >
-                          <FileText className="h-4 w-4 mr-2" />
-                          View Results
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-      </SectionCard>
-
-      {/* New Lab Order Modal */}
-      <Dialog open={showNewOrderModal} onOpenChange={setShowNewOrderModal}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Order New Lab Test</DialogTitle>
-          </DialogHeader>
-          <LabOrderForm
-            patients={patients || []}
-            labTests={labTests || []}
-            onSubmit={(data) => createOrderMutation.mutate(data)}
-            isLoading={createOrderMutation.isPending}
-          />
-        </DialogContent>
-      </Dialog>
-
-      {/* Lab Order Details Modal */}
-      <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>Lab Order Details</DialogTitle>
-          </DialogHeader>
-          {selectedOrder && (
-            <LabOrderDetails
-              order={selectedOrder}
-              onUpdate={(updates) => updateOrderMutation.mutate({
-                id: selectedOrder.id,
-                updates
-              })}
-              isUpdating={updateOrderMutation.isPending}
-              onClose={() => setSelectedOrder(null)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function LabOrderForm({
-  patients,
-  labTests,
-  onSubmit,
-  isLoading
-}: {
-  patients: any[];
-  labTests: LabTest[];
-  onSubmit: (data: any) => void;
-  isLoading: boolean;
-}) {
-  const [formData, setFormData] = useState({
-    patientId: "",
-    testCode: "",
-    priority: "routine" as LabOrder["priority"],
-    notes: "",
-    dueDate: "",
-    labLocation: "Main Lab",
-  });
-
-  const selectedTest = labTests.find(test => test.code === formData.testCode);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const selectedPatient = patients.find(p => p.id === formData.patientId);
-    const test = labTests.find(t => t.code === formData.testCode);
-
-    onSubmit({
-      patientId: formData.patientId,
-      patientName: selectedPatient ? `${selectedPatient.firstName} ${selectedPatient.lastName}` : "",
-      patientEmail: selectedPatient?.email || "",
-      patientPhone: selectedPatient?.phone || "",
-      testName: test?.name || "",
-      testCode: formData.testCode,
-      category: test?.category || "",
-      priority: formData.priority,
-      status: "ordered",
-      notes: formData.notes,
-      dueDate: formData.dueDate,
-      labLocation: formData.labLocation,
-      orderedAt: new Date().toISOString(),
-    });
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Patient</label>
-          <Select value={formData.patientId} onValueChange={(value) => setFormData({ ...formData, patientId: value })}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select patient" />
-            </SelectTrigger>
-            <SelectContent>
-              {patients.map((patient) => (
-                <SelectItem key={patient.id} value={patient.id}>
-                  {patient.firstName} {patient.lastName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <h1 className="text-3xl font-semibold text-foreground">Lab Orders</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Create, monitor, and manage doctor-initiated lab work using live order data.
+          </p>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Lab Test</label>
-          <Select value={formData.testCode} onValueChange={(value) => setFormData({ ...formData, testCode: value })}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select test" />
-            </SelectTrigger>
-            <SelectContent>
-              {labTests.map((test) => (
-                <SelectItem key={test.code} value={test.code}>
-                  {test.name} ({test.code})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {selectedTest && (
-        <div className="p-4 bg-blue-50 rounded-lg">
-          <h4 className="font-medium text-blue-900 mb-2">Test Details</h4>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="text-blue-700">Category:</span>
-              <span className="ml-2 text-blue-900">{selectedTest.category}</span>
-            </div>
-            <div>
-              <span className="text-blue-700">Turnaround:</span>
-              <span className="ml-2 text-blue-900">{selectedTest.turnaroundTime}</span>
-            </div>
-            <div className="col-span-2">
-              <span className="text-blue-700">Description:</span>
-              <span className="ml-2 text-blue-900">{selectedTest.description}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-3 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-          <Select value={formData.priority} onValueChange={(value: any) => setFormData({ ...formData, priority: value })}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="routine">Routine</SelectItem>
-              <SelectItem value="urgent">Urgent</SelectItem>
-              <SelectItem value="stat">STAT</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
-          <Input
-            type="date"
-            value={formData.dueDate}
-            onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Lab Location</label>
-          <Select value={formData.labLocation} onValueChange={(value) => setFormData({ ...formData, labLocation: value })}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Main Lab">Main Lab</SelectItem>
-              <SelectItem value="Satellite Lab">Satellite Lab</SelectItem>
-              <SelectItem value="Reference Lab">Reference Lab</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Clinical Notes</label>
-        <Textarea
-          value={formData.notes}
-          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-          placeholder="Reason for test, clinical indications..."
-          rows={3}
-        />
-      </div>
-
-      <DialogFooter>
-        <Button type="button" variant="outline">
-          Cancel
-        </Button>
-        <Button type="submit" disabled={isLoading}>
-          {isLoading ? "Ordering..." : "Order Lab Test"}
-        </Button>
-      </DialogFooter>
-    </form>
-  );
-}
-
-function LabOrderDetails({
-  order,
-  onUpdate,
-  isUpdating,
-  onClose
-}: {
-  order: LabOrder;
-  onUpdate: (updates: Partial<LabOrder>) => void;
-  isUpdating: boolean;
-  onClose: () => void;
-}) {
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-6">
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Information</h3>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Test Name</label>
-              <p className="text-sm text-gray-900">{order.testName}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Test Code</label>
-              <p className="text-sm text-gray-900">{order.testCode}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Category</label>
-              <p className="text-sm text-gray-900">{order.category}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Priority</label>
-              <Badge className="mt-1">{order.priority}</Badge>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Status</label>
-              <Badge variant="outline" className="mt-1">{order.status}</Badge>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Patient Information</h3>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Patient Name</label>
-              <p className="text-sm text-gray-900">{order.patientName}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Email</label>
-              <p className="text-sm text-gray-900">{order.patientEmail}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Phone</label>
-              <p className="text-sm text-gray-900">{order.patientPhone}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Timeline</h3>
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center">
-              <Clock className="h-4 w-4 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-900">Ordered</p>
-              <p className="text-xs text-gray-500">{format(new Date(order.orderedAt), "MMM dd, yyyy h:mm a")}</p>
-            </div>
-          </div>
-
-          {order.collectedAt && (
-            <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-full bg-yellow-100 flex items-center justify-center">
-                <TestTube className="h-4 w-4 text-yellow-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">Sample Collected</p>
-                <p className="text-xs text-gray-500">{format(new Date(order.collectedAt), "MMM dd, yyyy h:mm a")}</p>
-              </div>
-            </div>
-          )}
-
-          {order.completedAt && (
-            <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-full bg-green-100 flex items-center justify-center">
-                <CheckCircle className="h-4 w-4 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-900">Completed</p>
-                <p className="text-xs text-gray-500">{format(new Date(order.completedAt), "MMM dd, yyyy h:mm a")}</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {order.results && (
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Results</h3>
-          <div className="p-4 bg-gray-50 rounded-lg">
-            <pre className="text-sm text-gray-900 whitespace-pre-wrap">{order.results}</pre>
-          </div>
-        </div>
-      )}
-
-      {order.notes && (
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Clinical Notes</h3>
-          <div className="p-4 bg-gray-50 rounded-lg">
-            <p className="text-sm text-gray-900">{order.notes}</p>
-          </div>
-        </div>
-      )}
-
-      <DialogFooter>
-        <Button variant="outline" onClick={onClose}>
-          Close
-        </Button>
-        {order.status === "ordered" && (
-          <Button
-            variant="destructive"
-            onClick={() => onUpdate({ status: "cancelled" })}
-            disabled={isUpdating}
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => ordersQuery.refetch()}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground"
           >
-            Cancel Order
-          </Button>
-        )}
-      </DialogFooter>
+            <RefreshCw className={`h-4 w-4 ${ordersQuery.isRefetching ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <Link
+            href={tenantPath("/doctor/lab-orders/new")}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          >
+            <FilePlus2 className="h-4 w-4" />
+            New Lab Order
+          </Link>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <KPICard title="Total Orders" value={stats?.total ?? 0} subtitle="Doctor scoped" tone="info" icon={FlaskConical} />
+        <KPICard title="Pending" value={stats?.pending ?? 0} subtitle="Awaiting lab pickup" tone="warning" icon={Clock3} />
+        <KPICard title="In Progress" value={stats?.inProgress ?? 0} subtitle="Lab processing" tone="primary" icon={RefreshCw} />
+        <KPICard title="Completed" value={stats?.completed ?? 0} subtitle="Results available" tone="success" icon={FlaskConical} />
+        <KPICard title="Critical Priority" value={stats?.critical ?? 0} subtitle="Escalated orders" tone="danger" icon={AlertTriangle} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm xl:col-span-2">
+          <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Order Intelligence</p>
+          <h2 className="mt-2 text-xl font-semibold text-foreground">Lab workload and escalation summary</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Watch pending demand, critical requests, and due-soon tests before escalating or reordering.
+          </p>
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-border bg-background/70 p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Due Soon</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{dueSoon}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-background/70 p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Completion Rate</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">
+                {stats?.total ? `${Math.round(((stats?.completed ?? 0) / stats.total) * 100)}%` : "0%"}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border bg-background/70 p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Critical Share</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">
+                {stats?.total ? `${Math.round(((stats?.critical ?? 0) / stats.total) * 100)}%` : "0%"}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-foreground">Order Rules</h2>
+          <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+            <p className="rounded-lg border border-border bg-background/70 px-4 py-3">Cancel only when a specimen has not moved into processing.</p>
+            <p className="rounded-lg border border-border bg-background/70 px-4 py-3">Use `View Results` for any order already completed by the lab.</p>
+            <p className="rounded-lg border border-border bg-background/70 px-4 py-3">Critical orders should be monitored for due time and patient follow-up immediately.</p>
+          </div>
+        </div>
+      </div>
+
+      {ordersQuery.isError && (
+        <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {(ordersQuery.error as Error).message}
+        </div>
+      )}
+
+      <section className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Order Worklist</h2>
+            <p className="text-sm text-muted-foreground">Filter by patient, status, priority, or test code.</p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search patient or test"
+                className="h-10 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none sm:w-72"
+              />
+            </div>
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+              className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none"
+            >
+              {statuses.map((option) => (
+                <option key={option} value={option}>
+                  {option === "all" ? "All Status" : option.replace("_", " ")}
+                </option>
+              ))}
+            </select>
+            <select
+              value={priority}
+              onChange={(event) => setPriority(event.target.value)}
+              className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none"
+            >
+              {priorities.map((option) => (
+                <option key={option} value={option}>
+                  {option === "all" ? "All Priority" : option}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-xl border border-border">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-border text-sm">
+              <thead className="bg-muted/40 text-left text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Patient</th>
+                  <th className="px-4 py-3 font-medium">Test</th>
+                  <th className="px-4 py-3 font-medium">Priority</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Ordered</th>
+                  <th className="px-4 py-3 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border bg-card">
+                {ordersQuery.isLoading ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
+                      <Loader2 className="mx-auto h-5 w-5 animate-spin" />
+                    </td>
+                  </tr>
+                ) : orders.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center">
+                      <FlaskConical className="mx-auto h-8 w-8 text-muted-foreground" />
+                      <p className="mt-3 text-sm font-medium text-foreground">No lab orders found.</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Create a new order or adjust the active filters.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  orders.map((order) => (
+                    <tr key={order.id}>
+                      <td className="px-4 py-3">
+                        <div className="space-y-1">
+                          <p className="font-medium text-foreground">{order.patientName}</p>
+                          <p className="text-xs text-muted-foreground">{order.globalPatientId || "No patient number"}</p>
+                          <p className="text-xs text-muted-foreground">{order.patientPhone || order.patientEmail || "No contact on file"}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div>
+                          <p className="font-medium text-foreground">{order.testName || "Unnamed test"}</p>
+                          <p className="text-xs text-muted-foreground">{[order.testCode || "No code", order.category || "General"].join(" - ")}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize ${priorityTone(order.priority)}`}>
+                          {order.priority || "routine"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize ${badgeTone(order.status)}`}>
+                          {(order.status || "ordered").replace("_", " ")}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-foreground">
+                        <div>
+                          <p>{order.orderedAt ? format(new Date(order.orderedAt), "MMM dd, yyyy") : "-"}</p>
+                          <p className="text-xs text-muted-foreground">{order.dueDate ? `Due ${format(new Date(order.dueDate), "MMM dd, h:mm a")}` : "No due date"}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <Link
+                            href={tenantPath(order.resultId ? `/doctor/lab-results/${order.resultId}` : `/doctor/lab-results?orderId=${order.id}`)}
+                            className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground"
+                          >
+                            View Results
+                          </Link>
+                          <Link
+                            href={tenantPath(`/doctor/patients/${order.patientId}`)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground"
+                          >
+                            <UserRound className="h-3 w-3" />
+                            Patient
+                          </Link>
+                          <Link
+                            href={tenantPath(`/doctor/analytics/my-patients/${order.patientId}`)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground"
+                          >
+                            <History className="h-3 w-3" />
+                            History
+                          </Link>
+                          {order.status === "ordered" && (
+                            <button
+                              onClick={() => orderAction.mutate({ id: order.id, nextStatus: "cancelled" })}
+                              disabled={orderAction.isPending}
+                              className="rounded-lg border border-destructive/30 px-2.5 py-1.5 text-xs font-medium text-destructive disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {orderAction.isPending && activeOrderId === order.id ? "Saving..." : "Cancel"}
+                            </button>
+                          )}
+                          {order.priority === "critical" && (
+                            <span className="inline-flex items-center gap-1 rounded-lg bg-rose-500/10 px-2.5 py-1.5 text-xs font-medium text-rose-700 dark:text-rose-300">
+                              <ShieldAlert className="h-3 w-3" />
+                              Escalated
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
+

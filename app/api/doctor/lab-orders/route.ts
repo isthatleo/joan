@@ -1,220 +1,215 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { and, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { eq, and, desc, sql } from "drizzle-orm";
-import { labOrders, patients, users } from "@/lib/db/schema";
+import { labOrders, labResults, notifications, patients, roles, userRoles, users, visits } from "@/lib/db/schema";
+import { resolveDoctorContext } from "@/lib/doctor/server";
+
+async function notifyLabUsers(tenantId: string, message: string, metadata: Record<string, unknown>) {
+  const activeUsers = await db
+    .select({
+      id: users.id,
+      baseRole: users.role,
+      linkedRole: roles.name,
+    })
+    .from(users)
+    .leftJoin(userRoles, eq(userRoles.userId, users.id))
+    .leftJoin(roles, eq(roles.id, userRoles.roleId))
+    .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), isNull(users.deletedAt)));
+
+  const recipients = Array.from(
+    new Set(
+      activeUsers
+        .filter((user) => {
+          const roleNames = [user.baseRole, user.linkedRole].filter(Boolean).map((value) => String(value).toLowerCase());
+          return roleNames.includes("lab_technician") || roleNames.includes("lab");
+        })
+        .map((user) => user.id)
+    )
+  );
+
+  if (recipients.length === 0) return;
+
+  await db.insert(notifications).values(
+    recipients.map((userId) => ({
+      tenantId,
+      userId,
+      type: "lab_order",
+      title: "New lab order",
+      message,
+      metadata,
+      read: false,
+    }))
+  );
+}
 
 export async function GET(request: NextRequest) {
+  const context = await resolveDoctorContext(request.headers);
+  if (!context.ok) {
+    return NextResponse.json({ error: context.error }, { status: context.status });
+  }
+
+  const { doctor } = context;
+  if (!doctor.tenantId) {
+    return NextResponse.json({ error: "No tenant context" }, { status: 400 });
+  }
+
   try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const search = request.nextUrl.searchParams.get("search")?.trim() || "";
+    const status = request.nextUrl.searchParams.get("status")?.trim() || "all";
+    const category = request.nextUrl.searchParams.get("category")?.trim() || "all";
+    const priority = request.nextUrl.searchParams.get("priority")?.trim() || "all";
+
+    const conditions = [
+      eq(labOrders.tenantId, doctor.tenantId),
+      eq(labOrders.doctorId, doctor.id),
+      isNull(labOrders.deletedAt),
+    ];
+
+    if (status !== "all") conditions.push(eq(labOrders.status, status));
+    if (category !== "all") conditions.push(eq(labOrders.category, category));
+    if (priority !== "all") conditions.push(eq(labOrders.priority, priority));
+    if (search) {
+      conditions.push(
+        or(
+          ilike(patients.firstName, `%${search}%`),
+          ilike(patients.lastName, `%${search}%`),
+          ilike(patients.globalPatientId, `%${search}%`),
+          ilike(labOrders.testName, `%${search}%`),
+          ilike(labOrders.testCode, `%${search}%`)
+        )!
+      );
     }
 
-    const { searchParams } = new URL(request.url);
-    const slug = searchParams.get("slug");
-    const status = searchParams.get("status") || "all";
-    const category = searchParams.get("category") || "all";
-    const search = searchParams.get("search") || "";
-
-    if (!slug) {
-      return NextResponse.json({ error: "Tenant slug required" }, { status: 400 });
-    }
-
-    // Get doctor's user record to verify role
-    const doctorUser = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.id, session.user.id), eq(users.role, "doctor")))
-      .limit(1);
-
-    if (!doctorUser.length) {
-      return NextResponse.json({ error: "Doctor access required" }, { status: 403 });
-    }
-
-    // Build where conditions
-    let whereConditions = [eq(labOrders.doctorId, session.user.id)];
-
-    if (status !== "all") {
-      whereConditions.push(eq(labOrders.status, status));
-    }
-
-    if (category !== "all") {
-      whereConditions.push(eq(labOrders.category, category));
-    }
-
-    // Fetch lab orders with patient details
-    const labOrdersData = await db
+    const rows = await db
       .select({
         id: labOrders.id,
         patientId: labOrders.patientId,
-        patientName: sql<string>`concat(${patients.firstName}, ' ', ${patients.lastName})`,
+        patientName: sql<string>`trim(concat(coalesce(${patients.firstName}, ''), ' ', coalesce(${patients.lastName}, '')))`,
         patientEmail: patients.email,
         patientPhone: patients.phone,
+        globalPatientId: patients.globalPatientId,
         testName: labOrders.testName,
         testCode: labOrders.testCode,
         category: labOrders.category,
         priority: labOrders.priority,
         status: labOrders.status,
-        orderedBy: labOrders.orderedBy,
         orderedAt: labOrders.orderedAt,
-        collectedAt: labOrders.collectedAt,
         completedAt: labOrders.completedAt,
-        results: labOrders.results,
-        notes: labOrders.notes,
         dueDate: labOrders.dueDate,
         labLocation: labOrders.labLocation,
+        notes: labOrders.notes,
+        visitId: labOrders.visitId,
+        resultId: labResults.id,
       })
       .from(labOrders)
-      .innerJoin(patients, eq(labOrders.patientId, patients.id))
-      .where(and(...whereConditions))
-      .orderBy(desc(labOrders.orderedAt));
+      .innerJoin(patients, eq(patients.id, labOrders.patientId))
+      .leftJoin(labResults, and(eq(labResults.labOrderId, labOrders.id), isNull(labResults.deletedAt)))
+      .where(and(...conditions))
+      .orderBy(desc(labOrders.orderedAt), desc(labOrders.createdAt));
 
-    // Filter by search term if provided
-    let filteredOrders = labOrdersData;
-    if (search) {
-      filteredOrders = labOrdersData.filter(order =>
-        order.patientName.toLowerCase().includes(search.toLowerCase()) ||
-        order.testName.toLowerCase().includes(search.toLowerCase()) ||
-        order.testCode.toLowerCase().includes(search.toLowerCase())
-      );
-    }
+    const [statsRow] = await db
+      .select({
+        total: sql<number>`count(*)::int`,
+        pending: sql<number>`count(*) filter (where ${labOrders.status} = 'ordered')::int`,
+        inProgress: sql<number>`count(*) filter (where ${labOrders.status} = 'in_progress')::int`,
+        completed: sql<number>`count(*) filter (where ${labOrders.status} = 'completed')::int`,
+        critical: sql<number>`count(*) filter (where ${labOrders.priority} = 'critical')::int`,
+      })
+      .from(labOrders)
+      .where(and(eq(labOrders.tenantId, doctor.tenantId), eq(labOrders.doctorId, doctor.id), isNull(labOrders.deletedAt)));
 
-    return NextResponse.json(filteredOrders);
-
+    return NextResponse.json({
+      orders: rows,
+      stats: {
+        total: statsRow?.total ?? 0,
+        pending: statsRow?.pending ?? 0,
+        inProgress: statsRow?.inProgress ?? 0,
+        completed: statsRow?.completed ?? 0,
+        critical: statsRow?.critical ?? 0,
+      },
+    });
   } catch (error) {
     console.error("Doctor lab orders API error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch lab orders" }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
+  const context = await resolveDoctorContext(request.headers);
+  if (!context.ok) {
+    return NextResponse.json({ error: context.error }, { status: context.status });
+  }
+
+  const { doctor } = context;
+  if (!doctor.tenantId) {
+    return NextResponse.json({ error: "No tenant context" }, { status: 400 });
+  }
+
   try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     const body = await request.json();
-    const {
-      slug,
-      patientId,
-      testName,
-      testCode,
-      category,
-      priority,
-      notes,
-      dueDate,
-      labLocation
-    } = body;
+    const patientId = String(body.patientId || "").trim();
+    const testName = String(body.testName || "").trim();
+    const category = String(body.category || "General").trim() || "General";
 
-    if (!slug || !patientId || !testName || !testCode || !category) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    if (!patientId || !testName) {
+      return NextResponse.json({ error: "Patient and test name are required" }, { status: 400 });
     }
 
-    // Verify doctor role
-    const doctorUser = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.id, session.user.id), eq(users.role, "doctor")))
-      .limit(1);
+    const patient = await db.query.patients.findFirst({
+      where: and(eq(patients.id, patientId), eq(patients.tenantId, doctor.tenantId), isNull(patients.deletedAt)),
+      columns: { id: true, firstName: true, lastName: true },
+    });
 
-    if (!doctorUser.length) {
-      return NextResponse.json({ error: "Doctor access required" }, { status: 403 });
-    }
-
-    // Verify patient exists
-    const patient = await db
-      .select()
-      .from(patients)
-      .where(eq(patients.id, patientId))
-      .limit(1);
-
-    if (!patient.length) {
+    if (!patient) {
       return NextResponse.json({ error: "Patient not found" }, { status: 404 });
     }
 
-    // Create lab order
-    const newLabOrder = await db
+    const [visit] = await db
+      .insert(visits)
+      .values({
+        tenantId: doctor.tenantId,
+        patientId,
+        doctorId: doctor.id,
+        reason: `Lab order: ${testName}`,
+        notes: String(body.notes || "").trim() || null,
+      })
+      .returning({ id: visits.id });
+
+    const [created] = await db
       .insert(labOrders)
       .values({
+        tenantId: doctor.tenantId,
         patientId,
-        doctorId: session.user.id,
+        doctorId: doctor.id,
+        visitId: visit.id,
+        orderedBy: doctor.id,
         testName,
-        testCode,
+        testCode: String(body.testCode || testName.toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 24)),
         category,
-        priority: priority || "routine",
+        priority: String(body.priority || "routine"),
         status: "ordered",
-        orderedBy: doctorUser[0].fullName || doctorUser[0].email,
         orderedAt: new Date(),
-        notes,
-        dueDate: dueDate ? new Date(dueDate) : null,
-        labLocation: labLocation || "Main Lab",
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        notes: String(body.notes || "").trim() || null,
+        dueDate: body.dueDate ? new Date(body.dueDate) : null,
+        labLocation: String(body.labLocation || "Main Lab"),
       })
       .returning();
 
-    return NextResponse.json(newLabOrder[0]);
-
-  } catch (error) {
-    console.error("Create lab order API error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
+    const patientName = `${patient.firstName || ""} ${patient.lastName || ""}`.trim() || "A patient";
+    await notifyLabUsers(
+      doctor.tenantId,
+      `${testName} was ordered for ${patientName}.`,
+      {
+        labOrderId: created.id,
+        patientId,
+        visitId: visit.id,
+        orderedBy: doctor.id,
+      }
     );
+
+    return NextResponse.json(created, { status: 201 });
+  } catch (error) {
+    console.error("Create doctor lab order API error:", error);
+    return NextResponse.json({ error: "Failed to create lab order" }, { status: 500 });
   }
 }
-
-export async function PATCH(request: NextRequest) {
-  try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const body = await request.json();
-    const { id, updates, slug } = body;
-
-    if (!id || !slug) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-    }
-
-    // Verify doctor role
-    const doctorUser = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.id, session.user.id), eq(users.role, "doctor")))
-      .limit(1);
-
-    if (!doctorUser.length) {
-      return NextResponse.json({ error: "Doctor access required" }, { status: 403 });
-    }
-
-    // Update lab order
-    const updateData: any = { updatedAt: new Date(), ...updates };
-
-    const updatedOrder = await db
-      .update(labOrders)
-      .set(updateData)
-      .where(and(eq(labOrders.id, id), eq(labOrders.doctorId, session.user.id)))
-      .returning();
-
-    if (!updatedOrder.length) {
-      return NextResponse.json({ error: "Lab order not found" }, { status: 404 });
-    }
-
-    return NextResponse.json(updatedOrder[0]);
-
-  } catch (error) {
-    console.error("Update lab order API error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
-}
-

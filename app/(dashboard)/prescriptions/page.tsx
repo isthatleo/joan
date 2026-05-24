@@ -1,250 +1,300 @@
-"use client";
-import { useState } from "react";
-import { Card } from "@/components/ui/card";
-import { Search, Plus, Pill, Clock, CheckCircle, AlertTriangle, User } from "lucide-react";
+﻿"use client";
+
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, Clock3, Pill, Plus, RefreshCw, Search, Stethoscope } from "lucide-react";
+import { toast } from "sonner";
+import { KPICard } from "@/components/KPICard";
+import { Topbar } from "@/components/Topbar";
+
+function formatDateTime(value?: string | Date | null) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDate(value?: string | Date | null) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString();
+}
+
+function statusClasses(status?: string | null) {
+  const normalized = String(status || "active").toLowerCase();
+  if (normalized === "completed") return "bg-success-soft text-success-soft-foreground";
+  if (normalized === "discontinued") return "bg-destructive-soft text-destructive-soft-foreground";
+  if (normalized === "pending") return "bg-warning-soft text-warning-soft-foreground";
+  return "bg-info-soft text-info-soft-foreground";
+}
 
 export default function PrescriptionsPage() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
 
-  // Mock data - in real app, fetch from API
-  const prescriptions = [
-    {
-      id: "RX001",
-      patientId: "P001",
-      patientName: "John Doe",
-      medication: "Metformin",
-      dosage: "500mg",
-      frequency: "Twice daily",
-      duration: "30 days",
-      status: "active",
-      prescribedBy: "Dr. Smith",
-      prescribedAt: "2026-04-15 09:30",
-      notes: "Take with meals"
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["doctor-prescriptions", search, status],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (status) params.set("status", status);
+      const response = await fetch(`/api/doctor/prescriptions?${params.toString()}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Failed to load prescriptions");
+      return payload;
     },
-    {
-      id: "RX002",
-      patientId: "P002",
-      patientName: "Jane Smith",
-      medication: "Lisinopril",
-      dosage: "10mg",
-      frequency: "Once daily",
-      duration: "90 days",
-      status: "pending",
-      prescribedBy: "Dr. Johnson",
-      prescribedAt: "2026-04-15 10:15",
-      notes: "Monitor blood pressure"
-    },
-    {
-      id: "RX003",
-      patientId: "P003",
-      patientName: "Bob Wilson",
-      medication: "Amoxicillin",
-      dosage: "500mg",
-      frequency: "Three times daily",
-      duration: "7 days",
-      status: "completed",
-      prescribedBy: "Dr. Smith",
-      prescribedAt: "2026-04-14 14:20",
-      notes: "Complete full course"
-    }
-  ];
-
-  const filteredPrescriptions = prescriptions.filter(rx => {
-    const matchesSearch = rx.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         rx.medication.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         rx.id.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filterStatus === "all" || rx.status === filterStatus;
-    return matchesSearch && matchesFilter;
   });
 
-  const stats = {
-    total: prescriptions.length,
-    active: prescriptions.filter(rx => rx.status === "active").length,
-    pending: prescriptions.filter(rx => rx.status === "pending").length,
-    completed: prescriptions.filter(rx => rx.status === "completed").length
+  const prescriptions = data?.prescriptions ?? [];
+  const stats = data?.stats ?? {
+    total: 0,
+    active: 0,
+    pending: 0,
+    completed: 0,
+    expiringSoon: 0,
+    lowRefills: 0,
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "active": return <CheckCircle className="w-5 h-5 text-green-600" />;
-      case "pending": return <Clock className="w-5 h-5 text-orange-600" />;
-      case "completed": return <AlertTriangle className="w-5 h-5 text-blue-600" />;
-      default: return <Clock className="w-5 h-5 text-gray-600" />;
-    }
-  };
+  const renewalCandidates = useMemo(
+    () => prescriptions.filter((item: any) => Number(item.refillsRemaining || 0) <= 1 && item.status === "active").length,
+    [prescriptions]
+  );
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "active": return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
-      case "pending": return "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200";
-      case "completed": return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200";
-      default: return "bg-gray-100 text-gray-800 dark:bg-slate-700 dark:text-gray-200";
-    }
-  };
+  const actionMutation = useMutation({
+    mutationFn: async ({ id, action }: { id: string; action: "complete" | "discontinue" | "refill" }) => {
+      const response = await fetch(`/api/doctor/prescriptions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          refillAmount: action === "refill" ? 1 : undefined,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Failed to update prescription");
+      return payload;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["doctor-prescriptions"] });
+      toast.success(
+        variables.action === "refill"
+          ? "Prescription renewed"
+          : variables.action === "complete"
+            ? "Prescription marked complete"
+            : "Prescription discontinued"
+      );
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to update prescription");
+    },
+  });
 
   return (
     <div className="space-y-6">
-      {/* Header Card */}
-      <Card className="p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Prescriptions</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">
-              Manage patient prescriptions and medication orders
-            </p>
-          </div>
-          <button className="flex items-center space-x-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors">
-            <Plus className="w-5 h-5" />
-            <span>Write Prescription</span>
-          </button>
-        </div>
-      </Card>
+      <Topbar breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Prescriptions" }]} />
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Prescriptions</p>
-              <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.total}</p>
-            </div>
-            <Pill className="w-8 h-8 text-blue-600" />
-          </div>
-        </Card>
-        <Card className="p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Active</p>
-              <p className="text-3xl font-bold text-green-600">{stats.active}</p>
-            </div>
-            <CheckCircle className="w-8 h-8 text-green-600" />
-          </div>
-        </Card>
-        <Card className="p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Pending</p>
-              <p className="text-3xl font-bold text-orange-600">{stats.pending}</p>
-            </div>
-            <Clock className="w-8 h-8 text-orange-600" />
-          </div>
-        </Card>
-        <Card className="p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Completed</p>
-              <p className="text-3xl font-bold text-blue-600">{stats.completed}</p>
-            </div>
-            <AlertTriangle className="w-8 h-8 text-blue-600" />
-          </div>
-        </Card>
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold text-foreground">Prescriptions</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Write, review, renew, and complete live medication orders using stocked inventory.
+          </p>
+        </div>
+        <Link
+          href="/prescriptions/new"
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+        >
+          <Plus className="h-4 w-4" />
+          New Prescription
+        </Link>
       </div>
 
-      {/* Filters Card */}
-      <Card className="p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center space-y-4 lg:space-y-0 lg:space-x-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <KPICard title="Total Prescriptions" value={stats.total} subtitle="Loaded from live records" icon={Pill} tone="info" />
+        <KPICard title="Active Orders" value={stats.active} subtitle="Currently actionable" icon={Stethoscope} tone="primary" />
+        <KPICard title="Expiring Soon" value={stats.expiringSoon} subtitle="Within the next 7 days" icon={Clock3} tone="warning" />
+        <KPICard title="Needs Renewal" value={renewalCandidates || stats.lowRefills} subtitle="One refill or less remaining" icon={AlertTriangle} tone="destructive" />
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div className="grid gap-3 md:grid-cols-[1fr_220px]">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
-              type="text"
-              placeholder="Search by patient name, medication, or prescription ID..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by patient, medication, generic name, or patient ID"
+              className="h-10 w-full rounded-lg border border-border bg-background pl-10 pr-3 text-sm text-foreground"
             />
           </div>
-          <div className="flex items-center space-x-2">
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
-            >
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="pending">Pending</option>
-              <option value="completed">Completed</option>
-            </select>
-          </div>
+          <select
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+            className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+          >
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="pending">Pending</option>
+            <option value="completed">Completed</option>
+            <option value="discontinued">Discontinued</option>
+          </select>
         </div>
-      </Card>
-
-      {/* Prescriptions Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {filteredPrescriptions.map((rx) => (
-          <Card key={rx.id} className="p-6 hover:shadow-lg transition-shadow">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                {getStatusIcon(rx.status)}
-                <div>
-                  <h3 className="font-semibold text-gray-900 dark:text-white">{rx.medication}</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Rx #{rx.id}</p>
-                </div>
-              </div>
-              <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(rx.status)}`}>
-                {rx.status}
-              </span>
-            </div>
-
-            <div className="space-y-3 mb-4">
-              <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
-                <User className="w-4 h-4" />
-                <span className="font-medium">Patient:</span>
-                <span>{rx.patientName} ({rx.patientId})</span>
-              </div>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="font-medium text-gray-600 dark:text-gray-400">Dosage:</span>
-                  <p className="text-gray-900 dark:text-white">{rx.dosage}</p>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-600 dark:text-gray-400">Frequency:</span>
-                  <p className="text-gray-900 dark:text-white">{rx.frequency}</p>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-600 dark:text-gray-400">Duration:</span>
-                  <p className="text-gray-900 dark:text-white">{rx.duration}</p>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-600 dark:text-gray-400">Prescribed by:</span>
-                  <p className="text-gray-900 dark:text-white">{rx.prescribedBy}</p>
-                </div>
-              </div>
-              {rx.notes && (
-                <div className="text-sm text-gray-600 dark:text-gray-400">
-                  <span className="font-medium">Notes:</span> {rx.notes}
-                </div>
-              )}
-            </div>
-
-            <div className="flex space-x-2">
-              <button className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
-                View Details
-              </button>
-              {rx.status === "pending" && (
-                <button className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors">
-                  Dispense
-                </button>
-              )}
-              {rx.status === "active" && (
-                <button className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors">
-                  Refill
-                </button>
-              )}
-            </div>
-          </Card>
-        ))}
       </div>
 
-      {filteredPrescriptions.length === 0 && (
-        <Card className="p-12 text-center">
-          <Pill className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No prescriptions found</h3>
-          <p className="text-gray-600 dark:text-gray-400">
-            {searchTerm ? 'Try adjusting your search terms' : 'No prescriptions match your current filters'}
-          </p>
-        </Card>
+      {isError && (
+        <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Failed to load prescriptions.
+        </div>
       )}
+
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="text-base font-semibold text-foreground">Medication Orders</h2>
+          <p className="text-sm text-muted-foreground">{prescriptions.length} prescription(s)</p>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40">
+              <tr>
+                <th className="px-5 py-3 text-left font-medium text-muted-foreground">Patient</th>
+                <th className="px-5 py-3 text-left font-medium text-muted-foreground">Medication</th>
+                <th className="px-5 py-3 text-left font-medium text-muted-foreground">Regimen</th>
+                <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
+                <th className="px-5 py-3 text-left font-medium text-muted-foreground">Dates</th>
+                <th className="px-5 py-3 text-left font-medium text-muted-foreground">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                Array.from({ length: 6 }).map((_, index) => (
+                  <tr key={index} className="border-t border-border">
+                    <td colSpan={6} className="px-5 py-4 text-muted-foreground">Loading prescriptions...</td>
+                  </tr>
+                ))
+              ) : prescriptions.length === 0 ? (
+                <tr className="border-t border-border">
+                  <td colSpan={6} className="px-5 py-10 text-center">
+                    <Pill className="mx-auto h-10 w-10 text-muted-foreground" />
+                    <p className="mt-3 text-base font-medium text-foreground">No prescriptions found</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Adjust your filters or write a new prescription from stocked medications.
+                    </p>
+                    <Link
+                      href="/prescriptions/new"
+                      className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Write Prescription
+                    </Link>
+                  </td>
+                </tr>
+              ) : (
+                prescriptions.map((prescription: any) => (
+                  <tr key={prescription.id} className="border-t border-border align-top">
+                    <td className="px-5 py-4">
+                      <div>
+                        <p className="font-medium text-foreground">{prescription.patientName || "Unknown patient"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {prescription.globalPatientId || prescription.patientId}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {prescription.patientEmail || prescription.patientPhone || "No contact details"}
+                        </p>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div>
+                        <p className="font-medium text-foreground">{prescription.medication || "Untitled medication"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {prescription.genericName || prescription.strength || "No generic metadata"}
+                        </p>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="space-y-1">
+                        <p className="text-foreground">{prescription.dosage || "-"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {prescription.frequency || "Frequency not set"} · {prescription.duration || "Duration not set"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Qty {prescription.quantity || 0} · Refills left {prescription.refillsRemaining ?? 0}
+                        </p>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="space-y-2">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize ${statusClasses(prescription.status)}`}>
+                          {prescription.status || "active"}
+                        </span>
+                        {prescription.priority && (
+                          <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                            {prescription.priority}
+                          </div>
+                        )}
+                        {prescription.isEmergency && (
+                          <div className="inline-flex items-center gap-1 text-xs font-medium text-destructive">
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                            Emergency
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="space-y-1 text-xs text-muted-foreground">
+                        <p>Prescribed: {formatDateTime(prescription.prescribedAt)}</p>
+                        <p>Expires: {formatDate(prescription.expiresAt || prescription.validUntil)}</p>
+                        {prescription.filledAt && <p>Completed: {formatDateTime(prescription.filledAt)}</p>}
+                      </div>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="flex flex-wrap gap-2">
+                        <Link
+                          href={`/prescriptions/${prescription.id}`}
+                          className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40"
+                        >
+                          View
+                        </Link>
+                        {prescription.status !== "completed" && (
+                          <button
+                            onClick={() => actionMutation.mutate({ id: prescription.id, action: "complete" })}
+                            className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40"
+                          >
+                            Complete
+                          </button>
+                        )}
+                        <button
+                          onClick={() => actionMutation.mutate({ id: prescription.id, action: "refill" })}
+                          className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40"
+                        >
+                          <span className="inline-flex items-center gap-1"><RefreshCw className="h-3.5 w-3.5" /> Renew</span>
+                        </button>
+                        {prescription.status !== "discontinued" && (
+                          <button
+                            onClick={() => {
+                              if (window.confirm("Discontinue this prescription?")) {
+                                actionMutation.mutate({ id: prescription.id, action: "discontinue" });
+                              }
+                            }}
+                            className="rounded-lg border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+                          >
+                            Discontinue
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
+

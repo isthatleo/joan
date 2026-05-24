@@ -6,6 +6,9 @@ import { MessagingService } from "@/lib/services/messaging.service";
 import { and, eq, ilike, isNull } from "drizzle-orm";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const service = new MessagingService();
 
 async function resolveTenantUser(sessionEmail: string, slug: string) {
@@ -40,9 +43,29 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const search = searchParams.get("search") || undefined;
 
     switch (type) {
+      case "self": {
+        return NextResponse.json(
+          {
+            currentUser: {
+              id: currentUser.id,
+              tenantId: currentUser.tenantId,
+            },
+          },
+          { headers: { "Cache-Control": "no-store, max-age=0" } }
+        );
+      }
       case "conversations": {
         const conversations = await service.getConversations(currentUser.id);
-        return NextResponse.json({ conversations });
+        return NextResponse.json(
+          {
+            conversations,
+            currentUser: {
+              id: currentUser.id,
+              tenantId: currentUser.tenantId,
+            },
+          },
+          { headers: { "Cache-Control": "no-store, max-age=0" } }
+        );
       }
       case "chat": {
         if (!otherUserId) {
@@ -56,15 +79,43 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             columns: { id: true, fullName: true, email: true, avatar: true, role: true },
           });
         }
-        return NextResponse.json({ messages, otherUser });
+        return NextResponse.json(
+          {
+            messages,
+            otherUser,
+            currentUser: {
+              id: currentUser.id,
+              tenantId: currentUser.tenantId,
+            },
+          },
+          { headers: { "Cache-Control": "no-store, max-age=0" } }
+        );
       }
       case "available-users": {
         const availableUsers = await service.getAvailableContacts(currentUser.id, search);
-        return NextResponse.json(availableUsers);
+        return NextResponse.json(
+          {
+            users: availableUsers,
+            currentUser: {
+              id: currentUser.id,
+              tenantId: currentUser.tenantId,
+            },
+          },
+          { headers: { "Cache-Control": "no-store, max-age=0" } }
+        );
       }
       case "unread": {
         const unreadCount = await service.getInboxCount(currentUser.id);
-        return NextResponse.json({ unreadCount });
+        return NextResponse.json(
+          {
+            unreadCount,
+            currentUser: {
+              id: currentUser.id,
+              tenantId: currentUser.tenantId,
+            },
+          },
+          { headers: { "Cache-Control": "no-store, max-age=0" } }
+        );
       }
       default:
         return NextResponse.json({ error: "Invalid type" }, { status: 400 });

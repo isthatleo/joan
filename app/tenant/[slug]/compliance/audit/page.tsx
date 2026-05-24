@@ -40,6 +40,8 @@ export default function AuditLogsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [dateRange, setDateRange] = useState("7d");
+  const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     fetchAuditLogs();
@@ -103,6 +105,43 @@ export default function AuditLogsPage() {
   const categories = ["all", "authentication", "data", "system", "security", "compliance"];
   const statuses = ["all", "success", "warning", "error"];
 
+  const handleExportLogs = () => {
+    if (filteredLogs.length === 0) return;
+    setExporting(true);
+    try {
+      const rows = [
+        ["timestamp", "user", "role", "action", "resource", "resourceId", "status", "category", "details", "ipAddress", "userAgent"],
+        ...filteredLogs.map((log) => [
+          log.timestamp,
+          log.user.name,
+          log.user.role,
+          log.action,
+          log.resource,
+          log.resourceId || "",
+          log.status,
+          log.category,
+          log.details,
+          log.ipAddress,
+          log.userAgent,
+        ]),
+      ];
+      const csv = rows
+        .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","))
+        .join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `tenant-audit-${slug}-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -113,13 +152,23 @@ export default function AuditLogsPage() {
           <p className="text-sm text-muted-foreground mt-1">Complete audit trail of system activities and user actions.</p>
         </div>
         <div className="flex gap-2">
-          <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all">
+          <button
+            type="button"
+            onClick={() => document.getElementById("audit-filters")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
+          >
             <Filter className="size-4" />
             Advanced Filters
           </button>
-          <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-sm hover:opacity-90" style={{ backgroundColor: orange }}>
+          <button
+            type="button"
+            onClick={handleExportLogs}
+            disabled={exporting || filteredLogs.length === 0}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-sm hover:opacity-90 disabled:opacity-60"
+            style={{ backgroundColor: orange }}
+          >
             <Download className="size-4" />
-            Export Logs
+            {exporting ? "Exporting..." : "Export Logs"}
           </button>
         </div>
       </div>
@@ -186,7 +235,7 @@ export default function AuditLogsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-4">
+      <div id="audit-filters" className="flex flex-wrap gap-4">
         <div className="relative flex-1 min-w-64">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground size-4" />
           <input
@@ -313,7 +362,11 @@ export default function AuditLogsPage() {
                         <p className="text-sm text-muted-foreground line-clamp-2">{log.details}</p>
                       </td>
                       <td className="px-6 py-4">
-                        <button className="size-8 rounded-lg hover:bg-muted flex items-center justify-center">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedLog(log)}
+                          className="size-8 rounded-lg hover:bg-muted flex items-center justify-center"
+                        >
                           <Eye className="size-4" />
                         </button>
                       </td>
@@ -340,6 +393,55 @@ export default function AuditLogsPage() {
           </div>
         </div>
       </div>
+
+      {selectedLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-3xl rounded-2xl border border-border bg-card p-6 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Audit Entry</p>
+                <h2 className="mt-1 text-xl font-semibold text-foreground">{selectedLog.action}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedLog(null)}
+                className="rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-border bg-background p-4">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Actor</p>
+                <p className="mt-2 font-medium text-foreground">{selectedLog.user.name}</p>
+                <p className="text-sm text-muted-foreground">{selectedLog.user.email}</p>
+                <p className="text-sm text-muted-foreground">{selectedLog.user.role}</p>
+              </div>
+              <div className="rounded-xl border border-border bg-background p-4">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Event</p>
+                <p className="mt-2 text-sm text-foreground">{new Date(selectedLog.timestamp).toLocaleString()}</p>
+                <p className="text-sm text-muted-foreground">Resource: {selectedLog.resource}</p>
+                {selectedLog.resourceId && <p className="text-sm text-muted-foreground">Resource ID: {selectedLog.resourceId}</p>}
+              </div>
+              <div className="rounded-xl border border-border bg-background p-4 md:col-span-2">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Details</p>
+                <p className="mt-2 text-sm text-foreground">{selectedLog.details}</p>
+              </div>
+              <div className="rounded-xl border border-border bg-background p-4">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Network</p>
+                <p className="mt-2 text-sm text-foreground">IP: {selectedLog.ipAddress}</p>
+                <p className="text-sm text-muted-foreground break-all">{selectedLog.userAgent}</p>
+              </div>
+              <div className="rounded-xl border border-border bg-background p-4">
+                <p className="text-xs uppercase tracking-wider text-muted-foreground">Classification</p>
+                <p className="mt-2 text-sm text-foreground">Status: {selectedLog.status}</p>
+                <p className="text-sm text-muted-foreground">Category: {selectedLog.category}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

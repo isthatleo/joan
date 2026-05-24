@@ -1,244 +1,303 @@
 "use client";
-import { useState } from "react";
-import { Card } from "@/components/ui/card";
-import { Search, Plus, FileText, CheckCircle, Clock, AlertTriangle, Download, Eye } from "lucide-react";
+
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { format } from "date-fns";
+import { AlertTriangle, CheckCircle2, Download, Eye, FlaskConical, Loader2, RefreshCw, Search } from "lucide-react";
+import { toast } from "sonner";
+import { Topbar } from "@/components/Topbar";
+import { KPICard } from "@/components/KPICard";
+
+type LabResultRow = {
+  id: string;
+  orderId: string;
+  patientId: string;
+  patientName: string;
+  patientEmail: string | null;
+  patientPhone: string | null;
+  globalPatientId: string | null;
+  testName: string | null;
+  testCode: string | null;
+  category: string | null;
+  priority: string | null;
+  status: string;
+  flag: string;
+  summary: string;
+  values: Array<{ name: string; value: string; unit?: string; referenceRange?: string; flag: string }>;
+  notes: string | null;
+  attachments: string[];
+  fileUrl: string | null;
+  performedAt: string | null;
+  orderedAt: string | null;
+  acceptedAt: string | null;
+  acceptedByDoctorName: string | null;
+  requestedRepeatAt: string | null;
+  followUpOrderId: string | null;
+};
+
+type ResultsResponse = {
+  results: LabResultRow[];
+  stats: {
+    total: number;
+    pendingReview: number;
+    accepted: number;
+    critical: number;
+    abnormal: number;
+  };
+};
+
+const statuses = ["all", "pending_review", "accepted"];
+const flags = ["all", "normal", "high", "low", "critical", "abnormal"];
+
+function flagTone(flag: string) {
+  switch (flag) {
+    case "critical":
+      return "bg-rose-500/10 text-rose-700 dark:text-rose-300";
+    case "high":
+      return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
+    case "low":
+      return "bg-blue-500/10 text-blue-700 dark:text-blue-300";
+    case "abnormal":
+      return "bg-yellow-500/10 text-yellow-700 dark:text-yellow-300";
+    default:
+      return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  }
+}
+
+function statusTone(status: string) {
+  switch (status) {
+    case "accepted":
+      return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+    default:
+      return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  }
+}
 
 export default function LabResultsPage() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
+  const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  const orderId = searchParams?.get("orderId") || "";
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
+  const [flag, setFlag] = useState("all");
 
-  // Mock data - in real app, fetch from API
-  const results = [
-    {
-      id: "R001",
-      orderId: "LO001",
-      patientId: "P001",
-      patientName: "John Doe",
-      testType: "Complete Blood Count",
-      status: "completed",
-      resultDate: "2026-04-15 14:30",
-      technician: "Lab Tech Sarah",
-      findings: "Normal CBC results",
-      criticalValues: false,
-      pdfUrl: "/results/cbc-001.pdf"
+  const resultsQuery = useQuery<ResultsResponse>({
+    queryKey: ["doctor-lab-results", search, status, flag, orderId],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (search.trim()) params.set("search", search.trim());
+      if (status !== "all") params.set("status", status);
+      if (flag !== "all") params.set("flag", flag);
+      if (orderId) params.set("orderId", orderId);
+      const response = await fetch(`/api/doctor/lab-results?${params.toString()}`);
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to load lab results");
+      }
+      return response.json();
     },
-    {
-      id: "R002",
-      orderId: "LO002",
-      patientId: "P002",
-      patientName: "Jane Smith",
-      testType: "Lipid Panel",
-      status: "pending_review",
-      resultDate: "2026-04-15 15:45",
-      technician: "Lab Tech Mike",
-      findings: "High cholesterol levels detected",
-      criticalValues: true,
-      pdfUrl: null
-    },
-    {
-      id: "R003",
-      orderId: "LO003",
-      patientId: "P003",
-      patientName: "Bob Wilson",
-      testType: "Liver Function Test",
-      status: "completed",
-      resultDate: "2026-04-14 11:20",
-      technician: "Lab Tech Sarah",
-      findings: "Elevated liver enzymes",
-      criticalValues: false,
-      pdfUrl: "/results/lft-003.pdf"
-    }
-  ];
-
-  const filteredResults = results.filter(result => {
-    const matchesSearch = result.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         result.testType.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         result.id.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filterStatus === "all" || result.status === filterStatus;
-    return matchesSearch && matchesFilter;
   });
 
-  const stats = {
-    total: results.length,
-    completed: results.filter(r => r.status === "completed").length,
-    pending: results.filter(r => r.status === "pending_review").length,
-    critical: results.filter(r => r.criticalValues).length
-  };
+  const acceptResult = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/doctor/lab-results/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "accept" }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || "Failed to accept result");
+      }
+      return response.json();
+    },
+    onSuccess: async () => {
+      toast.success("Lab result accepted.");
+      await queryClient.invalidateQueries({ queryKey: ["doctor-lab-results"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "completed": return <CheckCircle className="w-5 h-5 text-green-600" />;
-      case "pending_review": return <Clock className="w-5 h-5 text-orange-600" />;
-      default: return <FileText className="w-5 h-5 text-gray-600" />;
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "completed": return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
-      case "pending_review": return "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200";
-      default: return "bg-gray-100 text-gray-800 dark:bg-slate-700 dark:text-gray-200";
-    }
-  };
+  const rows = useMemo(() => resultsQuery.data?.results ?? [], [resultsQuery.data?.results]);
+  const stats = resultsQuery.data?.stats;
 
   return (
     <div className="space-y-6">
-      {/* Header Card */}
-      <Card className="p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Lab Results</h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-1">
-              Review and manage laboratory test results
-            </p>
-          </div>
-          <button className="flex items-center space-x-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors">
-            <Plus className="w-5 h-5" />
-            <span>Upload Result</span>
-          </button>
-        </div>
-      </Card>
+      <Topbar breadcrumbs={[{ label: "Dashboard", href: "/doctor" }, { label: "Lab Results" }]} />
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Results</p>
-              <p className="text-3xl font-bold text-gray-900 dark:text-white">{stats.total}</p>
-            </div>
-            <FileText className="w-8 h-8 text-blue-600" />
-          </div>
-        </Card>
-        <Card className="p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Completed</p>
-              <p className="text-3xl font-bold text-green-600">{stats.completed}</p>
-            </div>
-            <CheckCircle className="w-8 h-8 text-green-600" />
-          </div>
-        </Card>
-        <Card className="p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Pending Review</p>
-              <p className="text-3xl font-bold text-orange-600">{stats.pending}</p>
-            </div>
-            <Clock className="w-8 h-8 text-orange-600" />
-          </div>
-        </Card>
-        <Card className="p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Critical Values</p>
-              <p className="text-3xl font-bold text-red-600">{stats.critical}</p>
-            </div>
-            <AlertTriangle className="w-8 h-8 text-red-600" />
-          </div>
-        </Card>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold text-foreground">Lab Results</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Review published results, accept completed findings, and request follow-up testing.
+          </p>
+        </div>
+        <button
+          onClick={() => resultsQuery.refetch()}
+          className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground"
+        >
+          <RefreshCw className={`h-4 w-4 ${resultsQuery.isRefetching ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
       </div>
 
-      {/* Filters Card */}
-      <Card className="p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center space-y-4 lg:space-y-0 lg:space-x-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search by patient name, test type, or result ID..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
-            />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <KPICard title="Total Results" value={stats?.total ?? 0} subtitle="Doctor scoped" tone="info" icon={FlaskConical} />
+        <KPICard title="Pending Review" value={stats?.pendingReview ?? 0} subtitle="Awaiting doctor acceptance" tone="warning" icon={AlertTriangle} />
+        <KPICard title="Accepted" value={stats?.accepted ?? 0} subtitle="Cleared by you" tone="success" icon={CheckCircle2} />
+        <KPICard title="Critical" value={stats?.critical ?? 0} subtitle="Immediate attention" tone="danger" icon={AlertTriangle} />
+        <KPICard title="Abnormal" value={stats?.abnormal ?? 0} subtitle="Out-of-range results" tone="primary" icon={FlaskConical} />
+      </div>
+
+      {resultsQuery.isError && (
+        <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {(resultsQuery.error as Error).message}
+        </div>
+      )}
+
+      <section className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Result Worklist</h2>
+            <p className="text-sm text-muted-foreground">Filter and act on newly published lab results.</p>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search patient or test"
+                className="h-10 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none sm:w-72"
+              />
+            </div>
             <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+              className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none"
             >
-              <option value="all">All Status</option>
-              <option value="completed">Completed</option>
-              <option value="pending_review">Pending Review</option>
+              {statuses.map((option) => (
+                <option key={option} value={option}>
+                  {option === "all" ? "All Status" : option.replace("_", " ")}
+                </option>
+              ))}
+            </select>
+            <select
+              value={flag}
+              onChange={(event) => setFlag(event.target.value)}
+              className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none"
+            >
+              {flags.map((option) => (
+                <option key={option} value={option}>
+                  {option === "all" ? "All Flags" : option}
+                </option>
+              ))}
             </select>
           </div>
         </div>
-      </Card>
 
-      {/* Results Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {filteredResults.map((result) => (
-          <Card key={result.id} className="p-6 hover:shadow-lg transition-shadow">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center space-x-3">
-                {getStatusIcon(result.status)}
-                <div>
-                  <h3 className="font-semibold text-gray-900 dark:text-white">{result.testType}</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Result #{result.id}</p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(result.status)}`}>
-                  {result.status.replace('_', ' ')}
-                </span>
-                {result.criticalValues && (
-                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
-                    Critical
-                  </span>
+        <div className="overflow-hidden rounded-xl border border-border">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-border text-sm">
+              <thead className="bg-muted/40 text-left text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Patient</th>
+                  <th className="px-4 py-3 font-medium">Result</th>
+                  <th className="px-4 py-3 font-medium">Flag</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Performed</th>
+                  <th className="px-4 py-3 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border bg-card">
+                {resultsQuery.isLoading ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
+                      <Loader2 className="mx-auto h-5 w-5 animate-spin" />
+                    </td>
+                  </tr>
+                ) : rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center">
+                      <FlaskConical className="mx-auto h-8 w-8 text-muted-foreground" />
+                      <p className="mt-3 text-sm font-medium text-foreground">No lab results found.</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Published results will appear here for review.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  rows.map((result) => (
+                    <tr key={result.id}>
+                      <td className="px-4 py-3">
+                        <div className="space-y-1">
+                          <p className="font-medium text-foreground">{result.patientName}</p>
+                          <p className="text-xs text-muted-foreground">{result.globalPatientId || "No patient number"}</p>
+                          <p className="text-xs text-muted-foreground">{result.patientPhone || result.patientEmail || "No contact on file"}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="space-y-1">
+                          <p className="font-medium text-foreground">{result.testName || "Unnamed test"}</p>
+                          <p className="text-xs text-muted-foreground">{result.testCode || "No code"} · {result.category || "General"}</p>
+                          <p className="text-xs text-muted-foreground">{result.summary}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize ${flagTone(result.flag)}`}>
+                          {result.flag}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize ${statusTone(result.status)}`}>
+                          {result.status.replace("_", " ")}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-foreground">
+                        <div>
+                          <p>{result.performedAt ? format(new Date(result.performedAt), "MMM dd, yyyy") : "-"}</p>
+                          <p className="text-xs text-muted-foreground">{result.acceptedAt ? `Accepted ${format(new Date(result.acceptedAt), "MMM dd, h:mm a")}` : "Not yet accepted"}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <Link
+                            href={`/lab-results/${result.id}`}
+                            className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground"
+                          >
+                            <Eye className="h-3 w-3" />
+                            View
+                          </Link>
+                          {result.fileUrl && (
+                            <a
+                              href={result.fileUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground"
+                            >
+                              <Download className="h-3 w-3" />
+                              PDF
+                            </a>
+                          )}
+                          {result.status !== "accepted" && (
+                            <button
+                              onClick={() => acceptResult.mutate(result.id)}
+                              className="inline-flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground"
+                            >
+                              <CheckCircle2 className="h-3 w-3" />
+                              Accept
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
                 )}
-              </div>
-            </div>
-
-            <div className="space-y-3 mb-4">
-              <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
-                <span className="font-medium">Patient:</span>
-                <span>{result.patientName} ({result.patientId})</span>
-              </div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                <span className="font-medium">Order ID:</span> {result.orderId}
-              </div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                <span className="font-medium">Technician:</span> {result.technician}
-              </div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                <span className="font-medium">Result Date:</span> {result.resultDate}
-              </div>
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                <span className="font-medium">Findings:</span> {result.findings}
-              </div>
-            </div>
-
-            <div className="flex space-x-2">
-              <button className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2">
-                <Eye className="w-4 h-4" />
-                <span>View Details</span>
-              </button>
-              {result.pdfUrl && (
-                <button className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors flex items-center space-x-2">
-                  <Download className="w-4 h-4" />
-                  <span>PDF</span>
-                </button>
-              )}
-              {result.status === "pending_review" && (
-                <button className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-colors">
-                  Review
-                </button>
-              )}
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      {filteredResults.length === 0 && (
-        <Card className="p-12 text-center">
-          <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No results found</h3>
-          <p className="text-gray-600 dark:text-gray-400">
-            {searchTerm ? 'Try adjusting your search terms' : 'No results match your current filters'}
-          </p>
-        </Card>
-      )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

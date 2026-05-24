@@ -106,6 +106,27 @@
       "when": 1779536049556,
       "tag": "0014_quiet_blob",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1779626238532,
+      "tag": "0015_dizzy_wildside",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1779647676033,
+      "tag": "0016_special_lucky_pierre",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1779655241046,
+      "tag": "0017_yummy_living_lightning",
+      "breakpoints": true
     }
   ]
 }

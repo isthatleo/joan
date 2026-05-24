@@ -187,6 +187,11 @@
     --border: 220 16% 38%;
     --border-strong: 220 18% 52%;
   }
+  .compact-tables table th,
+  .compact-tables table td {
+    padding-top: 0.45rem !important;
+    padding-bottom: 0.45rem !important;
+  }
 }
 
 @layer utilities {

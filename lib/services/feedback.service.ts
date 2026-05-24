@@ -1,8 +1,76 @@
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { feedbacks, users, tenants, userRoles, roles } from "@/lib/db/schema";
-import { eq, and, or, desc } from "drizzle-orm";
+import { feedbacks, roles, tenants, userRoles, users } from "@/lib/db/schema";
+
+type FeedbackRecord = {
+  id: string;
+  scope: string;
+  type: string;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  createdAt: Date | string | null;
+  tenantId: string | null;
+  userId: string | null;
+  userName: string | null;
+  userEmail: string | null;
+  tenantName: string | null;
+  assignedToId: string | null;
+  assignedToName: string | null;
+  assignedToEmail: string | null;
+  resolvedAt: Date | string | null;
+  resolution: string | null;
+  patientFeedback?: boolean;
+};
+
+function mapFeedback(record: FeedbackRecord) {
+  return {
+    id: record.id,
+    scope: record.scope,
+    type: record.type,
+    title: record.title,
+    description: record.description ?? "",
+    status: record.status,
+    priority: record.priority,
+    createdAt: record.createdAt,
+    user: {
+      id: record.userId,
+      fullName: record.userName,
+      email: record.userEmail,
+      tenantId: record.tenantId,
+    },
+    tenant: record.tenantId ? { id: record.tenantId, name: record.tenantName || "" } : null,
+    assignedToUser: record.assignedToId
+      ? {
+          id: record.assignedToId,
+          fullName: record.assignedToName,
+          email: record.assignedToEmail,
+        }
+      : undefined,
+    resolvedAt: record.resolvedAt,
+    resolution: record.resolution,
+  };
+}
 
 export class FeedbackService {
+  static readonly PLATFORM_TYPES = new Set([
+    "bug",
+    "feature_request",
+    "feature_improvement",
+    "feature_addition",
+    "improvement",
+  ]);
+
+  resolveScope(type: string, requestedScope?: string | null) {
+    const normalizedRequestedScope = String(requestedScope || "").toLowerCase();
+    if (normalizedRequestedScope === "platform" || normalizedRequestedScope === "tenant") {
+      return normalizedRequestedScope;
+    }
+
+    return FeedbackService.PLATFORM_TYPES.has(String(type).toLowerCase()) ? "platform" : "tenant";
+  }
+
   async createFeedback(data: {
     userId?: string;
     tenantId?: string;
@@ -12,112 +80,121 @@ export class FeedbackService {
     title: string;
     description?: string;
     priority?: string;
+    scope?: string;
     forcePatientFeedback?: boolean;
   }) {
-    // Determine if this is patient feedback by checking the user's role
     let patientFeedback = data.forcePatientFeedback || false;
-    if (!data.forcePatientFeedback && data.userId) {
-      const roleRec = await db.query.userRoles.findFirst({
-        where: eq(userRoles.userId, data.userId),
-        with: { role: true },
-      });
-      const roleName = roleRec?.role?.name;
-      if (roleName === "patient") patientFeedback = true;
+    const scope = this.resolveScope(data.type, data.scope);
+
+    if (!patientFeedback && data.userId) {
+      const [roleRow] = await db
+        .select({
+          baseRole: users.role,
+          linkedRole: roles.name,
+        })
+        .from(users)
+        .leftJoin(userRoles, eq(userRoles.userId, users.id))
+        .leftJoin(roles, eq(roles.id, userRoles.roleId))
+        .where(and(eq(users.id, data.userId), isNull(users.deletedAt)))
+        .limit(1);
+
+      const roleNames = [roleRow?.baseRole, roleRow?.linkedRole]
+        .filter(Boolean)
+        .map((value) => String(value).toLowerCase());
+
+      patientFeedback = roleNames.includes("patient");
     }
 
-    const insert = await db.insert(feedbacks).values({
-      tenantId: data.tenantId,
-      userId: data.userId,
-      userName: data.userName,
-      userEmail: data.userEmail,
-      type: data.type,
-      title: data.title,
-      description: data.description,
-      priority: data.priority || "medium",
-      status: "open",
-      patientFeedback,
-    }).returning();
+    const [inserted] = await db
+      .insert(feedbacks)
+      .values({
+        tenantId: data.tenantId ?? null,
+        userId: data.userId ?? null,
+        userName: data.userName ?? null,
+        userEmail: data.userEmail ?? null,
+        scope,
+        type: data.type,
+        title: data.title,
+        description: data.description ?? null,
+        priority: data.priority || "medium",
+        status: "open",
+        patientFeedback,
+      })
+      .returning();
 
-    return insert[0];
+    return inserted;
   }
 
   async getFeedback(filters: {
     status?: string;
     type?: string;
+    scope?: string;
     assignedTo?: string;
     tenantId?: string;
     userId?: string;
   }) {
-    const whereClauses: any[] = [];
+    const whereClauses = [isNull(feedbacks.deletedAt)];
 
     if (filters.status) whereClauses.push(eq(feedbacks.status, filters.status));
     if (filters.type) whereClauses.push(eq(feedbacks.type, filters.type));
+    if (filters.scope) whereClauses.push(eq(feedbacks.scope, filters.scope));
     if (filters.assignedTo) whereClauses.push(eq(feedbacks.assignedTo, filters.assignedTo));
     if (filters.tenantId) whereClauses.push(eq(feedbacks.tenantId, filters.tenantId));
     if (filters.userId) whereClauses.push(eq(feedbacks.userId, filters.userId));
+    if (!filters.tenantId && !filters.userId) whereClauses.push(eq(feedbacks.patientFeedback, false));
 
-    // If no tenantId and no userId provided, assume this is a super-admin request and return only platform feedback
-    if (!filters.tenantId && !filters.userId) {
-      whereClauses.push(eq(feedbacks.patientFeedback, false));
-    }
+    const records = await db
+      .select({
+        id: feedbacks.id,
+        scope: feedbacks.scope,
+        type: feedbacks.type,
+        title: feedbacks.title,
+        description: feedbacks.description,
+        status: feedbacks.status,
+        priority: feedbacks.priority,
+        createdAt: feedbacks.createdAt,
+        tenantId: feedbacks.tenantId,
+        userId: feedbacks.userId,
+        patientFeedback: feedbacks.patientFeedback,
+        userName: sql<string | null>`coalesce(${users.fullName}, ${feedbacks.userName})`,
+        userEmail: sql<string | null>`coalesce(${users.email}, ${feedbacks.userEmail})`,
+        tenantName: tenants.name,
+        assignedToId: feedbacks.assignedTo,
+        assignedToName: sql<string | null>`null`,
+        assignedToEmail: sql<string | null>`null`,
+        resolvedAt: feedbacks.resolvedAt,
+        resolution: feedbacks.resolution,
+      })
+      .from(feedbacks)
+      .leftJoin(users, eq(users.id, feedbacks.userId))
+      .leftJoin(tenants, eq(tenants.id, feedbacks.tenantId))
+      .where(and(...whereClauses))
+      .orderBy(desc(feedbacks.createdAt));
 
-    const results = await db.query.feedbacks.findMany({
-      where: whereClauses.length > 0 ? and(...whereClauses) : undefined,
-      with: {
-        tenant: true,
-        user: true,
-        assignedToUser: {
-          columns: { id: true, fullName: true, email: true },
-        } as any,
-      },
-      orderBy: desc(feedbacks.createdAt),
-    } as any);
-
-    // Normalize result objects for API consumption
-    const mapped = results.map((f: any) => ({
-      id: f.id,
-      type: f.type,
-      title: f.title,
-      description: f.description,
-      status: f.status,
-      priority: f.priority,
-      createdAt: f.createdAt,
-      user: {
-        id: f.user?.id || f.userId,
-        fullName: f.user?.fullName || f.userName,
-        email: f.user?.email || f.userEmail,
-        tenantId: f.tenantId,
-      },
-      tenant: f.tenant ? { id: f.tenant.id, name: f.tenant.name } : { id: f.tenantId, name: "" },
-      assignedToUser: f.assignedToUser ? { id: f.assignedToUser.id, fullName: f.assignedToUser.fullName, email: f.assignedToUser.email } : undefined,
-      resolvedAt: f.resolvedAt,
-      resolution: f.resolution,
-    }));
-
-    return mapped;
+    return records.map((record) => mapFeedback(record as FeedbackRecord));
   }
 
   async updateFeedbackStatus(feedbackId: string, status?: string, assignedTo?: string, resolution?: string) {
-    const updateData: any = {};
+    const updateData: Record<string, unknown> = {};
     if (status) updateData.status = status;
-    if (assignedTo) updateData.assignedTo = assignedTo;
+    if (assignedTo !== undefined) updateData.assignedTo = assignedTo || null;
     if (resolution) {
       updateData.resolution = resolution;
       updateData.resolvedAt = new Date();
     }
 
-    await db.update(feedbacks).set(updateData).where(eq(feedbacks.id, feedbackId));
+    const [updated] = await db
+      .update(feedbacks)
+      .set(updateData)
+      .where(and(eq(feedbacks.id, feedbackId), isNull(feedbacks.deletedAt)))
+      .returning();
 
-    const updated = await db.query.feedbacks.findFirst({ where: eq(feedbacks.id, feedbackId) });
     return updated;
   }
 
-  // Get patient feedbacks for a specific hospital (for hospital admin view)
-  async getPatientFeedbacksByTenant(tenantId: string, filters?: {
-    status?: string;
-    type?: string;
-  }) {
-    const whereClauses: any[] = [
+  async getPatientFeedbacksByTenant(tenantId: string, filters?: { status?: string; type?: string }) {
+    const whereClauses = [
+      isNull(feedbacks.deletedAt),
       eq(feedbacks.tenantId, tenantId),
       eq(feedbacks.patientFeedback, true),
     ];
@@ -125,42 +202,35 @@ export class FeedbackService {
     if (filters?.status) whereClauses.push(eq(feedbacks.status, filters.status));
     if (filters?.type) whereClauses.push(eq(feedbacks.type, filters.type));
 
-    const results = await db.query.feedbacks.findMany({
-      where: and(...whereClauses),
-      with: {
-        tenant: true,
-        user: true,
-        assignedToUser: {
-          columns: { id: true, fullName: true, email: true },
-        } as any,
-      },
-      orderBy: desc(feedbacks.createdAt),
-    } as any);
+    const records = await db
+      .select({
+        id: feedbacks.id,
+        scope: feedbacks.scope,
+        type: feedbacks.type,
+        title: feedbacks.title,
+        description: feedbacks.description,
+        status: feedbacks.status,
+        priority: feedbacks.priority,
+        createdAt: feedbacks.createdAt,
+        tenantId: feedbacks.tenantId,
+        userId: feedbacks.userId,
+        userName: sql<string | null>`coalesce(${users.fullName}, ${feedbacks.userName})`,
+        userEmail: sql<string | null>`coalesce(${users.email}, ${feedbacks.userEmail})`,
+        tenantName: tenants.name,
+        assignedToId: feedbacks.assignedTo,
+        assignedToName: sql<string | null>`null`,
+        assignedToEmail: sql<string | null>`null`,
+        resolvedAt: feedbacks.resolvedAt,
+        resolution: feedbacks.resolution,
+      })
+      .from(feedbacks)
+      .leftJoin(users, eq(users.id, feedbacks.userId))
+      .leftJoin(tenants, eq(tenants.id, feedbacks.tenantId))
+      .where(and(...whereClauses))
+      .orderBy(desc(feedbacks.createdAt));
 
-    // Normalize result objects
-    const mapped = results.map((f: any) => ({
-      id: f.id,
-      type: f.type,
-      title: f.title,
-      description: f.description,
-      status: f.status,
-      priority: f.priority,
-      createdAt: f.createdAt,
-      user: {
-        id: f.user?.id || f.userId,
-        fullName: f.user?.fullName || f.userName,
-        email: f.user?.email || f.userEmail,
-        tenantId: f.tenantId,
-      },
-      tenant: f.tenant ? { id: f.tenant.id, name: f.tenant.name } : { id: f.tenantId, name: "" },
-      assignedToUser: f.assignedToUser ? { id: f.assignedToUser.id, fullName: f.assignedToUser.fullName, email: f.assignedToUser.email } : undefined,
-      resolvedAt: f.resolvedAt,
-      resolution: f.resolution,
-    }));
-
-    return mapped;
+    return records.map((record) => mapFeedback(record as FeedbackRecord));
   }
 }
 
 export const feedbackService = new FeedbackService();
-

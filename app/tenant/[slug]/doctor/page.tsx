@@ -1,378 +1,276 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import {
-  LayoutDashboard, Users, Calendar, Clock, CheckCircle, Activity,
-  AlertCircle, TrendingUp, Plus, RefreshCw, Download, Pill,
-  FlaskConical, Microscope, Heart, Zap, BarChart3, ArrowRight, Loader2
-} from "lucide-react";
+import { useEffect, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { Activity, BellRing, CalendarDays, ClipboardList, FilePlus2, FlaskConical, History, Pill, Plus, Stethoscope, Users } from "lucide-react";
+import { toast } from "sonner";
+import { KPICard } from "@/components/KPICard";
+import { DataCard } from "@/components/DataCard";
+import { useTenantPath } from "@/hooks/useTenantPath";
 
-const orange = "#F97316";
-
-interface DoctorDashboardMetrics {
-  totalPatients: number;
-  newPatientsThisMonth: number;
-  activeAppointmentsToday: number;
-  completedAppointmentsToday: number;
-  pendingLabOrders: number;
-  pendingPrescriptions: number;
-  patientsInQueue: number;
-  averageConsultationTime: number;
-  patientSatisfactionScore: number;
-  pendingLabResults: number;
-  completedLabResults: number;
+function formatDateTime(value: string | Date | null) {
+  if (!value) return "Not scheduled";
+  return new Date(value).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-interface TodayAppointment {
-  id: string;
-  patientName: string;
-  patientId: string;
-  time: string;
-  status: "scheduled" | "completed" | "no-show" | "in-progress";
-  type: string;
-  duration: number;
-}
+export default function DoctorDashboardPage() {
+  const router = useRouter();
+  const tenantPath = useTenantPath();
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["doctor-dashboard"],
+    queryFn: async () => {
+      const response = await fetch("/api/doctor/dashboard", { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to load doctor dashboard");
+      return response.json();
+    },
+  });
 
-interface RecentActivity {
-  id: string;
-  type: "appointment" | "lab" | "prescription" | "patient";
-  title: string;
-  description: string;
-  timestamp: string;
-}
-
-interface Alert {
-  id: string;
-  type: "warning" | "info" | "success" | "error";
-  title: string;
-  message: string;
-}
-
-const StatCard = ({
-  title,
-  value,
-  subtitle,
-  icon: Icon,
-  trend,
-  trendDirection,
-  onClick,
-}: {
-  title: string;
-  value: string | number;
-  subtitle: string;
-  icon: React.ReactNode;
-  trend?: string;
-  trendDirection?: "up" | "down";
-  onClick?: () => void;
-}) => (
-  <div
-    onClick={onClick}
-    className={`p-6 rounded-2xl border border-gray-200 bg-white hover:shadow-lg transition-all ${
-      onClick ? "cursor-pointer" : ""
-    }`}
-  >
-    <div className="flex items-start justify-between mb-4">
-      <div className="p-2.5 rounded-xl bg-orange-50 text-orange-500">
-        {Icon}
-      </div>
-      {trend && (
-        <div
-          className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold ${
-            trendDirection === "up"
-              ? "text-green-600 bg-green-50"
-              : "text-red-600 bg-red-50"
-          }`}
-        >
-          {trendDirection === "up" ? "↑" : "↓"} {trend}
-        </div>
-      )}
-    </div>
-    <h3 className="text-sm font-medium text-gray-600 mb-1">{title}</h3>
-    <p className="text-2xl font-bold text-gray-900 mb-1">{value}</p>
-    <p className="text-xs text-gray-500">{subtitle}</p>
-  </div>
-);
-
-export default function DoctorDashboard() {
-  const params = useParams();
-  const slug = params?.slug as string;
-  const [metrics, setMetrics] = useState<DoctorDashboardMetrics | null>(null);
-  const [todayAppointments, setTodayAppointments] = useState<TodayAppointment[]>([]);
-  const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const notificationsQuery = useQuery({
+    queryKey: ["doctor-lab-result-notifications"],
+    queryFn: async () => {
+      const response = await fetch("/api/notifications?unreadOnly=true", { cache: "no-store" });
+      if (!response.ok) return { notifications: [] };
+      return response.json();
+    },
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+  });
 
   useEffect(() => {
-    fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    const notifications = notificationsQuery.data?.notifications ?? [];
+    const pending = notifications.filter((item: any) => item.type === "lab_result_ready");
 
-  const fetchDashboardData = async () => {
-    try {
-      setRefreshing(true);
-      const [metricsRes, appointmentsRes, activitiesRes, alertsRes] =
-        await Promise.all([
-          fetch(`/api/doctor/dashboard?slug=${slug}`),
-          fetch(`/api/doctor/appointments?slug=${slug}&today=true`),
-          fetch(`/api/doctor/activities?slug=${slug}`),
-          fetch(`/api/doctor/alerts?slug=${slug}`),
-        ]);
+    pending.forEach((item: any) => {
+      const storageKey = `doctor-lab-toast-${item.id}`;
+      if (typeof window !== "undefined" && window.sessionStorage.getItem(storageKey)) {
+        return;
+      }
 
-      if (metricsRes.ok) setMetrics(await metricsRes.json());
-      if (appointmentsRes.ok) setTodayAppointments(await appointmentsRes.json());
-      if (activitiesRes.ok) setRecentActivities(await activitiesRes.json());
-      if (alertsRes.ok) setAlerts(await alertsRes.json());
+      toast.success(item.message || "A lab result is ready for review.");
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(storageKey, "1");
+      }
 
-      setLoading(false);
-    } catch (error) {
-      console.error("Failed to fetch dashboard data:", error);
-    } finally {
-      setRefreshing(false);
-    }
-  };
+      fetch(`/api/notifications/${item.id}/read`, { method: "POST" })
+        .then(() => notificationsQuery.refetch())
+        .catch(() => undefined);
+    });
+  }, [notificationsQuery.data?.notifications]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-orange-500" />
-          Loading dashboard...
-        </div>
-      </div>
-    );
-  }
-
-  const quickActions = [
-    { icon: Plus, label: "New Appointment", color: "bg-blue-50 text-blue-600", href: `/tenant/${slug}/doctor/appointments/new` },
-    { icon: Pill, label: "Prescribe", color: "bg-green-50 text-green-600", href: `/tenant/${slug}/doctor/prescriptions/new` },
-    { icon: FlaskConical, label: "Lab Order", color: "bg-cyan-50 text-cyan-600", href: `/tenant/${slug}/doctor/lab-orders/new` },
-    { icon: Users, label: "View Patients", color: "bg-purple-50 text-purple-600", href: `/tenant/${slug}/doctor/patients` },
-    { icon: Calendar, label: "My Appointments", color: "bg-indigo-50 text-indigo-600", href: `/tenant/${slug}/doctor/appointments` },
-    { icon: BarChart3, label: "Analytics", color: "bg-orange-50 text-orange-600", href: `/tenant/${slug}/doctor/analytics/my-patients` },
-  ];
+  const metrics = data?.metrics ?? {};
+  const appointments = data?.todayAppointments ?? [];
+  const queueSnapshot = data?.queueSnapshot ?? [];
+  const recentLabOrders = data?.recentLabOrders ?? [];
+  const recentPrescriptions = data?.recentPrescriptions ?? [];
+  const unreadLabNotifications = notificationsQuery.data?.notifications?.filter((item: any) => item.type === "lab_result_ready") ?? [];
+  const scheduledToday = appointments.filter((item: any) => item.status === "scheduled").length;
+  const completedToday = metrics.completedToday ?? 0;
+  const actionCards = useMemo(
+    () => [
+      { label: "New Appointment", href: tenantPath("/doctor/appointments/new"), icon: Plus, tone: "bg-primary text-primary-foreground" },
+      { label: "Add Patient", href: tenantPath("/doctor/patients/register"), icon: Users, tone: "bg-card text-foreground border border-border" },
+      { label: "Open Queue", href: tenantPath("/doctor/queue"), icon: ClipboardList, tone: "bg-card text-foreground border border-border" },
+      { label: "New Lab Order", href: tenantPath("/doctor/lab-orders/new"), icon: FilePlus2, tone: "bg-card text-foreground border border-border" },
+      { label: "Write Prescription", href: tenantPath("/doctor/prescriptions/new"), icon: Pill, tone: "bg-card text-foreground border border-border" },
+      { label: "Patient History", href: tenantPath("/doctor/analytics/my-patients"), icon: History, tone: "bg-card text-foreground border border-border" },
+    ],
+    [tenantPath]
+  );
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
-            Doctor Dashboard
-          </p>
-          <h1 className="text-3xl font-bold text-foreground mt-1">
-            Clinical Overview
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Real-time patient and appointment insights
+          <h1 className="text-3xl font-semibold text-foreground">Doctor Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Live overview of your patients, appointments, queue, and clinical follow-ups.
           </p>
         </div>
-        <button
-          onClick={fetchDashboardData}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 text-white font-semibold hover:bg-orange-600 disabled:opacity-50 transition-all"
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
-      </div>
-
-      {/* Alerts */}
-      {alerts.length > 0 && (
-        <div className="space-y-2">
-          {alerts.map((alert) => {
-            const bgColor = alert.type === "warning" ? "bg-yellow-50 border-yellow-200" :
-                           alert.type === "error" ? "bg-red-50 border-red-200" :
-                           alert.type === "success" ? "bg-green-50 border-green-200" :
-                           "bg-blue-50 border-blue-200";
-            const textColor = alert.type === "warning" ? "text-yellow-900" :
-                             alert.type === "error" ? "text-red-900" :
-                             alert.type === "success" ? "text-green-900" :
-                             "text-blue-900";
-            const icon = alert.type === "warning" || alert.type === "error" ? <AlertCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />;
-
+        <div className="flex flex-wrap gap-2">
+          {actionCards.slice(0, 2).map((action) => {
+            const Icon = action.icon;
             return (
-              <div key={alert.id} className={`p-4 rounded-lg border ${bgColor}`}>
-                <div className="flex items-start gap-3">
-                  <div className={textColor}>
-                    {icon}
-                  </div>
-                  <div className="flex-1">
-                    <p className={`font-semibold ${textColor}`}>{alert.title}</p>
-                    <p className={`text-sm mt-1 ${textColor} opacity-90`}>{alert.message}</p>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Primary KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Total Patients"
-          value={metrics?.totalPatients}
-          subtitle={`${metrics?.newPatientsThisMonth} new this month`}
-          icon={<Users className="h-6 w-6" />}
-          trend="+8%"
-          trendDirection="up"
-        />
-        <StatCard
-          title="Appointments Today"
-          value={metrics?.activeAppointmentsToday}
-          subtitle={`${metrics?.completedAppointmentsToday} completed`}
-          icon={<Calendar className="h-6 w-6" />}
-          trend="+5%"
-          trendDirection="up"
-        />
-        <StatCard
-          title="Queue Status"
-          value={metrics?.patientsInQueue}
-          subtitle={`Avg wait: ${metrics?.averageConsultationTime}min`}
-          icon={<Clock className="h-6 w-6" />}
-        />
-        <StatCard
-          title="Satisfaction Score"
-          value={`${metrics?.patientSatisfactionScore}%`}
-          subtitle="Patient feedback"
-          icon={<Heart className="h-6 w-6" />}
-          trend="+2%"
-          trendDirection="up"
-        />
-      </div>
-
-      {/* Secondary KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard
-          title="Lab Orders"
-          value={metrics?.pendingLabOrders}
-          subtitle={`${metrics?.completedLabResults} completed`}
-          icon={<FlaskConical className="h-6 w-6" />}
-        />
-        <StatCard
-          title="Lab Results"
-          value={metrics?.pendingLabResults}
-          subtitle={`Ready to review`}
-          icon={<Microscope className="h-6 w-6" />}
-        />
-        <StatCard
-          title="Pending Prescriptions"
-          value={metrics?.pendingPrescriptions}
-          subtitle="Awaiting patient pickup"
-          icon={<Pill className="h-6 w-6" />}
-        />
-      </div>
-
-      {/* Today's Appointments & Quick Actions */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Today's Schedule */}
-        <div className="lg:col-span-2 p-6 rounded-2xl border border-gray-200 bg-white">
-          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-orange-500" />
-            Today's Schedule
-          </h2>
-          <div className="space-y-3 max-h-96 overflow-y-auto">
-            {todayAppointments.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <Calendar className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>No appointments today</p>
-              </div>
-            ) : (
-              todayAppointments.map((apt) => (
-                <div
-                  key={apt.id}
-                  className="p-4 rounded-lg border border-gray-100 hover:border-orange-300 hover:bg-orange-50/30 transition-all"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <p className="font-semibold text-gray-900">{apt.patientName}</p>
-                      <p className="text-xs text-gray-500">{apt.type}</p>
-                    </div>
-                    <span
-                      className={`px-2 py-1 rounded-md text-xs font-semibold ${
-                        apt.status === "completed"
-                          ? "bg-green-50 text-green-600"
-                          : apt.status === "in-progress"
-                          ? "bg-blue-50 text-blue-600"
-                          : apt.status === "scheduled"
-                          ? "bg-yellow-50 text-yellow-600"
-                          : "bg-red-50 text-red-600"
-                      }`}
-                    >
-                      {apt.status.toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-4 text-sm text-gray-600">
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-4 w-4" />
-                      {apt.time}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      Duration: {apt.duration} min
-                    </span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Quick Actions */}
-        <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-          <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-            <Zap className="h-5 w-5 text-orange-500" />
-            Quick Actions
-          </h2>
-          <div className="space-y-2">
-            {quickActions.map((action) => (
               <Link
                 key={action.label}
                 href={action.href}
-                className={`w-full p-3 rounded-lg border border-gray-200 hover:border-orange-300 ${action.color} text-sm font-semibold transition-all text-left flex items-center gap-2`}
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium ${action.tone}`}
               >
-                <action.icon className="h-4 w-4" />
-                <span>{action.label}</span>
-                <ArrowRight className="h-3 w-3 ml-auto" />
+                <Icon className="h-4 w-4" />
+                {action.label}
               </Link>
-            ))}
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <KPICard title="Total Patients" value={metrics.totalPatients ?? 0} subtitle="Active tenant registry" tone="info" icon={Users} />
+        <KPICard title="Appointments Today" value={metrics.appointmentsToday ?? 0} subtitle="Scheduled for your list" tone="primary" icon={CalendarDays} />
+        <KPICard title="Active Queue" value={metrics.activeQueue ?? 0} subtitle="Currently assigned to you" tone="warning" icon={ClipboardList} />
+        <KPICard title="Pending Lab Follow-ups" value={metrics.pendingLabOrders ?? 0} subtitle="Recent orders awaiting closure" tone="success" icon={FlaskConical} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm xl:col-span-2">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">Clinical Pulse</p>
+              <h2 className="mt-2 text-2xl font-semibold text-foreground">Today&apos;s operating view</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Scheduled consults, completed encounters, queue load, and result review in one place.
+              </p>
+            </div>
+            <Activity className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div className="mt-5 grid gap-3 md:grid-cols-4">
+            <div className="rounded-xl border border-border bg-background/70 p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Scheduled</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{scheduledToday}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-background/70 p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Completed</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{completedToday}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-background/70 p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Total Visits</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{metrics.totalVisits ?? 0}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-background/70 p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Unread Lab Alerts</p>
+              <p className="mt-2 text-2xl font-semibold text-foreground">{unreadLabNotifications.length}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Attention Queue</h2>
+              <p className="text-sm text-muted-foreground">Clinical follow-up requiring action</p>
+            </div>
+            <BellRing className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div className="mt-4 space-y-3">
+            <button
+              onClick={() => router.push(tenantPath("/doctor/lab-results"))}
+              className="flex w-full items-center justify-between rounded-xl border border-border bg-background/70 px-4 py-3 text-left hover:bg-muted/40"
+            >
+              <div>
+                <p className="text-sm font-medium text-foreground">Pending Lab Reviews</p>
+                <p className="text-xs text-muted-foreground">Accept published results and request repeats</p>
+              </div>
+              <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                {metrics.pendingLabOrders ?? 0}
+              </span>
+            </button>
+            <button
+              onClick={() => router.push(tenantPath("/doctor/queue"))}
+              className="flex w-full items-center justify-between rounded-xl border border-border bg-background/70 px-4 py-3 text-left hover:bg-muted/40"
+            >
+              <div>
+                <p className="text-sm font-medium text-foreground">Queue Load</p>
+                <p className="text-xs text-muted-foreground">Open the live consultation queue</p>
+              </div>
+              <span className="rounded-full bg-warning-soft px-2.5 py-1 text-xs font-medium text-warning-soft-foreground">
+                {metrics.activeQueue ?? 0}
+              </span>
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Recent Activity */}
-      <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-        <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-          <Activity className="h-5 w-5 text-orange-500" />
-          Recent Activity
-        </h2>
-        <div className="space-y-3">
-          {recentActivities.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <Activity className="h-12 w-12 mx-auto mb-2 opacity-50" />
-              <p>No recent activity</p>
-            </div>
-          ) : (
-            recentActivities.map((activity) => (
-              <div
-                key={activity.id}
-                className="flex items-start gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-all"
-              >
-                <div className="h-2 w-2 rounded-full bg-orange-500 mt-1.5" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900">{activity.title}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{activity.description}</p>
-                  <p className="text-xs text-gray-400 mt-1">{new Date(activity.timestamp).toLocaleTimeString()}</p>
-                </div>
-              </div>
-            ))
-          )}
+      {isError && (
+        <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Failed to load doctor dashboard data.
         </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <div className="xl:col-span-2">
+          <DataCard
+            title={`Today's Appointments (${appointments.length})`}
+            items={appointments.map((item: any) => ({
+              id: item.id,
+              title: item.patientName || "Unknown patient",
+              subtitle: formatDateTime(item.scheduledAt),
+              value: item.status || "scheduled",
+              status: item.status || "scheduled",
+            }))}
+            emptyMessage={isLoading ? "Loading appointments..." : "No appointments for today."}
+            onItemClick={(item) => {
+              router.push(tenantPath("/doctor/appointments"));
+            }}
+          />
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Quick Actions</h2>
+                <p className="text-sm text-muted-foreground">Common doctor workflows</p>
+              </div>
+              <Stethoscope className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <div className="mt-4 grid gap-3">
+              {actionCards.map((action) => {
+                const Icon = action.icon;
+                return (
+                  <Link key={action.label} href={action.href} className="flex items-center justify-between rounded-lg border border-border px-4 py-3 text-sm text-foreground transition-colors hover:bg-muted/40">
+                    <span>{action.label}</span>
+                    <Icon className="h-4 w-4 text-muted-foreground" />
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
+          <DataCard
+            title={`Queue Snapshot (${queueSnapshot.length})`}
+            items={queueSnapshot.map((item: any) => ({
+              id: item.id,
+              title: item.patientName || "Unknown patient",
+              subtitle: item.queueNumber ? `Queue ${item.queueNumber}` : "Assigned queue entry",
+              value: item.position ?? "-",
+              status: item.status || "waiting",
+            }))}
+            emptyMessage={isLoading ? "Loading queue..." : "No active queue entries."}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <DataCard
+          title={`Recent Lab Orders (${recentLabOrders.length})`}
+          items={recentLabOrders.map((item: any) => ({
+            id: item.id,
+            title: item.patientName || "Unknown patient",
+            subtitle: `Ordered ${formatDateTime(item.orderedAt)}`,
+            status: item.status || "ordered",
+          }))}
+          emptyMessage={isLoading ? "Loading lab orders..." : "No recent lab orders."}
+          onItemClick={() => router.push(tenantPath("/doctor/lab-orders"))}
+        />
+        <DataCard
+          title={`Recent Prescriptions (${recentPrescriptions.length})`}
+          items={recentPrescriptions.map((item: any) => ({
+            id: item.id,
+            title: item.patientName || "Unknown patient",
+            subtitle: `Issued ${formatDateTime(item.prescribedAt)}`,
+            status: "completed",
+          }))}
+          emptyMessage={isLoading ? "Loading prescriptions..." : "No recent prescriptions."}
+          onItemClick={() => router.push(tenantPath("/doctor/prescriptions"))}
+        />
       </div>
     </div>
   );
 }
-

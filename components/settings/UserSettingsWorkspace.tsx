@@ -18,6 +18,7 @@ import {
 import { toast } from "sonner";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { applyUserPreferences } from "@/lib/user-preferences";
+import { defaultUserSettings, mergeUserSettings, type UserSettingsShape } from "@/lib/user-settings";
 
 const orange = "#F97316";
 
@@ -41,71 +42,6 @@ const languages = [
   { value: "ar", label: "Arabic" },
 ];
 
-const defaultSettings = {
-  notifications: {
-    email: true,
-    push: true,
-    sms: false,
-    marketing: false,
-    desktop: true,
-    digests: true,
-    digestFrequency: "daily",
-    reportReady: true,
-    billingAlerts: true,
-    securityAlerts: true,
-    scheduleFailures: true,
-  },
-  privacy: {
-    profileVisibility: "private",
-    dataSharing: false,
-    analytics: true,
-    readReceipts: true,
-    activityStatus: true,
-  },
-  appearance: {
-    theme: "system",
-    language: "en",
-    timezone: "UTC",
-    density: "comfortable",
-    calendarStart: "monday",
-    reduceMotion: false,
-    highContrast: false,
-    fontScale: "default",
-  },
-  security: {
-    twoFactorEnabled: false,
-    sessionTimeout: 30,
-    loginAlerts: true,
-    deviceTrust: true,
-    passwordlessSignin: false,
-    biometricPrompt: false,
-  },
-  communication: {
-    messageSettings: {
-      allowMessagesFrom: "care-team",
-      autoReply: "",
-      signature: "",
-      defaultChannel: "inbox",
-      workingHours: {
-        enabled: false,
-        start: "09:00",
-        end: "17:00",
-        timezone: "UTC",
-      },
-    },
-  },
-  workflow: {
-    defaultLandingPage: "dashboard",
-    quickActions: true,
-    confirmDestructive: true,
-    autoSaveDrafts: true,
-    preferredExportFormat: "pdf",
-    compactTables: false,
-  },
-};
-
-type UserSettingsShape = typeof defaultSettings;
-
 const tabs = [
   { id: "appearance", label: "Appearance", icon: Monitor },
   { id: "notifications", label: "Notifications", icon: Bell },
@@ -117,47 +53,31 @@ const tabs = [
 
 type TabId = (typeof tabs)[number]["id"];
 
-function mergeSettings(settings: any): UserSettingsShape {
-  return {
-    ...defaultSettings,
-    ...settings,
-    notifications: { ...defaultSettings.notifications, ...(settings?.notifications || {}) },
-    privacy: { ...defaultSettings.privacy, ...(settings?.privacy || {}) },
-    appearance: { ...defaultSettings.appearance, ...(settings?.appearance || {}) },
-    security: { ...defaultSettings.security, ...(settings?.security || {}) },
-    workflow: { ...defaultSettings.workflow, ...(settings?.workflow || {}) },
-    communication: {
-      ...defaultSettings.communication,
-      ...(settings?.communication || {}),
-      messageSettings: {
-        ...defaultSettings.communication.messageSettings,
-        ...(settings?.communication?.messageSettings || {}),
-        workingHours: {
-          ...defaultSettings.communication.messageSettings.workingHours,
-          ...(settings?.communication?.messageSettings?.workingHours || {}),
-        },
-      },
-    },
-  };
-}
-
 export function UserSettingsWorkspace({
   heading = "User Settings",
   subtitle = "Control your personal workspace preferences, communication rules, privacy, and security defaults.",
   scopeLabel = "Personal Account",
+  landingPageOptions = [
+    { value: "dashboard", label: "Dashboard" },
+    { value: "messages", label: "Messages" },
+    { value: "reports", label: "Reports" },
+    { value: "tasks", label: "Tasks" },
+    { value: "calendar", label: "Calendar" },
+  ],
 }: {
   heading?: string;
   subtitle?: string;
   scopeLabel?: string;
+  landingPageOptions?: Array<{ value: string; label: string }>;
 }) {
   const params = useParams();
   const slug = params?.slug as string;
   const { setTheme } = useTheme();
-  const [settings, setSettings] = useState<UserSettingsShape>(defaultSettings);
+  const [settings, setSettings] = useState<UserSettingsShape>(defaultUserSettings);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("appearance");
-  const [initialSettings, setInitialSettings] = useState<UserSettingsShape>(defaultSettings);
+  const [initialSettings, setInitialSettings] = useState<UserSettingsShape>(defaultUserSettings);
   const [desktopPermission, setDesktopPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   const [requestingDesktopPermission, setRequestingDesktopPermission] = useState(false);
 
@@ -179,7 +99,7 @@ export function UserSettingsWorkspace({
       const response = await fetch(`/api/users/settings`);
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error || "Failed to load user settings");
-      const merged = mergeSettings(payload);
+      const merged = mergeUserSettings(payload);
       setSettings(merged);
       setInitialSettings(merged);
       setTheme(merged.appearance.theme as "light" | "dark" | "system");
@@ -201,7 +121,7 @@ export function UserSettingsWorkspace({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error || "Failed to save settings");
-      const merged = mergeSettings(payload?.settings || settings);
+      const merged = mergeUserSettings(payload?.settings || settings);
       setSettings(merged);
       setInitialSettings(merged);
       setTheme(merged.appearance.theme as "light" | "dark" | "system");
@@ -650,13 +570,7 @@ export function UserSettingsWorkspace({
                   label="Default landing page"
                   value={settings.workflow.defaultLandingPage}
                   onChange={(value) => updateSection("workflow", { defaultLandingPage: value })}
-                  options={[
-                    { value: "dashboard", label: "Dashboard" },
-                    { value: "messages", label: "Messages" },
-                    { value: "reports", label: "Reports" },
-                    { value: "tasks", label: "Tasks" },
-                    { value: "calendar", label: "Calendar" },
-                  ]}
+                  options={landingPageOptions}
                 />
                 <SelectField
                   label="Preferred export format"

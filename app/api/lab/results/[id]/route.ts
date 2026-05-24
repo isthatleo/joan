@@ -1,59 +1,74 @@
 import { NextRequest, NextResponse } from "next/server";
-import { LabService } from "@/lib/services/lab.service";
+import { and, eq, isNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { labResults } from "@/lib/db/schema";
+import { parseLabResultData, serializeLabResultData } from "@/lib/doctor/lab-results";
 
-const service = new LabService();
-
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const resolvedParams = await params;
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session?.user?.tenantId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const tenantId = session.user.tenantId;
-    const orderId = resolvedParams.id;
+    const { id } = await params;
+    const result = await db.query.labResults.findFirst({
+      where: and(eq(labResults.id, id), eq(labResults.tenantId, session.user.tenantId), isNull(labResults.deletedAt)),
+    });
 
-    if (!tenantId) {
-      return NextResponse.json({ error: "Tenant ID required" }, { status: 400 });
+    if (!result) {
+      return NextResponse.json({ error: "Lab result not found" }, { status: 404 });
     }
 
-    const results = await service.getLabResults(orderId, tenantId);
-    return NextResponse.json(results);
+    return NextResponse.json(result);
   } catch (error) {
-    console.error("Failed to fetch lab results:", error);
-    return NextResponse.json({ error: "Failed to fetch lab results" }, { status: 500 });
+    console.error("Failed to fetch lab result:", error);
+    return NextResponse.json({ error: "Failed to fetch lab result" }, { status: 500 });
   }
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const resolvedParams = await params;
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await auth();
-    if (!session?.user) {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session?.user?.tenantId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const tenantId = session.user.tenantId;
-    const resultId = resolvedParams.id;
-    const data = await request.json();
+    const { id } = await params;
+    const payload = await request.json();
 
-    if (!tenantId) {
-      return NextResponse.json({ error: "Tenant ID required" }, { status: 400 });
+    const existing = await db.query.labResults.findFirst({
+      where: and(eq(labResults.id, id), eq(labResults.tenantId, session.user.tenantId), isNull(labResults.deletedAt)),
+    });
+
+    if (!existing) {
+      return NextResponse.json({ error: "Lab result not found" }, { status: 404 });
     }
 
-    const result = await service.updateLabResult(resultId, data, tenantId);
-    return NextResponse.json(result);
+    const parsed = parseLabResultData(existing.resultData, existing.fileUrl);
+    const nextData =
+      payload.resultData !== undefined
+        ? parseLabResultData(payload.resultData, payload.fileUrl ?? existing.fileUrl)
+        : {
+            ...parsed,
+            notes: payload.notes !== undefined ? String(payload.notes || "") || null : parsed.notes,
+            status: payload.status ? String(payload.status) : parsed.status,
+          };
+
+    const [updated] = await db
+      .update(labResults)
+      .set({
+        resultData: serializeLabResultData(nextData),
+        fileUrl: payload.fileUrl !== undefined ? payload.fileUrl || null : existing.fileUrl,
+        updatedAt: new Date(),
+      })
+      .where(eq(labResults.id, id))
+      .returning();
+
+    return NextResponse.json(updated);
   } catch (error) {
     console.error("Failed to update lab result:", error);
     return NextResponse.json({ error: "Failed to update lab result" }, { status: 500 });
   }
 }
-

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, boolean, jsonb, integer, index, numeric, date } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, boolean, jsonb, integer, index, numeric, date, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 export const baseColumns = {
@@ -203,14 +203,48 @@ export const prescriptions = pgTable("prescriptions", {
   tenantId: uuid("tenant_id"),
   visitId: uuid("visit_id").references(() => visits.id),
   doctorId: uuid("doctor_id").references(() => users.id),
+  patientId: uuid("patient_id").references(() => patients.id),
+  medication: text("medication"),
+  genericName: text("generic_name"),
+  strength: text("strength"),
+  dosage: text("dosage"),
+  frequency: text("frequency"),
+  duration: text("duration"),
+  quantity: integer("quantity"),
+  refills: integer("refills").default(0),
+  refillsRemaining: integer("refills_remaining").default(0),
+  instructions: text("instructions"),
+  indications: text("indications"),
+  status: text("status"),
+  prescribedBy: text("prescribed_by"),
+  prescribedAt: timestamp("prescribed_at"),
+  filledAt: timestamp("filled_at"),
+  expiresAt: timestamp("expires_at"),
+  pharmacy: text("pharmacy"),
+  notes: text("notes"),
+  interactions: jsonb("interactions").default([]),
+  sideEffects: jsonb("side_effects").default([]),
+  diagnosis: text("diagnosis"),
+  priority: text("priority"),
+  isEmergency: boolean("is_emergency").default(false),
+  validUntil: timestamp("valid_until"),
 });
 
 export const prescriptionItems = pgTable("prescription_items", {
   ...baseColumns,
   prescriptionId: uuid("prescription_id").references(() => prescriptions.id),
+  medicationId: uuid("medication_id"),
   drugName: text("drug_name"),
+  genericName: text("generic_name"),
+  strength: text("strength"),
   dosage: text("dosage"),
+  frequency: text("frequency"),
   duration: text("duration"),
+  quantity: integer("quantity"),
+  instructions: text("instructions"),
+  refills: integer("refills").default(0),
+  isPrn: boolean("is_prn").default(false),
+  route: text("route"),
 });
 
 export const inventoryItems = pgTable("inventory_items", {
@@ -225,8 +259,21 @@ export const inventoryItems = pgTable("inventory_items", {
 export const labOrders = pgTable("lab_orders", {
   ...baseColumns,
   tenantId: uuid("tenant_id"),
+  patientId: uuid("patient_id").references(() => patients.id),
+  doctorId: uuid("doctor_id").references(() => users.id),
   visitId: uuid("visit_id").references(() => visits.id),
+  testName: text("test_name"),
+  testCode: text("test_code"),
+  category: text("category"),
+  priority: text("priority"),
   orderedBy: uuid("ordered_by").references(() => users.id),
+  orderedAt: timestamp("ordered_at"),
+  collectedAt: timestamp("collected_at"),
+  completedAt: timestamp("completed_at"),
+  results: jsonb("results"),
+  notes: text("notes"),
+  dueDate: timestamp("due_date"),
+  labLocation: text("lab_location"),
   status: text("status"),
 });
 
@@ -324,6 +371,51 @@ export const messages = pgTable("messages", {
   messageReceiverIdx: index("message_receiver_idx").on(table.receiverId),
 }));
 
+export const messagePresence = pgTable("message_presence", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
+  userId: uuid("user_id").references(() => users.id).notNull(),
+  context: text("context").default("messages").notNull(),
+  lastSeenAt: timestamp("last_seen_at").defaultNow().notNull(),
+}, (table) => ({
+  messagePresenceUserIdx: uniqueIndex("message_presence_user_idx").on(table.userId),
+  messagePresenceTenantIdx: index("message_presence_tenant_idx").on(table.tenantId),
+  messagePresenceLastSeenIdx: index("message_presence_last_seen_idx").on(table.lastSeenAt),
+}));
+
+export const messageTypingStates = pgTable("message_typing_states", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
+  senderId: uuid("sender_id").references(() => users.id).notNull(),
+  receiverId: uuid("receiver_id").references(() => users.id).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+}, (table) => ({
+  messageTypingPairIdx: uniqueIndex("message_typing_pair_idx").on(table.senderId, table.receiverId),
+  messageTypingReceiverIdx: index("message_typing_receiver_idx").on(table.receiverId),
+  messageTypingExpiresIdx: index("message_typing_expires_idx").on(table.expiresAt),
+}));
+
+export const messageCallSessions = pgTable("message_call_sessions", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id),
+  callerId: uuid("caller_id").references(() => users.id).notNull(),
+  calleeId: uuid("callee_id").references(() => users.id).notNull(),
+  callType: text("call_type").notNull(),
+  status: text("status").default("ringing").notNull(),
+  offer: jsonb("offer"),
+  answer: jsonb("answer"),
+  callerCandidates: jsonb("caller_candidates").default([]).notNull(),
+  calleeCandidates: jsonb("callee_candidates").default([]).notNull(),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  endedAt: timestamp("ended_at"),
+  expiresAt: timestamp("expires_at").notNull(),
+}, (table) => ({
+  messageCallCallerIdx: index("message_call_caller_idx").on(table.callerId),
+  messageCallCalleeIdx: index("message_call_callee_idx").on(table.calleeId),
+  messageCallStatusIdx: index("message_call_status_idx").on(table.status),
+  messageCallExpiresIdx: index("message_call_expires_idx").on(table.expiresAt),
+}));
+
 // Notifications
 export const notifications = pgTable("notifications", {
   ...baseColumns,
@@ -337,6 +429,30 @@ export const notifications = pgTable("notifications", {
 }, (table) => ({
   notificationUserIdx: index("notification_user_idx").on(table.userId),
   notificationTenantIdx: index("notification_tenant_idx").on(table.tenantId),
+}));
+
+export const feedbacks = pgTable("feedbacks", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id),
+  userId: uuid("user_id").references(() => users.id),
+  userName: text("user_name"),
+  userEmail: text("user_email"),
+  scope: text("scope").default("tenant").notNull(),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  priority: text("priority").default("medium").notNull(),
+  status: text("status").default("open").notNull(),
+  patientFeedback: boolean("patient_feedback").default(false).notNull(),
+  assignedTo: uuid("assigned_to").references(() => users.id),
+  resolution: text("resolution"),
+  resolvedAt: timestamp("resolved_at"),
+}, (table) => ({
+  feedbackTenantIdx: index("feedback_tenant_idx").on(table.tenantId),
+  feedbackUserIdx: index("feedback_user_idx").on(table.userId),
+  feedbackScopeIdx: index("feedback_scope_idx").on(table.scope),
+  feedbackStatusIdx: index("feedback_status_idx").on(table.status),
+  feedbackTypeIdx: index("feedback_type_idx").on(table.type),
 }));
 
 // Audit

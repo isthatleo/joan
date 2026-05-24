@@ -149,17 +149,17 @@ export default function NotificationsPage() {
   const getNotificationColor = (type: string) => {
     switch (type) {
       case "message":
-        return "text-blue-500";
+        return "text-blue-500 dark:text-blue-300";
       case "appointment":
-        return "text-green-500";
+        return "text-green-500 dark:text-green-300";
       case "system":
-        return "text-purple-500";
+        return "text-violet-500 dark:text-violet-300";
       case "alert":
-        return "text-red-500";
+        return "text-red-500 dark:text-red-300";
       case "broadcast":
-        return "text-orange-500";
+        return "text-orange-500 dark:text-orange-300";
       default:
-        return "text-gray-500";
+        return "text-slate-500 dark:text-slate-300";
     }
   };
 
@@ -258,7 +258,7 @@ export default function NotificationsPage() {
 
       {/* Pill Navigation */}
       <div className="flex justify-center">
-        <div className="inline-flex flex-wrap gap-2 p-1 bg-muted rounded-full">
+        <div className="inline-flex flex-wrap gap-2 rounded-full border border-border bg-card/70 p-1.5 shadow-sm">
           {[
             { id: "overview", label: "Overview", count: null },
             { id: "messages", label: "Messages", count: messageCount },
@@ -273,8 +273,8 @@ export default function NotificationsPage() {
               className={cn(
                 "px-4 py-2 text-sm font-medium rounded-full transition-all duration-200",
                 activeTab === tab.id
-                  ? "bg-orange-500 text-white shadow-sm dark:bg-orange-600"
-                  : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )}
             >
               {tab.label}
@@ -295,11 +295,11 @@ export default function NotificationsPage() {
             {/* Overview Main Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {/* Recent Activity Card */}
-              <Card className="hover:shadow-lg transition-shadow">
+              <Card className="border-border bg-card hover:shadow-lg transition-shadow">
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-100 dark:bg-blue-900/20 rounded-lg">
-                      <Clock className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    <div className="rounded-lg bg-blue-50 p-2 dark:bg-blue-500/10">
+                      <Clock className="h-5 w-5 text-blue-600 dark:text-blue-300" />
                     </div>
                     <div>
                       <h3 className="font-semibold text-sm">Recent Activity</h3>
@@ -308,7 +308,7 @@ export default function NotificationsPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400 mb-1">
+                  <div className="mb-1 text-2xl font-bold text-blue-600 dark:text-blue-300">
                     {recentCount}
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -318,11 +318,11 @@ export default function NotificationsPage() {
               </Card>
 
               {/* Unread Priority Card */}
-              <Card className="hover:shadow-lg transition-shadow">
+              <Card className="border-border bg-card hover:shadow-lg transition-shadow">
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-red-100 dark:bg-red-900/20 rounded-lg">
-                      <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                    <div className="rounded-lg bg-red-50 p-2 dark:bg-red-500/10">
+                      <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-300" />
                     </div>
                     <div>
                       <h3 className="font-semibold text-sm">Priority Items</h3>
@@ -331,7 +331,7 @@ export default function NotificationsPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-red-600 dark:text-red-400 mb-1">
+                  <div className="mb-1 text-2xl font-bold text-red-600 dark:text-red-300">
                     {unreadCount}
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -341,11 +341,11 @@ export default function NotificationsPage() {
               </Card>
 
               {/* Communication Hub Card */}
-              <Card className="hover:shadow-lg transition-shadow">
+              <Card className="border-border bg-card hover:shadow-lg transition-shadow">
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-green-100 dark:bg-green-900/20 rounded-lg">
-                      <MessageSquare className="h-5 w-5 text-green-600 dark:text-green-400" />
+                    <div className="rounded-lg bg-emerald-50 p-2 dark:bg-emerald-500/10">
+                      <MessageSquare className="h-5 w-5 text-emerald-600 dark:text-emerald-300" />
                     </div>
                     <div>
                       <h3 className="font-semibold text-sm">Communication Hub</h3>
@@ -354,7 +354,7 @@ export default function NotificationsPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-green-600 dark:text-green-400 mb-1">
+                  <div className="mb-1 text-2xl font-bold text-emerald-600 dark:text-emerald-300">
                     {messageCount + broadcastCount}
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -364,11 +364,11 @@ export default function NotificationsPage() {
               </Card>
 
               {/* System Status Card */}
-              <Card className="hover:shadow-lg transition-shadow">
+              <Card className="border-border bg-card hover:shadow-lg transition-shadow">
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-purple-100 dark:bg-purple-900/20 rounded-lg">
-                      <Settings className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    <div className="rounded-lg bg-violet-50 p-2 dark:bg-violet-500/10">
+                      <Settings className="h-5 w-5 text-violet-600 dark:text-violet-300" />
                     </div>
                     <div>
                       <h3 className="font-semibold text-sm">System Status</h3>
@@ -377,7 +377,7 @@ export default function NotificationsPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-purple-600 dark:text-purple-400 mb-1">
+                  <div className="mb-1 text-2xl font-bold text-violet-600 dark:text-violet-300">
                     {systemCount + alertCount}
                   </div>
                   <p className="text-xs text-muted-foreground">
@@ -388,7 +388,7 @@ export default function NotificationsPage() {
             </div>
 
             {/* Quick Actions Section */}
-            <Card>
+            <Card className="border-border bg-card">
               <CardHeader>
                 <CardTitle>Quick Actions</CardTitle>
                 <p className="text-sm text-muted-foreground">Common notification tasks</p>
@@ -484,8 +484,8 @@ export default function NotificationsPage() {
                     <Card
                       key={notification.id}
                       className={cn(
-                        "group transition-all duration-200 hover:shadow-lg cursor-pointer",
-                        !notification.read && "ring-2 ring-primary/20 bg-primary/5"
+                        "group cursor-pointer border-border bg-card transition-all duration-200 hover:shadow-lg",
+                        !notification.read && "ring-2 ring-primary/20 bg-primary/5 dark:bg-primary/10"
                       )}
                       onClick={() => {
                         setSelectedNotification(notification);

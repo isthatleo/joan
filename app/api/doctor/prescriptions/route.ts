@@ -1,51 +1,98 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { and, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { eq, and, desc, sql } from "drizzle-orm";
-import { prescriptions, patients, users } from "@/lib/db/schema";
+import { inventoryItems, notifications, patients, prescriptionItems, prescriptions, roles, userRoles, users, visits } from "@/lib/db/schema";
+import { resolveDoctorContext } from "@/lib/doctor/server";
+
+function parseStock(value: string | null | undefined) {
+  const amount = Number(value || "0");
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+async function notifyPharmacyUsers(tenantId: string, message: string, metadata: Record<string, unknown>) {
+  const activeUsers = await db
+    .select({
+      id: users.id,
+      baseRole: users.role,
+      linkedRole: roles.name,
+    })
+    .from(users)
+    .leftJoin(userRoles, eq(userRoles.userId, users.id))
+    .leftJoin(roles, eq(roles.id, userRoles.roleId))
+    .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), isNull(users.deletedAt)));
+
+  const recipients = Array.from(
+    new Set(
+      activeUsers
+        .filter((user) => {
+          const roleNames = [user.baseRole, user.linkedRole].filter(Boolean).map((value) => String(value).toLowerCase());
+          return roleNames.includes("pharmacist") || roleNames.includes("pharmacy");
+        })
+        .map((user) => user.id)
+    )
+  );
+
+  if (recipients.length === 0) return;
+
+  await db.insert(notifications).values(
+    recipients.map((userId) => ({
+      tenantId,
+      userId,
+      type: "prescription_created",
+      title: "New prescription",
+      message,
+      metadata,
+      read: false,
+    }))
+  );
+}
 
 export async function GET(request: NextRequest) {
+  const context = await resolveDoctorContext(request.headers);
+  if (!context.ok) {
+    return NextResponse.json({ error: context.error }, { status: context.status });
+  }
+
+  const { doctor } = context;
+  if (!doctor.tenantId) {
+    return NextResponse.json({ error: "No tenant context" }, { status: 400 });
+  }
+
   try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const search = request.nextUrl.searchParams.get("search")?.trim() || "";
+    const status = request.nextUrl.searchParams.get("status")?.trim() || "all";
 
-    const { searchParams } = new URL(request.url);
-    const slug = searchParams.get("slug");
-    const status = searchParams.get("status") || "all";
-    const search = searchParams.get("search") || "";
-
-    if (!slug) {
-      return NextResponse.json({ error: "Tenant slug required" }, { status: 400 });
-    }
-
-    // Get doctor's user record to verify role
-    const doctorUser = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.id, session.user.id), eq(users.role, "doctor")))
-      .limit(1);
-
-    if (!doctorUser.length) {
-      return NextResponse.json({ error: "Doctor access required" }, { status: 403 });
-    }
-
-    // Build where conditions
-    let whereConditions = [eq(prescriptions.doctorId, session.user.id)];
+    const conditions = [
+      eq(prescriptions.tenantId, doctor.tenantId),
+      eq(prescriptions.doctorId, doctor.id),
+      isNull(prescriptions.deletedAt),
+      isNull(patients.deletedAt),
+    ];
 
     if (status !== "all") {
-      whereConditions.push(eq(prescriptions.status, status));
+      conditions.push(eq(prescriptions.status, status));
     }
 
-    // Fetch prescriptions with patient details
-    const prescriptionsData = await db
+    if (search) {
+      conditions.push(
+        or(
+          ilike(patients.firstName, `%${search}%`),
+          ilike(patients.lastName, `%${search}%`),
+          ilike(patients.globalPatientId, `%${search}%`),
+          ilike(prescriptions.medication, `%${search}%`),
+          ilike(prescriptions.genericName, `%${search}%`)
+        )!
+      );
+    }
+
+    const rows = await db
       .select({
         id: prescriptions.id,
-        patientId: prescriptions.patientId,
-        patientName: sql<string>`concat(${patients.firstName}, ' ', ${patients.lastName})`,
+        patientId: patients.id,
+        patientName: sql<string>`trim(concat(coalesce(${patients.firstName}, ''), ' ', coalesce(${patients.lastName}, '')))`,
         patientEmail: patients.email,
         patientPhone: patients.phone,
+        globalPatientId: patients.globalPatientId,
         medication: prescriptions.medication,
         genericName: prescriptions.genericName,
         strength: prescriptions.strength,
@@ -66,164 +113,163 @@ export async function GET(request: NextRequest) {
         notes: prescriptions.notes,
         interactions: prescriptions.interactions,
         sideEffects: prescriptions.sideEffects,
+        diagnosis: prescriptions.diagnosis,
+        priority: prescriptions.priority,
+        isEmergency: prescriptions.isEmergency,
       })
       .from(prescriptions)
-      .innerJoin(patients, eq(prescriptions.patientId, patients.id))
-      .where(and(...whereConditions))
-      .orderBy(desc(prescriptions.prescribedAt));
+      .innerJoin(patients, eq(patients.id, prescriptions.patientId))
+      .where(and(...conditions))
+      .orderBy(desc(prescriptions.prescribedAt), desc(prescriptions.createdAt));
 
-    // Filter by search term if provided
-    let filteredPrescriptions = prescriptionsData;
-    if (search) {
-      filteredPrescriptions = prescriptionsData.filter(rx =>
-        rx.patientName.toLowerCase().includes(search.toLowerCase()) ||
-        rx.medication.toLowerCase().includes(search.toLowerCase())
-      );
-    }
+    const [statsRow] = await db
+      .select({
+        total: sql<number>`count(*)::int`,
+        active: sql<number>`count(*) filter (where ${prescriptions.status} = 'active')::int`,
+        pending: sql<number>`count(*) filter (where ${prescriptions.status} = 'pending')::int`,
+        completed: sql<number>`count(*) filter (where ${prescriptions.status} = 'completed')::int`,
+        expiringSoon: sql<number>`count(*) filter (where ${prescriptions.status} = 'active' and ${prescriptions.expiresAt} <= now() + interval '7 days')::int`,
+        lowRefills: sql<number>`count(*) filter (where ${prescriptions.status} = 'active' and coalesce(${prescriptions.refillsRemaining}, 0) <= 1)::int`,
+      })
+      .from(prescriptions)
+      .where(and(eq(prescriptions.tenantId, doctor.tenantId), eq(prescriptions.doctorId, doctor.id), isNull(prescriptions.deletedAt)));
 
-    return NextResponse.json(filteredPrescriptions);
-
+    return NextResponse.json({
+      prescriptions: rows,
+      stats: {
+        total: statsRow?.total ?? 0,
+        active: statsRow?.active ?? 0,
+        pending: statsRow?.pending ?? 0,
+        completed: statsRow?.completed ?? 0,
+        expiringSoon: statsRow?.expiringSoon ?? 0,
+        lowRefills: statsRow?.lowRefills ?? 0,
+      },
+    });
   } catch (error) {
     console.error("Doctor prescriptions API error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch prescriptions" }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
+  const context = await resolveDoctorContext(request.headers);
+  if (!context.ok) {
+    return NextResponse.json({ error: context.error }, { status: context.status });
+  }
+
+  const { doctor } = context;
+  if (!doctor.tenantId) {
+    return NextResponse.json({ error: "No tenant context" }, { status: 400 });
+  }
+
   try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     const body = await request.json();
-    const {
-      slug,
-      patientId,
-      medication,
-      strength,
-      dosage,
-      frequency,
-      duration,
-      quantity,
-      refills,
-      instructions,
-      indications,
-      notes
-    } = body;
+    const patientId = String(body.patientId || "").trim();
+    const items = Array.isArray(body.items) ? body.items : [];
 
-    if (!slug || !patientId || !medication || !dosage || !frequency || !instructions) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    if (!patientId || items.length === 0) {
+      return NextResponse.json({ error: "Patient and at least one medication are required" }, { status: 400 });
     }
 
-    // Verify doctor role
-    const doctorUser = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.id, session.user.id), eq(users.role, "doctor")))
-      .limit(1);
+    const patient = await db.query.patients.findFirst({
+      where: and(eq(patients.id, patientId), eq(patients.tenantId, doctor.tenantId), isNull(patients.deletedAt)),
+      columns: { id: true, firstName: true, lastName: true },
+    });
 
-    if (!doctorUser.length) {
-      return NextResponse.json({ error: "Doctor access required" }, { status: 403 });
-    }
-
-    // Verify patient exists
-    const patient = await db
-      .select()
-      .from(patients)
-      .where(eq(patients.id, patientId))
-      .limit(1);
-
-    if (!patient.length) {
+    if (!patient) {
       return NextResponse.json({ error: "Patient not found" }, { status: 404 });
     }
 
-    // Create prescription
-    const newPrescription = await db
+    for (const item of items) {
+      if (item.medicationId) {
+        const stockItem = await db.query.inventoryItems.findFirst({
+          where: and(eq(inventoryItems.id, String(item.medicationId)), eq(inventoryItems.tenantId, doctor.tenantId), isNull(inventoryItems.deletedAt)),
+        });
+
+        if (!stockItem) {
+          return NextResponse.json({ error: `Medication ${item.drugName || "item"} not found in stock` }, { status: 404 });
+        }
+
+        if (parseStock(stockItem.stock) <= 0) {
+          return NextResponse.json({ error: `${stockItem.name} is currently out of stock` }, { status: 409 });
+        }
+      }
+    }
+
+    const [visit] = await db
+      .insert(visits)
+      .values({
+        tenantId: doctor.tenantId,
+        patientId,
+        doctorId: doctor.id,
+        reason: String(body.diagnosis || body.notes || "Prescription review"),
+        notes: String(body.notes || "").trim() || null,
+      })
+      .returning({ id: visits.id });
+
+    const primaryItem = items[0];
+    const [prescription] = await db
       .insert(prescriptions)
       .values({
+        tenantId: doctor.tenantId,
+        visitId: visit.id,
+        doctorId: doctor.id,
         patientId,
-        doctorId: session.user.id,
-        medication,
-        strength,
-        dosage,
-        frequency,
-        duration,
-        quantity,
-        refills: refills || 0,
-        refillsRemaining: refills || 0,
-        instructions,
-        indications,
+        medication: String(primaryItem.drugName || "").trim(),
+        genericName: String(primaryItem.genericName || "").trim() || null,
+        strength: String(primaryItem.strength || "").trim() || null,
+        dosage: String(primaryItem.dosage || "").trim(),
+        frequency: String(primaryItem.frequency || "").trim() || null,
+        duration: String(primaryItem.duration || "").trim() || null,
+        quantity: Number(primaryItem.quantity || 1),
+        refills: Number(primaryItem.refills || 0),
+        refillsRemaining: Number(primaryItem.refills || 0),
+        instructions: String(primaryItem.instructions || "").trim() || null,
+        indications: String(body.diagnosis || "").trim() || null,
         status: "active",
-        prescribedBy: doctorUser[0].fullName || doctorUser[0].email,
+        prescribedBy: doctor.fullName || doctor.email,
         prescribedAt: new Date(),
-        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year from now
-        notes,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        expiresAt: body.validUntil ? new Date(body.validUntil) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        pharmacy: String(body.pharmacy || "").trim() || null,
+        notes: String(body.notes || "").trim() || null,
+        interactions: Array.isArray(body.interactions) ? body.interactions : [],
+        sideEffects: Array.isArray(body.sideEffects) ? body.sideEffects : [],
+        diagnosis: String(body.diagnosis || "").trim() || null,
+        priority: String(body.priority || "normal"),
+        isEmergency: Boolean(body.isEmergency),
+        validUntil: body.validUntil ? new Date(body.validUntil) : null,
       })
       .returning();
 
-    return NextResponse.json(newPrescription[0]);
-
-  } catch (error) {
-    console.error("Create prescription API error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
+    await db.insert(prescriptionItems).values(
+      items.map((item: any) => ({
+        prescriptionId: prescription.id,
+        medicationId: item.medicationId ? String(item.medicationId) : null,
+        drugName: String(item.drugName || "").trim(),
+        genericName: String(item.genericName || "").trim() || null,
+        strength: String(item.strength || "").trim() || null,
+        dosage: String(item.dosage || "").trim(),
+        frequency: String(item.frequency || "").trim() || null,
+        duration: String(item.duration || "").trim() || null,
+        quantity: Number(item.quantity || 1),
+        instructions: String(item.instructions || "").trim() || null,
+        refills: Number(item.refills || 0),
+        isPrn: Boolean(item.isPrn),
+        route: String(item.route || "").trim() || null,
+      }))
     );
+
+    const patientName = `${patient.firstName || ""} ${patient.lastName || ""}`.trim() || "A patient";
+    await notifyPharmacyUsers(doctor.tenantId, `${prescription.medication || "Medication"} was prescribed for ${patientName}.`, {
+      prescriptionId: prescription.id,
+      patientId,
+      visitId: visit.id,
+      orderedBy: doctor.id,
+    });
+
+    return NextResponse.json({ prescription }, { status: 201 });
+  } catch (error) {
+    console.error("Create doctor prescription API error:", error);
+    return NextResponse.json({ error: "Failed to create prescription" }, { status: 500 });
   }
 }
-
-export async function PATCH(request: NextRequest) {
-  try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const body = await request.json();
-    const { id, updates, slug } = body;
-
-    if (!id || !slug) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-    }
-
-    // Verify doctor role
-    const doctorUser = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.id, session.user.id), eq(users.role, "doctor")))
-      .limit(1);
-
-    if (!doctorUser.length) {
-      return NextResponse.json({ error: "Doctor access required" }, { status: 403 });
-    }
-
-    // Update prescription
-    const updateData: any = { updatedAt: new Date(), ...updates };
-
-    const updatedPrescription = await db
-      .update(prescriptions)
-      .set(updateData)
-      .where(and(eq(prescriptions.id, id), eq(prescriptions.doctorId, session.user.id)))
-      .returning();
-
-    if (!updatedPrescription.length) {
-      return NextResponse.json({ error: "Prescription not found" }, { status: 404 });
-    }
-
-    return NextResponse.json(updatedPrescription[0]);
-
-  } catch (error) {
-    console.error("Update prescription API error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
-}
-

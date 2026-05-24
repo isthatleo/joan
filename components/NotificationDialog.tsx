@@ -89,17 +89,34 @@ export function NotificationDialog({
   const getNotificationColor = (type: string) => {
     switch (type) {
       case "message":
-        return "text-blue-500";
+        return "text-blue-500 dark:text-blue-300";
       case "appointment":
-        return "text-green-500";
+        return "text-green-500 dark:text-green-300";
       case "system":
-        return "text-purple-500";
+        return "text-violet-500 dark:text-violet-300";
       case "alert":
-        return "text-red-500";
+        return "text-red-500 dark:text-red-300";
       case "broadcast":
-        return "text-orange-500";
+        return "text-orange-500 dark:text-orange-300";
       default:
-        return "text-gray-500";
+        return "text-slate-500 dark:text-slate-300";
+    }
+  };
+
+  const getNotificationSurface = (type: string) => {
+    switch (type) {
+      case "message":
+        return "bg-blue-50 border-blue-200 dark:bg-blue-500/10 dark:border-blue-400/20";
+      case "appointment":
+        return "bg-emerald-50 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-400/20";
+      case "system":
+        return "bg-violet-50 border-violet-200 dark:bg-violet-500/10 dark:border-violet-400/20";
+      case "alert":
+        return "bg-red-50 border-red-200 dark:bg-red-500/10 dark:border-red-400/20";
+      case "broadcast":
+        return "bg-orange-50 border-orange-200 dark:bg-orange-500/10 dark:border-orange-400/20";
+      default:
+        return "bg-slate-50 border-slate-200 dark:bg-slate-500/10 dark:border-slate-400/20";
     }
   };
 
@@ -166,11 +183,12 @@ export function NotificationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md border-border bg-background shadow-xl">
         <DialogHeader>
-          <div className="flex items-start gap-3">
+          <div className="flex items-start gap-3 rounded-2xl border border-border bg-card/70 p-4">
             <div className={cn(
-              "p-2 rounded-lg bg-muted",
+              "rounded-xl border p-2.5",
+              getNotificationSurface(notification.type),
               getNotificationColor(notification.type)
             )}>
               <IconComponent className="h-5 w-5" />
@@ -190,11 +208,11 @@ export function NotificationDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <DialogDescription className="text-left text-sm leading-relaxed">
+          <DialogDescription className="rounded-2xl border border-border bg-card/60 p-4 text-left text-sm leading-relaxed text-foreground/90">
             {notification.message}
           </DialogDescription>
 
-          <div className="space-y-2 text-xs text-muted-foreground">
+          <div className="space-y-2 rounded-2xl border border-border bg-muted/40 p-4 text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
               <Clock className="h-3 w-3" />
               <span>{formatTime(notification.createdAt)}</span>
@@ -210,7 +228,7 @@ export function NotificationDialog({
 
         <DialogFooter className="flex-col gap-2 sm:flex-row">
           {showViewAllButton && (
-            <Button variant="outline" onClick={handleViewAll} className="w-full sm:w-auto">
+            <Button variant="outline" onClick={handleViewAll} className="w-full border-border bg-background sm:w-auto">
               View All Notifications
             </Button>
           )}

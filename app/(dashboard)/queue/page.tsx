@@ -1,187 +1,44 @@
 "use client";
-
-import { useState } from "react";
-import { Topbar } from "@/components/Topbar";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { formatDistanceToNow } from "date-fns";
+import { Activity, CheckCircle2, Clock3, FlaskConical, Loader2, PhoneCall, Plus, RefreshCw, Search, Stethoscope, XCircle } from "lucide-react";
+import { toast } from "sonner";
 import { KPICard } from "@/components/KPICard";
-import { DataCard, DataCardItem } from "@/components/DataCard";
-import { Activity, AlertCircle, CheckCircle, Clock, Plus } from "lucide-react";
+import { Topbar } from "@/components/Topbar";
 
-const mockQueue: DataCardItem[] = [
-  {
-    id: "Q-001",
-    title: "Q-001",
-    subtitle: "John Doe",
-    status: "in-progress",
-    value: "Dr. Smith",
-  },
-  {
-    id: "Q-002",
-    title: "Q-002",
-    subtitle: "Jane Wilson",
-    status: "pending",
-    value: "Waiting",
-  },
-  {
-    id: "Q-003",
-    title: "Q-003",
-    subtitle: "Bob Harris",
-    status: "pending",
-    value: "Waiting",
-  },
-  {
-    id: "Q-004",
-    title: "Q-004",
-    subtitle: "Alice Brown",
-    status: "pending",
-    value: "Waiting",
-  },
-];
+type QueueEntry = { id: string; patientId: string; patientName: string; patientEmail: string | null; patientPhone: string | null; globalPatientId: string | null; queueNumber: string | null; status: string | null; priority: string | null; position: number | null; completedAt: string | null; createdAt: string | null; estimatedWaitMinutes: number | null; };
+type QueueResponse = { queue: QueueEntry[]; stats: { waiting: number; called: number; inProgress: number; completedToday: number; averageWaitMinutes: number; }; activeEntry: QueueEntry | null; nextUp: QueueEntry[]; recentCompleted: QueueEntry[]; };
+type Patient = { id: string; fullName: string; email: string | null; phone: string | null; globalPatientId: string | null; };
+const statusOptions = ["all", "waiting", "called", "in-progress", "completed", "no-show"];
+const queuePriorities = ["routine", "urgent", "critical"];
+const labCategories = ["General", "Hematology", "Chemistry", "Microbiology", "Imaging"];
+const labPriorities = ["routine", "urgent", "stat"];
+const newConsult = () => ({ reason: "", symptoms: "", assessment: "", diagnosis: "", plan: "", notes: "", createLabOrder: false, labTestName: "", labCategory: "General", labPriority: "routine", labNotes: "", labLocation: "Main Lab", dueDate: "" });
+const rel = (v: string | null) => v ? formatDistanceToNow(new Date(v), { addSuffix: true }) : "-";
+const tone = (status: string | null) => status === "in-progress" ? "bg-blue-500/10 text-blue-700 dark:text-blue-300" : status === "called" ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : status === "completed" ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : status === "no-show" ? "bg-rose-500/10 text-rose-700 dark:text-rose-300" : "bg-muted text-muted-foreground";
+const prioTone = (priority: string | null) => priority === "critical" ? "bg-rose-500/10 text-rose-700 dark:text-rose-300" : priority === "urgent" ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-muted text-muted-foreground";
 
 export default function QueuePage() {
-  const [queue, setQueue] = useState(mockQueue);
+  const qc = useQueryClient();
+  const [status, setStatus] = useState("all"); const [search, setSearch] = useState(""); const [addOpen, setAddOpen] = useState(false); const [selectedPatientId, setSelectedPatientId] = useState(""); const [queuePriority, setQueuePriority] = useState("routine"); const [patientSearch, setPatientSearch] = useState(""); const [consultationEntry, setConsultationEntry] = useState<QueueEntry | null>(null); const [consultationForm, setConsultationForm] = useState(newConsult());
+  const queueQuery = useQuery<QueueResponse>({ queryKey: ["doctor-queue", status, search], queryFn: async () => { const p = new URLSearchParams(); if (status !== "all") p.set("status", status); if (search.trim()) p.set("search", search.trim()); const r = await fetch(`/api/doctor/queue${p.toString() ? `?${p.toString()}` : ""}`); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Failed to load queue"); return r.json(); } });
+  const patientsQuery = useQuery<{ patients: Patient[] }>({ queryKey: ["doctor-queue-patients"], queryFn: async () => { const r = await fetch("/api/doctor/patients?status=active"); if (!r.ok) throw new Error("Failed to load patients"); return r.json(); } });
+  const queueAction = useMutation({ mutationFn: async (payload: { id: string; nextStatus: string }) => { const r = await fetch("/api/doctor/queue", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: payload.id, status: payload.nextStatus }) }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Failed to update queue"); return r.json(); }, onSuccess: async (_, v) => { toast.success(`Queue updated to ${v.nextStatus.replace("-", " ")}.`); await qc.invalidateQueries({ queryKey: ["doctor-queue"] }); }, onError: (e: Error) => toast.error(e.message) });
+  const addToQueue = useMutation({ mutationFn: async () => { const r = await fetch("/api/doctor/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ patientId: selectedPatientId, priority: queuePriority }) }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Failed to add patient"); return r.json(); }, onSuccess: async () => { toast.success("Patient added to queue."); setAddOpen(false); setSelectedPatientId(""); setQueuePriority("routine"); setPatientSearch(""); await qc.invalidateQueries({ queryKey: ["doctor-queue"] }); }, onError: (e: Error) => toast.error(e.message) });
+  const consultation = useMutation({ mutationFn: async () => { if (!consultationEntry) throw new Error("No consultation selected"); const r = await fetch("/api/doctor/queue/consultation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ queueId: consultationEntry.id, patientId: consultationEntry.patientId, ...consultationForm }) }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Failed to complete consultation"); return r.json(); }, onSuccess: async (data) => { toast.success(data.labOrder ? "Consultation completed and lab order sent." : "Consultation completed."); setConsultationEntry(null); setConsultationForm(newConsult()); await qc.invalidateQueries({ queryKey: ["doctor-queue"] }); }, onError: (e: Error) => toast.error(e.message) });
+  const patients = patientsQuery.data?.patients ?? []; const filteredPatients = useMemo(() => { const term = patientSearch.toLowerCase(); return !term ? patients : patients.filter((p) => [p.fullName, p.email, p.phone, p.globalPatientId].filter(Boolean).some((v) => String(v).toLowerCase().includes(term))); }, [patientSearch, patients]);
+  const active = queueQuery.data?.activeEntry ?? null; const next = queueQuery.data?.nextUp?.[0] ?? null;
+  const openConsult = (entry: QueueEntry) => { setConsultationEntry(entry); setConsultationForm((c) => ({ ...c, reason: c.reason || `Consultation for ${entry.patientName}` })); };
 
-  const handleCallNext = () => {
-    if (queue.length > 1) {
-      const updated = [...queue];
-      updated[0].status = "completed";
-      updated[1].status = "in-progress";
-      setQueue(updated.slice(1));
-    }
-  };
-
-  const waitingCount = queue.filter((q) => q.status === "pending").length;
-  const servingCount = queue.filter((q) => q.status === "in-progress").length;
-  const completedCount = mockQueue.length - queue.length;
-
-  return (
-    <div className="space-y-6">
-      <Topbar
-        breadcrumbs={[
-          { label: "Dashboard", href: "/" },
-          { label: "Queue" },
-        ]}
-      />
-
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-            Patient Queue
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Real-time queue management and tracking
-          </p>
-        </div>
-        <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2 transition-colors">
-          <Plus className="w-5 h-5" />
-          Add to Queue
-        </button>
-      </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KPICard
-          title="Waiting Patients"
-          value={waitingCount}
-          subtitle="In queue"
-          color="yellow"
-          icon={Clock}
-        />
-        <KPICard
-          title="Currently Serving"
-          value={servingCount}
-          subtitle="With doctor"
-          color="blue"
-          icon={Activity}
-        />
-        <KPICard
-          title="Completed Today"
-          value={completedCount}
-          subtitle="Discharged"
-          color="green"
-          icon={CheckCircle}
-        />
-        <KPICard
-          title="Average Wait Time"
-          value="12 min"
-          subtitle="Current average"
-          color="purple"
-          icon={Clock}
-        />
-      </div>
-
-      {/* Queue Display */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Now Serving */}
-        <div className="lg:col-span-1">
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900 dark:to-blue-800 rounded-2xl p-8 border border-blue-200 dark:border-blue-700 text-center">
-            <p className="text-sm font-medium text-blue-600 dark:text-blue-300 mb-2">
-              NOW SERVING
-            </p>
-            {queue.find((q) => q.status === "in-progress") ? (
-              <>
-                <h2 className="text-5xl font-bold text-blue-700 dark:text-blue-200 mb-2">
-                  {queue.find((q) => q.status === "in-progress")?.id}
-                </h2>
-                <p className="text-blue-600 dark:text-blue-300 font-medium">
-                  {queue.find((q) => q.status === "in-progress")?.subtitle}
-                </p>
-                <button
-                  onClick={handleCallNext}
-                  className="mt-6 w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
-                >
-                  Next Patient
-                </button>
-              </>
-            ) : (
-              <p className="text-blue-600 dark:text-blue-300">No patients in queue</p>
-            )}
-          </div>
-        </div>
-
-        {/* Queue List */}
-        <div className="lg:col-span-2">
-          <DataCard
-            title={`Queue (${queue.length} waiting)`}
-            items={queue}
-            onItemClick={(item) => console.log("View queue item", item)}
-          />
-        </div>
-      </div>
-
-      {/* Queue Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-          <h2 className="text-2xl font-bold mb-4">Department Status</h2>
-          <div className="space-y-3">
-            <div>
-              <p className="text-gray-600">Total in Queue</p>
-              <p className="text-3xl font-bold">4</p>
-            </div>
-            <div>
-              <p className="text-gray-600">Avg Wait Time</p>
-              <p className="text-3xl font-bold">12 min</p>
-            </div>
-            <div>
-              <p className="text-gray-600">Completed Today</p>
-              <p className="text-3xl font-bold">32</p>
-            </div>
-            <button className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700">
-              Call Next Patient
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-6 bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-bold mb-4">Queue Board Display</h2>
-        <div className="text-center p-8 bg-gray-100 rounded-lg">
-          <p className="text-6xl font-bold text-blue-600">NOW SERVING</p>
-          <p className="text-5xl font-bold mt-4">A-102</p>
-          <p className="text-2xl mt-4">Jane Smith</p>
-          <p className="text-xl text-gray-600 mt-2">ROOM 3</p>
-        </div>
-      </div>
-    </div>
-  );
+  return <div className="space-y-6"><Topbar breadcrumbs={[{ label: "Dashboard", href: "/doctor" }, { label: "Queue" }]} />
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><h1 className="text-3xl font-semibold text-foreground">Patient Queue</h1><p className="mt-1 text-sm text-muted-foreground">Live consultation queue, direct handoff, and lab ordering from the encounter.</p></div><div className="flex flex-wrap gap-2"><button onClick={() => setAddOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"><Plus className="h-4 w-4" />Add to Queue</button><button onClick={() => next && queueAction.mutate({ id: next.id, nextStatus: "called" })} disabled={!next || queueAction.isPending} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground disabled:opacity-50"><PhoneCall className="h-4 w-4" />Call Next</button><button onClick={() => queueQuery.refetch()} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground"><RefreshCw className={`h-4 w-4 ${queueQuery.isRefetching ? "animate-spin" : ""}`} />Refresh</button></div></div>
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5"><KPICard title="Waiting" value={queueQuery.data?.stats.waiting ?? 0} subtitle="Ready for review" tone="warning" icon={Clock3} /><KPICard title="Called" value={queueQuery.data?.stats.called ?? 0} subtitle="In transition" tone="primary" icon={PhoneCall} /><KPICard title="In Consultation" value={queueQuery.data?.stats.inProgress ?? 0} subtitle="Currently with you" tone="info" icon={Stethoscope} /><KPICard title="Completed Today" value={queueQuery.data?.stats.completedToday ?? 0} subtitle="Closed encounters" tone="success" icon={CheckCircle2} /><KPICard title="Avg Wait" value={`${queueQuery.data?.stats.averageWaitMinutes ?? 0} min`} subtitle="Across active queue" tone="danger" icon={Activity} /></div>
+    {queueQuery.isError && <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">{(queueQuery.error as Error).message}</div>}
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_2fr]"><section className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm"><div className="flex items-center justify-between"><div><h2 className="text-lg font-semibold text-foreground">Current Consultation</h2><p className="text-sm text-muted-foreground">The active patient on your desk.</p></div><Stethoscope className="h-5 w-5 text-muted-foreground" /></div>{active ? <><div className="rounded-2xl border border-border bg-background/80 p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-sm text-muted-foreground">Now serving</p><h3 className="text-2xl font-semibold text-foreground">{active.patientName}</h3><p className="mt-1 text-sm text-muted-foreground">{active.queueNumber || "Queue"} ? {active.globalPatientId || "No patient number"}</p></div><span className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${tone(active.status)}`}>{String(active.status || "waiting").replace("-", " ")}</span></div><div className="mt-4 grid grid-cols-1 gap-3 text-sm text-muted-foreground sm:grid-cols-2"><div><p className="text-xs uppercase tracking-wide">Priority</p><span className={`mt-1 inline-flex rounded-full px-2 py-1 text-xs font-medium capitalize ${prioTone(active.priority)}`}>{active.priority || "routine"}</span></div><div><p className="text-xs uppercase tracking-wide">Waiting Since</p><p className="mt-1 text-foreground">{rel(active.createdAt)}</p></div><div><p className="text-xs uppercase tracking-wide">Contact</p><p className="mt-1 text-foreground">{active.patientPhone || active.patientEmail || "Not available"}</p></div><div><p className="text-xs uppercase tracking-wide">Estimated Wait</p><p className="mt-1 text-foreground">{active.estimatedWaitMinutes ?? 0} min</p></div></div></div><div className="grid gap-2 sm:grid-cols-3"><button onClick={() => queueAction.mutate({ id: active.id, nextStatus: "called" })} className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground">Mark Called</button><button onClick={() => queueAction.mutate({ id: active.id, nextStatus: "in-progress" })} className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground">Start Consultation</button><button onClick={() => openConsult(active)} className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">Complete Encounter</button></div></> : <div className="rounded-2xl border border-dashed border-border bg-background/60 p-6 text-center"><p className="text-sm font-medium text-foreground">No patient is currently in consultation.</p><p className="mt-2 text-sm text-muted-foreground">Call the next patient or add a patient to your queue to begin.</p></div>}<div className="rounded-2xl border border-border bg-background/70 p-4"><div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold text-foreground">Next Up</h3><p className="text-xs text-muted-foreground">Ordered by queue position.</p></div></div><div className="mt-3 space-y-3">{(queueQuery.data?.nextUp ?? []).length === 0 ? <p className="text-sm text-muted-foreground">No patients waiting right now.</p> : (queueQuery.data?.nextUp ?? []).map((entry) => <div key={entry.id} className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2"><div><p className="text-sm font-medium text-foreground">{entry.patientName}</p><p className="text-xs text-muted-foreground">{entry.queueNumber || "Queue item"} ? Pos. {entry.position ?? "-"}</p></div><button onClick={() => queueAction.mutate({ id: entry.id, nextStatus: "called" })} className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground">Call</button></div>)}</div></div></section>
+    <section className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-sm"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div><h2 className="text-lg font-semibold text-foreground">Queue Worklist</h2><p className="text-sm text-muted-foreground">Search, triage, and complete the doctor queue.</p></div><div className="flex flex-col gap-2 sm:flex-row"><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search patient, queue no, contact" className="h-10 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none sm:w-72" /></div><select value={status} onChange={(e) => setStatus(e.target.value)} className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none">{statusOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></div></div><div className="overflow-hidden rounded-xl border border-border"><div className="overflow-x-auto"><table className="min-w-full divide-y divide-border text-sm"><thead className="bg-muted/40 text-left text-muted-foreground"><tr><th className="px-4 py-3 font-medium">Patient</th><th className="px-4 py-3 font-medium">Queue</th><th className="px-4 py-3 font-medium">Status</th><th className="px-4 py-3 font-medium">Priority</th><th className="px-4 py-3 font-medium">Wait</th><th className="px-4 py-3 font-medium">Actions</th></tr></thead><tbody className="divide-y divide-border bg-card">{queueQuery.isLoading ? <tr><td colSpan={6} className="px-4 py-12 text-center text-muted-foreground"><Loader2 className="mx-auto h-5 w-5 animate-spin" /></td></tr> : (queueQuery.data?.queue ?? []).length === 0 ? <tr><td colSpan={6} className="px-4 py-12 text-center"><p className="text-sm font-medium text-foreground">No queue entries match the current filters.</p><p className="mt-1 text-sm text-muted-foreground">Add a patient to queue or clear the current filters.</p></td></tr> : (queueQuery.data?.queue ?? []).map((entry) => <tr key={entry.id} className="align-top"><td className="px-4 py-3"><div className="space-y-1"><p className="font-medium text-foreground">{entry.patientName}</p><p className="text-xs text-muted-foreground">{entry.globalPatientId || "No patient number"}</p><p className="text-xs text-muted-foreground">{entry.patientPhone || entry.patientEmail || "No contact on file"}</p></div></td><td className="px-4 py-3 text-foreground"><p>{entry.queueNumber || "-"}</p><p className="text-xs text-muted-foreground">Position {entry.position ?? "-"}</p></td><td className="px-4 py-3"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize ${tone(entry.status)}`}>{String(entry.status || "waiting").replace("-", " ")}</span></td><td className="px-4 py-3"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize ${prioTone(entry.priority)}`}>{entry.priority || "routine"}</span></td><td className="px-4 py-3 text-foreground"><p>{entry.estimatedWaitMinutes ?? 0} min</p><p className="text-xs text-muted-foreground">Queued {rel(entry.createdAt)}</p></td><td className="px-4 py-3"><div className="flex flex-wrap gap-2">{entry.status === "waiting" && <button onClick={() => queueAction.mutate({ id: entry.id, nextStatus: "called" })} className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground">Call</button>}{(entry.status === "waiting" || entry.status === "called") && <button onClick={() => queueAction.mutate({ id: entry.id, nextStatus: "in-progress" })} className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground">Start</button>}{(entry.status === "called" || entry.status === "in-progress") && <button onClick={() => openConsult(entry)} className="rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground">Consult</button>}{entry.status !== "completed" && entry.status !== "no-show" && <button onClick={() => queueAction.mutate({ id: entry.id, nextStatus: "no-show" })} className="rounded-lg border border-destructive/30 px-2.5 py-1.5 text-xs font-medium text-destructive">No-show</button>}</div></td></tr>)}</tbody></table></div></div></section></div>
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-2"><section className="rounded-2xl border border-border bg-card p-5 shadow-sm"><div className="flex items-center justify-between"><div><h2 className="text-lg font-semibold text-foreground">Completed Queue Items</h2><p className="text-sm text-muted-foreground">Recent closed consultations and no-shows.</p></div><CheckCircle2 className="h-5 w-5 text-muted-foreground" /></div><div className="mt-4 space-y-3">{(queueQuery.data?.recentCompleted ?? []).length === 0 ? <p className="text-sm text-muted-foreground">No completed encounters yet today.</p> : (queueQuery.data?.recentCompleted ?? []).map((entry) => <div key={entry.id} className="flex items-center justify-between rounded-xl border border-border px-4 py-3"><div><p className="font-medium text-foreground">{entry.patientName}</p><p className="text-xs text-muted-foreground">{entry.queueNumber || "Queue item"} ? {rel(entry.completedAt)}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${tone(entry.status)}`}>{String(entry.status || "completed").replace("-", " ")}</span></div>)}</div></section><section className="rounded-2xl border border-border bg-card p-5 shadow-sm"><h2 className="text-lg font-semibold text-foreground">Queue Protocol</h2><div className="mt-4 grid gap-3 md:grid-cols-2">{["Add the patient to your queue with the correct priority.","Call and move the patient into consultation when ready.","Capture symptoms, assessment, diagnosis, and plan in one place.","Raise a lab order directly from the consultation if tests are required."].map((item) => <div key={item} className="rounded-xl border border-border bg-background/70 p-4 text-sm text-foreground">{item}</div>)}</div></section></div>
+    {addOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div className="w-full max-w-2xl rounded-2xl border border-border bg-background p-6 shadow-2xl"><div className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-semibold text-foreground">Add Patient to Queue</h2><p className="mt-1 text-sm text-muted-foreground">Select an active patient and assign triage priority.</p></div><button onClick={() => setAddOpen(false)} className="rounded-lg border border-border p-2 text-muted-foreground"><XCircle className="h-4 w-4" /></button></div><div className="mt-5 space-y-4"><input value={patientSearch} onChange={(e) => setPatientSearch(e.target.value)} placeholder="Name, phone, email, patient number" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none" /><div className="max-h-72 space-y-2 overflow-y-auto rounded-xl border border-border p-3">{patientsQuery.isLoading ? <div className="py-8 text-center text-sm text-muted-foreground">Loading patients...</div> : filteredPatients.length === 0 ? <div className="py-8 text-center text-sm text-muted-foreground">No active patients match this search.</div> : filteredPatients.map((patient) => <button key={patient.id} type="button" onClick={() => setSelectedPatientId(patient.id)} className={`flex w-full items-start justify-between rounded-xl border px-4 py-3 text-left ${selectedPatientId === patient.id ? "border-primary bg-primary/5" : "border-border bg-card hover:bg-muted/40"}`}><div><p className="font-medium text-foreground">{patient.fullName}</p><p className="text-xs text-muted-foreground">{patient.globalPatientId || "No patient number"}</p><p className="text-xs text-muted-foreground">{patient.phone || patient.email || "No contact"}</p></div>{selectedPatientId === patient.id && <CheckCircle2 className="h-4 w-4 text-primary" />}</button>)}</div><select value={queuePriority} onChange={(e) => setQueuePriority(e.target.value)} className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none">{queuePriorities.map((option) => <option key={option} value={option}>{option}</option>)}</select></div><div className="mt-6 flex justify-end gap-2"><button onClick={() => setAddOpen(false)} className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">Cancel</button><button onClick={() => addToQueue.mutate()} disabled={!selectedPatientId || addToQueue.isPending} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">{addToQueue.isPending && <Loader2 className="h-4 w-4 animate-spin" />}Add to Queue</button></div></div></div>}
+    {consultationEntry && <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4"><div className="mx-auto w-full max-w-4xl rounded-2xl border border-border bg-background p-6 shadow-2xl"><div className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-semibold text-foreground">Consultation Workspace</h2><p className="mt-1 text-sm text-muted-foreground">Capture the encounter for {consultationEntry.patientName} and send tests to the lab when needed.</p></div><button onClick={() => setConsultationEntry(null)} className="rounded-lg border border-border p-2 text-muted-foreground"><XCircle className="h-4 w-4" /></button></div><div className="mt-5 grid gap-6 xl:grid-cols-[1.1fr_1.4fr]"><div className="space-y-4 rounded-2xl border border-border bg-card p-4"><p className="text-sm font-semibold text-foreground">Patient Context</p><div className="space-y-3 text-sm"><div><p className="text-xs uppercase tracking-wide text-muted-foreground">Patient</p><p className="mt-1 font-medium text-foreground">{consultationEntry.patientName}</p></div><div><p className="text-xs uppercase tracking-wide text-muted-foreground">Identifier</p><p className="mt-1 text-foreground">{consultationEntry.globalPatientId || "Not available"}</p></div><div><p className="text-xs uppercase tracking-wide text-muted-foreground">Contact</p><p className="mt-1 text-foreground">{consultationEntry.patientPhone || consultationEntry.patientEmail || "Not available"}</p></div><div><p className="text-xs uppercase tracking-wide text-muted-foreground">Queue Wait</p><p className="mt-1 text-foreground">{consultationEntry.estimatedWaitMinutes ?? 0} min</p></div></div></div><div className="space-y-4"><div className="grid gap-4 md:grid-cols-2"><input value={consultationForm.reason} onChange={(e) => setConsultationForm((c) => ({ ...c, reason: e.target.value }))} placeholder="Reason for visit" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none" /><input value={consultationForm.diagnosis} onChange={(e) => setConsultationForm((c) => ({ ...c, diagnosis: e.target.value }))} placeholder="Working diagnosis" className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none" /></div><textarea value={consultationForm.symptoms} onChange={(e) => setConsultationForm((c) => ({ ...c, symptoms: e.target.value }))} rows={4} placeholder="Symptoms" className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none" /><textarea value={consultationForm.assessment} onChange={(e) => setConsultationForm((c) => ({ ...c, assessment: e.target.value }))} rows={4} placeholder="Assessment" className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none" /><textarea value={consultationForm.plan} onChange={(e) => setConsultationForm((c) => ({ ...c, plan: e.target.value }))} rows={4} placeholder="Plan" className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none" /><textarea value={consultationForm.notes} onChange={(e) => setConsultationForm((c) => ({ ...c, notes: e.target.value }))} rows={3} placeholder="Additional notes" className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none" /></div></div><div className="mt-6 rounded-2xl border border-border bg-card p-5"><div className="flex items-center justify-between gap-3"><div><h3 className="text-base font-semibold text-foreground">Direct Lab Handoff</h3><p className="text-sm text-muted-foreground">Create a lab order from this consultation and send it to the lab queue.</p></div><label className="inline-flex items-center gap-2 text-sm font-medium text-foreground"><input type="checkbox" checked={consultationForm.createLabOrder} onChange={(e) => setConsultationForm((c) => ({ ...c, createLabOrder: e.target.checked }))} className="h-4 w-4 rounded border-border" />Create lab order</label></div>{consultationForm.createLabOrder && <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3"><input value={consultationForm.labTestName} onChange={(e) => setConsultationForm((c) => ({ ...c, labTestName: e.target.value }))} placeholder="Test name" className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none xl:col-span-2" /><select value={consultationForm.labCategory} onChange={(e) => setConsultationForm((c) => ({ ...c, labCategory: e.target.value }))} className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none">{labCategories.map((o) => <option key={o} value={o}>{o}</option>)}</select><select value={consultationForm.labPriority} onChange={(e) => setConsultationForm((c) => ({ ...c, labPriority: e.target.value }))} className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none">{labPriorities.map((o) => <option key={o} value={o}>{o}</option>)}</select><input value={consultationForm.labLocation} onChange={(e) => setConsultationForm((c) => ({ ...c, labLocation: e.target.value }))} placeholder="Lab location" className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none" /><input type="datetime-local" value={consultationForm.dueDate} onChange={(e) => setConsultationForm((c) => ({ ...c, dueDate: e.target.value }))} className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none" /><textarea value={consultationForm.labNotes} onChange={(e) => setConsultationForm((c) => ({ ...c, labNotes: e.target.value }))} rows={3} placeholder="Lab notes" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none md:col-span-2 xl:col-span-3" /></div>}</div><div className="mt-6 flex justify-end gap-2"><button onClick={() => setConsultationEntry(null)} className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">Cancel</button><button onClick={() => consultation.mutate()} disabled={consultation.isPending} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">{consultation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}Complete Consultation</button></div></div></div>}
+  </div>;
 }

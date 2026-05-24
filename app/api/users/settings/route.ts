@@ -1,110 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, ilike } from "drizzle-orm";
+import { and, eq, ilike, isNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { userSettings, users } from "@/lib/db/schema";
-
-const defaultUserSettings = {
-  notifications: {
-    email: true,
-    push: true,
-    sms: false,
-    marketing: false,
-    desktop: true,
-    digests: true,
-    digestFrequency: "daily",
-    reportReady: true,
-    billingAlerts: true,
-    securityAlerts: true,
-    scheduleFailures: true,
-  },
-  privacy: {
-    profileVisibility: "private",
-    dataSharing: false,
-    analytics: true,
-    readReceipts: true,
-    activityStatus: true,
-  },
-  appearance: {
-    theme: "system",
-    language: "en",
-    timezone: "UTC",
-    density: "comfortable",
-    calendarStart: "monday",
-    reduceMotion: false,
-    highContrast: false,
-    fontScale: "default",
-  },
-  security: {
-    twoFactorEnabled: false,
-    sessionTimeout: 30,
-    loginAlerts: true,
-    deviceTrust: true,
-    passwordlessSignin: false,
-    biometricPrompt: false,
-  },
-  communication: {
-    messageSettings: {
-      allowMessagesFrom: "care-team",
-      autoReply: "",
-      signature: "",
-      defaultChannel: "inbox",
-      workingHours: {
-        enabled: false,
-        start: "09:00",
-        end: "17:00",
-        timezone: "UTC",
-      },
-    },
-  },
-  workflow: {
-    defaultLandingPage: "dashboard",
-    quickActions: true,
-    confirmDestructive: true,
-    autoSaveDrafts: true,
-    preferredExportFormat: "pdf",
-    compactTables: false,
-  },
-};
-
-function mergeUserSettings(settings: any) {
-  return {
-    ...defaultUserSettings,
-    ...settings,
-    notifications: {
-      ...defaultUserSettings.notifications,
-      ...(settings?.notifications || {}),
-    },
-    privacy: {
-      ...defaultUserSettings.privacy,
-      ...(settings?.privacy || {}),
-    },
-    appearance: {
-      ...defaultUserSettings.appearance,
-      ...(settings?.appearance || {}),
-    },
-    security: {
-      ...defaultUserSettings.security,
-      ...(settings?.security || {}),
-    },
-    workflow: {
-      ...defaultUserSettings.workflow,
-      ...(settings?.workflow || {}),
-    },
-    communication: {
-      ...defaultUserSettings.communication,
-      ...(settings?.communication || {}),
-      messageSettings: {
-        ...defaultUserSettings.communication.messageSettings,
-        ...(settings?.communication?.messageSettings || {}),
-        workingHours: {
-          ...defaultUserSettings.communication.messageSettings.workingHours,
-          ...(settings?.communication?.messageSettings?.workingHours || {}),
-        },
-      },
-    },
-  };
-}
+import { mergeUserSettings } from "@/lib/user-settings";
 
 async function resolveCurrentUser(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -113,10 +12,12 @@ async function resolveCurrentUser(request: NextRequest) {
   }
 
   const appUser = await db.query.users.findFirst({
-    where: ilike(users.email, session.user.email),
+    where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
     columns: {
       id: true,
       email: true,
+      role: true,
+      tenantId: true,
     },
   });
 
