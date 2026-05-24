@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { notifications, users } from "@/lib/db/schema";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, ilike, isNull } from "drizzle-orm";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
 import { z } from "zod";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const uuidSchema = z.string().uuid();
 
@@ -15,23 +18,32 @@ async function resolveTenantFilter(rawTenantId: string | null) {
   return getTenantIdBySlug(rawTenantId);
 }
 
+async function resolveCurrentAppUser(sessionEmail: string | undefined) {
+  if (!sessionEmail) return null;
+  return db.query.users.findFirst({
+    where: and(ilike(users.email, sessionEmail), isNull(users.deletedAt)),
+    columns: { id: true, tenantId: true },
+  });
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const appUser = await resolveCurrentAppUser(session.user.email);
 
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get("userId") || (session.user.id as string);
-    const tenantId = await resolveTenantFilter(searchParams.get("tenantId"));
+    const userId = searchParams.get("userId") || appUser?.id || (session.user.id as string);
+    const tenantId = await resolveTenantFilter(searchParams.get("tenantId")) || appUser?.tenantId || null;
     const countOnly = searchParams.get("countOnly") === "true";
     const unreadOnly = searchParams.get("unreadOnly") === "true";
 
     if (!userId) {
       return NextResponse.json({ error: "User ID required" }, { status: 400 });
     }
-    if (userId !== session.user.id) {
+    if (userId !== session.user.id && userId !== appUser?.id) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -84,6 +96,7 @@ export async function POST(request: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const appUser = await resolveCurrentAppUser(session.user.email);
 
     const { searchParams } = new URL(request.url);
     const action = searchParams.get("action") || "create";
@@ -99,7 +112,7 @@ export async function POST(request: NextRequest) {
         metadata: z.record(z.any()).optional(),
       }).parse(data);
 
-      if (userId !== session.user.id) {
+      if (userId !== session.user.id && userId !== appUser?.id) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 
@@ -187,7 +200,7 @@ export async function POST(request: NextRequest) {
         userId: z.string().uuid(),
       }).parse(data);
 
-      if (userId !== session.user.id) {
+      if (userId !== session.user.id && userId !== appUser?.id) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
 

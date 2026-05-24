@@ -50,6 +50,7 @@ import {
 
 interface FeedbackItem {
   id: string;
+  scope?: string;
   type: string;
   title: string;
   description: string;
@@ -94,6 +95,7 @@ export default function FeedbackPage() {
     queryKey: ["feedback", statusFilter, typeFilter],
     queryFn: async () => {
       const params = new URLSearchParams();
+      params.set("scope", "platform");
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (typeFilter !== "all") params.set("type", typeFilter);
 
@@ -211,7 +213,7 @@ export default function FeedbackPage() {
     <div className="space-y-6">
       <PageHeader
         title="Feedback Management"
-        description="Manage user feedback, bug reports, and feature requests"
+        description="Manage platform feedback sent directly to the super admin for system fixes, feature additions, and product improvements"
       />
 
       {/* Filters */}

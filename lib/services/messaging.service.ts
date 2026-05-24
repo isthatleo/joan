@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { messages, notifications, users, userRoles, roles } from "@/lib/db/schema";
+import { messages, notifications, users, userRoles, roles, messageCallSessions } from "@/lib/db/schema";
 import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { ensureRedisConnection, redis } from "@/lib/redis";
 
@@ -27,6 +27,44 @@ function pickPrimaryRole(roleList: string[], fallbackRole?: string | null) {
 }
 
 export class MessagingService {
+  private formatCallSummary(call: {
+    callType: string;
+    status: string;
+    callerId: string;
+    calleeId: string;
+    startedAt?: Date | string | null;
+    endedAt?: Date | string | null;
+  }, viewerId: string) {
+    const typeLabel = call.callType === "video" ? "video call" : "voice call";
+    const startedAt = call.startedAt ? new Date(call.startedAt) : null;
+    const endedAt = call.endedAt ? new Date(call.endedAt) : null;
+    const durationSeconds =
+      startedAt && endedAt ? Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000)) : 0;
+
+    if (call.status === "ended" && durationSeconds > 0) {
+      return {
+        message: `${call.callType === "video" ? "Video" : "Voice"} call - ${this.formatDuration(durationSeconds)}`,
+        durationSeconds,
+        missed: false,
+      };
+    }
+
+    const viewerMissed = call.status === "missed" || (call.status === "rejected" && call.calleeId === viewerId);
+    return {
+      message: viewerMissed
+        ? `Missed ${typeLabel}`
+        : `Unanswered ${typeLabel}`,
+      durationSeconds: 0,
+      missed: true,
+    };
+  }
+
+  private formatDuration(totalSeconds: number) {
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+  }
+
   async sendMessage(data: {
     senderId: string;
     receiverId: string;
@@ -53,11 +91,11 @@ export class MessagingService {
     const [sender, receiver] = await Promise.all([
       db.query.users.findFirst({
         where: eq(users.id, data.senderId),
-        columns: { fullName: true, email: true },
+        columns: { id: true, fullName: true, email: true, avatar: true },
       }),
       db.query.users.findFirst({
         where: eq(users.id, data.receiverId),
-        columns: { tenantId: true },
+        columns: { id: true, tenantId: true, fullName: true, email: true, avatar: true },
       }),
     ]);
 
@@ -87,7 +125,16 @@ export class MessagingService {
             type: "message",
             title: "New Message",
             message: `New message from ${senderName}`,
-            metadata: { senderId: data.senderId, messageId: created.id },
+            metadata: {
+              senderId: data.senderId,
+              messageId: created.id,
+              receiverId: data.receiverId,
+              message: {
+                ...created,
+                sender,
+                receiver,
+              },
+            },
           })
         );
       } catch (publishError) {
@@ -99,7 +146,7 @@ export class MessagingService {
   }
 
   async getConversations(userId: string) {
-    const [sentMessages, receivedMessages] = await Promise.all([
+    const [sentMessages, receivedMessages, callSessions] = await Promise.all([
       db.query.messages.findMany({
         where: and(eq(messages.senderId, userId), isNull(messages.deletedAt)),
         with: {
@@ -118,9 +165,28 @@ export class MessagingService {
         },
         orderBy: desc(messages.createdAt),
       }),
+      db.query.messageCallSessions.findMany({
+        where: or(eq(messageCallSessions.callerId, userId), eq(messageCallSessions.calleeId, userId)),
+        orderBy: desc(messageCallSessions.startedAt),
+      }),
     ]);
 
     const conversationMap = new Map<string, { user: { id: string; fullName: string | null; email: string; avatar: string | null }; lastMessage: any; unreadCount: number }>();
+
+    const callUserIds = new Set<string>();
+
+    for (const session of callSessions || []) {
+      const otherUserId = session.callerId === userId ? session.calleeId : session.callerId;
+      if (otherUserId) callUserIds.add(otherUserId);
+    }
+
+    const callUsers = callUserIds.size > 0
+      ? await db.query.users.findMany({
+          where: inArray(users.id, Array.from(callUserIds)),
+          columns: { id: true, fullName: true, email: true, avatar: true },
+        })
+      : [];
+    const callUserMap = new Map(callUsers.map((entry) => [entry.id, entry]));
 
     for (const message of [...sentMessages, ...receivedMessages]) {
       const otherUser = message.senderId === userId ? (message as any).receiver : (message as any).sender;
@@ -144,30 +210,166 @@ export class MessagingService {
       }
     }
 
+    for (const session of callSessions || []) {
+      const otherUserId = session.callerId === userId ? session.calleeId : session.callerId;
+      const otherUser = otherUserId ? callUserMap.get(otherUserId) : null;
+      if (!otherUser?.id) continue;
+
+      const callSummary = this.formatCallSummary(session, userId);
+      const timelineEntry = {
+        id: session.id,
+        message: callSummary.message,
+        createdAt: session.endedAt || session.startedAt,
+        read: true,
+        senderId: session.callerId,
+        type: "call_event",
+        callType: session.callType,
+        callStatus: session.status,
+        durationSeconds: callSummary.durationSeconds,
+        missed: callSummary.missed,
+      };
+
+      const existing = conversationMap.get(otherUser.id);
+      if (!existing) {
+        conversationMap.set(otherUser.id, {
+          user: otherUser,
+          lastMessage: timelineEntry,
+          unreadCount: 0,
+        });
+        continue;
+      }
+
+      if (new Date(timelineEntry.createdAt).getTime() > new Date(existing.lastMessage.createdAt).getTime()) {
+        existing.lastMessage = timelineEntry;
+      }
+    }
+
     return Array.from(conversationMap.values()).sort(
       (a, b) => new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime()
     );
   }
 
   async getChatMessages(userId: string, otherUserId: string) {
-    const chatMessages = await db.query.messages.findMany({
-      where: or(
-        and(eq(messages.senderId, userId), eq(messages.receiverId, otherUserId), isNull(messages.deletedAt)),
-        and(eq(messages.senderId, otherUserId), eq(messages.receiverId, userId), isNull(messages.deletedAt))
-      ),
-      with: {
-        sender: { columns: { id: true, fullName: true, email: true, avatar: true } },
-        receiver: { columns: { id: true, fullName: true, email: true, avatar: true } },
-      },
-      orderBy: asc(messages.createdAt),
-    });
+    const [chatMessages, callSessions, participants] = await Promise.all([
+      db.query.messages.findMany({
+        where: or(
+          and(eq(messages.senderId, userId), eq(messages.receiverId, otherUserId), isNull(messages.deletedAt)),
+          and(eq(messages.senderId, otherUserId), eq(messages.receiverId, userId), isNull(messages.deletedAt))
+        ),
+        with: {
+          sender: { columns: { id: true, fullName: true, email: true, avatar: true } },
+          receiver: { columns: { id: true, fullName: true, email: true, avatar: true } },
+        },
+        orderBy: asc(messages.createdAt),
+      }),
+      db.query.messageCallSessions.findMany({
+        where: or(
+          and(eq(messageCallSessions.callerId, userId), eq(messageCallSessions.calleeId, otherUserId)),
+          and(eq(messageCallSessions.callerId, otherUserId), eq(messageCallSessions.calleeId, userId))
+        ),
+        orderBy: asc(messageCallSessions.startedAt),
+      }),
+      db.query.users.findMany({
+        where: inArray(users.id, [userId, otherUserId]),
+        columns: { id: true, fullName: true, email: true, avatar: true },
+      }),
+    ]);
+
+    const participantMap = new Map(participants.map((entry) => [entry.id, entry]));
 
     await db
       .update(messages)
       .set({ read: true })
       .where(and(eq(messages.senderId, otherUserId), eq(messages.receiverId, userId), eq(messages.read, false)));
 
-    return chatMessages;
+    void (async () => {
+      try {
+        await ensureRedisConnection();
+        await redis.publish(
+          "notifications",
+          JSON.stringify({
+            userId: otherUserId,
+            type: "message.read",
+            title: "Message Read",
+            message: "A message was read",
+            metadata: {
+              senderId: otherUserId,
+              readerId: userId,
+              conversationUserId: userId,
+            },
+          })
+        );
+      } catch (publishError) {
+        console.error("Failed to publish read receipt:", publishError);
+      }
+      })();
+
+    const callTimeline = callSessions.map((session) => {
+      const summary = this.formatCallSummary(session, userId);
+      return {
+        id: `call-${session.id}`,
+        message: summary.message,
+        createdAt: session.endedAt || session.startedAt,
+        read: true,
+        type: "call_event",
+        callType: session.callType,
+        callStatus: session.status,
+        durationSeconds: summary.durationSeconds,
+        missed: summary.missed,
+        sender: participantMap.get(session.callerId) || { id: session.callerId, fullName: null, email: "", avatar: null },
+        receiver: participantMap.get(session.calleeId) || { id: session.calleeId, fullName: null, email: "", avatar: null },
+      };
+    });
+
+    return [...chatMessages, ...callTimeline].sort(
+      (a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+  }
+
+  async markConversationRead(userId: string, otherUserId: string, messageIds?: string[]) {
+    const readConditions = [
+      eq(messages.senderId, otherUserId),
+      eq(messages.receiverId, userId),
+      eq(messages.read, false),
+      isNull(messages.deletedAt),
+    ];
+
+    if (messageIds?.length) {
+      readConditions.push(inArray(messages.id, messageIds));
+    }
+
+    const updated = await db
+      .update(messages)
+      .set({ read: true })
+      .where(and(...readConditions))
+      .returning({ id: messages.id });
+
+    if (updated.length > 0) {
+      void (async () => {
+        try {
+          await ensureRedisConnection();
+          await redis.publish(
+            "notifications",
+            JSON.stringify({
+              userId: otherUserId,
+              type: "message.read",
+              title: "Message Read",
+              message: "A message was read",
+              metadata: {
+                senderId: otherUserId,
+                readerId: userId,
+                conversationUserId: userId,
+                messageIds: updated.map((row) => row.id),
+              },
+            })
+          );
+        } catch (publishError) {
+          console.error("Failed to publish read receipt:", publishError);
+        }
+      })();
+    }
+
+    return updated;
   }
 
   async getBroadcasts(userId: string) {

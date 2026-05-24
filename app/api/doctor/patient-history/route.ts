@@ -1,212 +1,130 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { appointments, labOrders, patients, prescriptions, visits } from "@/lib/db/schema";
 import { db } from "@/lib/db";
-import { eq, and, desc, sql, gte, lte } from "drizzle-orm";
-import { appointments, labOrders, prescriptions, labResults, patients, users } from "@/lib/db/schema";
-import { format, subDays, startOfMonth, endOfMonth, startOfQuarter, endOfQuarter, startOfYear, endOfYear } from "date-fns";
+import { resolveDoctorContext } from "@/lib/doctor/server";
 
 export async function GET(request: NextRequest) {
+  const context = await resolveDoctorContext(request.headers);
+  if (!context.ok) {
+    return NextResponse.json({ error: context.error }, { status: context.status });
+  }
+
+  const { doctor } = context;
+  if (!doctor.tenantId) {
+    return NextResponse.json({ error: "No tenant context" }, { status: 400 });
+  }
+
   try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const search = request.nextUrl.searchParams.get("search")?.trim() || "";
+    const status = request.nextUrl.searchParams.get("status")?.trim() || "all";
+    const risk = request.nextUrl.searchParams.get("risk")?.trim() || "all";
+
+    const conditions = [eq(patients.tenantId, doctor.tenantId), isNull(patients.deletedAt)];
+    if (status !== "all") {
+      conditions.push(eq(patients.status, status));
+    }
+    if (search) {
+      conditions.push(
+        or(
+          ilike(patients.firstName, `%${search}%`),
+          ilike(patients.lastName, `%${search}%`),
+          ilike(patients.email, `%${search}%`),
+          ilike(patients.phone, `%${search}%`),
+          ilike(patients.globalPatientId, `%${search}%`)
+        )!
+      );
     }
 
-    const { searchParams } = new URL(request.url);
-    const slug = searchParams.get("slug");
-    const patientId = searchParams.get("patientId");
-    const type = searchParams.get("type") || "all";
-    const date = searchParams.get("date") || "all";
+    const rows = await db
+      .select({
+        id: patients.id,
+        firstName: patients.firstName,
+        lastName: patients.lastName,
+        fullName: sql<string>`trim(concat(coalesce(${patients.firstName}, ''), ' ', coalesce(${patients.lastName}, '')))` ,
+        email: patients.email,
+        phone: patients.phone,
+        status: patients.status,
+        globalPatientId: patients.globalPatientId,
+        createdAt: patients.createdAt,
+        totalVisits: sql<number>`(
+          select count(*)::int
+          from ${visits}
+          where ${visits.patientId} = ${patients.id}
+            and ${visits.tenantId} = ${doctor.tenantId}
+            and ${visits.doctorId} = ${doctor.id}
+            and ${visits.deletedAt} is null
+        )`,
+        totalAppointments: sql<number>`(
+          select count(*)::int
+          from ${appointments}
+          where ${appointments.patientId} = ${patients.id}
+            and ${appointments.tenantId} = ${doctor.tenantId}
+            and ${appointments.doctorId} = ${doctor.id}
+            and ${appointments.deletedAt} is null
+        )`,
+        activePrescriptions: sql<number>`(
+          select count(*)::int
+          from ${prescriptions}
+          where ${prescriptions.patientId} = ${patients.id}
+            and ${prescriptions.tenantId} = ${doctor.tenantId}
+            and ${prescriptions.doctorId} = ${doctor.id}
+            and ${prescriptions.deletedAt} is null
+            and ${prescriptions.status} = 'active'
+        )`,
+        pendingLabOrders: sql<number>`(
+          select count(*)::int
+          from ${labOrders}
+          where ${labOrders.patientId} = ${patients.id}
+            and ${labOrders.tenantId} = ${doctor.tenantId}
+            and ${labOrders.doctorId} = ${doctor.id}
+            and ${labOrders.deletedAt} is null
+            and ${labOrders.status} <> 'completed'
+        )`,
+        latestInteractionAt: sql<string | null>`(
+          select max(entry_date)::text from (
+            select ${visits.createdAt} as entry_date
+            from ${visits}
+            where ${visits.patientId} = ${patients.id}
+              and ${visits.tenantId} = ${doctor.tenantId}
+              and ${visits.doctorId} = ${doctor.id}
+              and ${visits.deletedAt} is null
+            union all
+            select ${appointments.scheduledAt} as entry_date
+            from ${appointments}
+            where ${appointments.patientId} = ${patients.id}
+              and ${appointments.tenantId} = ${doctor.tenantId}
+              and ${appointments.doctorId} = ${doctor.id}
+              and ${appointments.deletedAt} is null
+            union all
+            select ${prescriptions.prescribedAt} as entry_date
+            from ${prescriptions}
+            where ${prescriptions.patientId} = ${patients.id}
+              and ${prescriptions.tenantId} = ${doctor.tenantId}
+              and ${prescriptions.doctorId} = ${doctor.id}
+              and ${prescriptions.deletedAt} is null
+          ) timeline
+        )`,
+      })
+      .from(patients)
+      .where(and(...conditions));
 
-    if (!slug || !patientId) {
-      return NextResponse.json({ error: "Tenant slug and patient ID required" }, { status: 400 });
-    }
+    const filteredRows = rows.filter((row) => {
+      const needsAttention = row.pendingLabOrders > 0 || row.activePrescriptions > 2 || row.totalVisits === 0;
+      return risk === "attention" ? needsAttention : true;
+    });
 
-    // Get doctor's user record to verify role
-    const doctorUser = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.id, session.user.id), eq(users.role, "doctor")))
-      .limit(1);
+    const stats = {
+      totalPatients: filteredRows.length,
+      withVisits: filteredRows.filter((row) => row.totalVisits > 0).length,
+      activePrescriptions: filteredRows.reduce((sum, row) => sum + row.activePrescriptions, 0),
+      pendingLabOrders: filteredRows.reduce((sum, row) => sum + row.pendingLabOrders, 0),
+      needsAttention: filteredRows.filter((row) => row.pendingLabOrders > 0 || row.activePrescriptions > 2 || row.totalVisits === 0).length,
+    };
 
-    if (!doctorUser.length) {
-      return NextResponse.json({ error: "Doctor access required" }, { status: 403 });
-    }
-
-    // Build date filter
-    let dateFilter = {};
-    const now = new Date();
-
-    switch (date) {
-      case "week":
-        dateFilter = {
-          gte: subDays(now, 7),
-        };
-        break;
-      case "month":
-        dateFilter = {
-          gte: startOfMonth(now),
-          lte: endOfMonth(now),
-        };
-        break;
-      case "quarter":
-        dateFilter = {
-          gte: startOfQuarter(now),
-          lte: endOfQuarter(now),
-        };
-        break;
-      case "year":
-        dateFilter = {
-          gte: startOfYear(now),
-          lte: endOfYear(now),
-        };
-        break;
-      default:
-        // No date filter for "all"
-        break;
-    }
-
-    // Fetch different types of history based on filter
-    const historyItems: any[] = [];
-
-    // Appointments
-    if (type === "all" || type === "appointment") {
-      let appointmentQuery = db
-        .select({
-          id: appointments.id,
-          type: sql<string>`'appointment'`,
-          title: sql<string>`concat('Appointment: ', ${appointments.type})`,
-          description: sql<string>`concat('Status: ', ${appointments.status}, ' - Duration: ', ${appointments.duration}, ' min')`,
-          date: appointments.scheduledDate,
-          provider: sql<string>`${doctorUser[0].fullName || doctorUser[0].email}`,
-          category: appointments.type,
-          status: appointments.status,
-          details: sql<string>`json_build_object('time', ${appointments.scheduledTime}, 'room', ${appointments.room}, 'notes', ${appointments.notes})`,
-        })
-        .from(appointments)
-        .where(
-          and(
-            eq(appointments.patientId, patientId),
-            eq(appointments.doctorId, session.user.id)
-          )
-        );
-
-      if (date !== "all") {
-        appointmentQuery = appointmentQuery.where(sql`${appointments.scheduledDate} >= ${dateFilter.gte}`);
-        if (dateFilter.lte) {
-          appointmentQuery = appointmentQuery.where(sql`${appointments.scheduledDate} <= ${dateFilter.lte}`);
-        }
-      }
-
-      const appointmentsData = await appointmentQuery.orderBy(desc(appointments.scheduledDate));
-      historyItems.push(...appointmentsData);
-    }
-
-    // Lab Orders
-    if (type === "all" || type === "lab") {
-      let labQuery = db
-        .select({
-          id: labOrders.id,
-          type: sql<string>`'lab'`,
-          title: sql<string>`concat('Lab Order: ', ${labOrders.testName})`,
-          description: sql<string>`concat('Status: ', ${labOrders.status}, ' - Priority: ', ${labOrders.priority})`,
-          date: labOrders.orderedAt,
-          provider: labOrders.orderedBy,
-          category: labOrders.category,
-          status: labOrders.status,
-          details: sql<string>`json_build_object('testCode', ${labOrders.testCode}, 'priority', ${labOrders.priority}, 'labLocation', ${labOrders.labLocation})`,
-        })
-        .from(labOrders)
-        .where(
-          and(
-            eq(labOrders.patientId, patientId),
-            eq(labOrders.doctorId, session.user.id)
-          )
-        );
-
-      if (date !== "all") {
-        labQuery = labQuery.where(sql`${labOrders.orderedAt} >= ${dateFilter.gte}`);
-        if (dateFilter.lte) {
-          labQuery = labQuery.where(sql`${labOrders.orderedAt} <= ${dateFilter.lte}`);
-        }
-      }
-
-      const labData = await labQuery.orderBy(desc(labOrders.orderedAt));
-      historyItems.push(...labData);
-    }
-
-    // Prescriptions
-    if (type === "all" || type === "prescription") {
-      let prescriptionQuery = db
-        .select({
-          id: prescriptions.id,
-          type: sql<string>`'prescription'`,
-          title: sql<string>`concat('Prescription: ', ${prescriptions.medication})`,
-          description: sql<string>`concat(${prescriptions.dosage}, ' - ', ${prescriptions.frequency}, ' - Status: ', ${prescriptions.status})`,
-          date: prescriptions.prescribedAt,
-          provider: prescriptions.prescribedBy,
-          category: sql<string>`'medication'`,
-          status: prescriptions.status,
-          details: sql<string>`json_build_object('strength', ${prescriptions.strength}, 'quantity', ${prescriptions.quantity}, 'refills', ${prescriptions.refills})`,
-        })
-        .from(prescriptions)
-        .where(
-          and(
-            eq(prescriptions.patientId, patientId),
-            eq(prescriptions.doctorId, session.user.id)
-          )
-        );
-
-      if (date !== "all") {
-        prescriptionQuery = prescriptionQuery.where(sql`${prescriptions.prescribedAt} >= ${dateFilter.gte}`);
-        if (dateFilter.lte) {
-          prescriptionQuery = prescriptionQuery.where(sql`${prescriptions.prescribedAt} <= ${dateFilter.lte}`);
-        }
-      }
-
-      const prescriptionData = await prescriptionQuery.orderBy(desc(prescriptions.prescribedAt));
-      historyItems.push(...prescriptionData);
-    }
-
-    // Lab Results
-    if (type === "all" || type === "vital") {
-      let resultQuery = db
-        .select({
-          id: labResults.id,
-          type: sql<string>`'vital'`,
-          title: sql<string>`concat('Lab Result: ', ${labResults.testName})`,
-          description: sql<string>`concat('Result: ', ${labResults.result}, ' ', ${labResults.unit}, ' - Flag: ', ${labResults.flag})`,
-          date: labResults.performedAt,
-          provider: labResults.performedBy,
-          category: labResults.category,
-          status: labResults.status,
-          details: sql<string>`json_build_object('referenceRange', ${labResults.referenceRange}, 'flag', ${labResults.flag}, 'verifiedBy', ${labResults.verifiedBy})`,
-        })
-        .from(labResults)
-        .where(eq(labResults.patientId, patientId));
-
-      if (date !== "all") {
-        resultQuery = resultQuery.where(sql`${labResults.performedAt} >= ${dateFilter.gte}`);
-        if (dateFilter.lte) {
-          resultQuery = resultQuery.where(sql`${labResults.performedAt} <= ${dateFilter.lte}`);
-        }
-      }
-
-      const resultData = await resultQuery.orderBy(desc(labResults.performedAt));
-      historyItems.push(...resultData);
-    }
-
-    // Sort all history items by date
-    historyItems.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    return NextResponse.json(historyItems);
-
+    return NextResponse.json({ patients: filteredRows, stats });
   } catch (error) {
-    console.error("Doctor patient history API error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    console.error("Doctor patient history roster API error:", error);
+    return NextResponse.json({ error: "Failed to load patient history roster" }, { status: 500 });
   }
 }
-

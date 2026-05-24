@@ -1,113 +1,148 @@
 "use client";
 
-import { PageHeader, StatCard, SectionCard } from "@/components/ui";
-import { Clock, FileText, ShieldCheck, UserPlus } from "lucide-react";
+import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMutation } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
+import { Topbar } from "@/components/Topbar";
+import { toast } from "sonner";
 
-export default function Page() {
+export default function PatientRegistrationPage() {
+  const router = useRouter();
+  const [form, setForm] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    dob: "",
+    gender: "",
+    address: "",
+    status: "active",
+  });
+
+  const createPatientMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch("/api/doctor/patients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Failed to create patient");
+      return payload;
+    },
+    onSuccess: (patient) => {
+      toast.success("Patient created");
+      router.push(`/patients/${patient.id}`);
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to create patient");
+    },
+  });
+
+  const handleSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    createPatientMutation.mutate();
+  };
+
   return (
-    <div>
-      <PageHeader
-        title="Patient Registration"
-        subtitle="Onboard new patients and capture demographics"
-      />
+    <div className="space-y-6">
+      <Topbar breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Patients", href: "/patients" }, { label: "New Patient" }]} />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard title="Registered Today" value="18" subtitle="New patients" icon={UserPlus} tone="success" />
-        <StatCard title="Pending Verification" value="5" subtitle="Awaiting documents" icon={FileText} tone="warning" />
-        <StatCard title="Insurance Verified" value="14" subtitle="Today's check" icon={ShieldCheck} tone="info" />
-        <StatCard title="Avg Reg Time" value="6m" subtitle="Per patient" icon={Clock} tone="primary" />
+      <div>
+        <h1 className="text-3xl font-semibold text-foreground">New Patient</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Register a patient record for appointments, consultations, and follow-up care.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        <SectionCard title="Recent Registrations" description="Last 5">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-success" />
-                <p className="text-sm font-medium text-foreground truncate">Sarah Johnson — Self-pay</p>
-              </div>
-              <span className="rounded-md bg-success-soft px-2 py-0.5 text-xs font-medium text-success-soft-foreground shrink-0 ml-3">Just now</span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-success" />
-                <p className="text-sm font-medium text-foreground truncate">Michael Chen — BCBS</p>
-              </div>
-              <span className="rounded-md bg-success-soft px-2 py-0.5 text-xs font-medium text-success-soft-foreground shrink-0 ml-3">15m ago</span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-info" />
-                <p className="text-sm font-medium text-foreground truncate">Emma Davis — Medicare</p>
-              </div>
-              <span className="rounded-md bg-info-soft px-2 py-0.5 text-xs font-medium text-info-soft-foreground shrink-0 ml-3">32m ago</span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-info" />
-                <p className="text-sm font-medium text-foreground truncate">James Wilson — Aetna</p>
-              </div>
-              <span className="rounded-md bg-info-soft px-2 py-0.5 text-xs font-medium text-info-soft-foreground shrink-0 ml-3">1h ago</span>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-success" />
-                <p className="text-sm font-medium text-foreground truncate">Linda Garcia — Self-pay</p>
-              </div>
-              <span className="rounded-md bg-success-soft px-2 py-0.5 text-xs font-medium text-success-soft-foreground shrink-0 ml-3">2h ago</span>
-            </div>
-          </div>
-        </SectionCard>
-        <SectionCard title="Registration Sources" description="This week">
-          <div className="space-y-4">
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm text-foreground">Walk-in</p>
-                <p className="text-sm font-semibold text-foreground">42</p>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary" style={{ width: "100%" }} />
-              </div>
-            </div>
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm text-foreground">Online</p>
-                <p className="text-sm font-semibold text-foreground">38</p>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary" style={{ width: "90%" }} />
-              </div>
-            </div>
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm text-foreground">Phone</p>
-                <p className="text-sm font-semibold text-foreground">24</p>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary" style={{ width: "57%" }} />
-              </div>
-            </div>
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm text-foreground">Referral</p>
-                <p className="text-sm font-semibold text-foreground">18</p>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary" style={{ width: "43%" }} />
-              </div>
-            </div>
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm text-foreground">ER</p>
-                <p className="text-sm font-semibold text-foreground">12</p>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary" style={{ width: "29%" }} />
-              </div>
-            </div>
-          </div>
-        </SectionCard>
-      </div>
+      <form onSubmit={handleSubmit} className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="space-y-2 text-sm">
+            <span className="font-medium text-foreground">First Name</span>
+            <input
+              required
+              value={form.firstName}
+              onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))}
+              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-foreground"
+            />
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium text-foreground">Last Name</span>
+            <input
+              required
+              value={form.lastName}
+              onChange={(event) => setForm((current) => ({ ...current, lastName: event.target.value }))}
+              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-foreground"
+            />
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium text-foreground">Email</span>
+            <input
+              type="email"
+              value={form.email}
+              onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-foreground"
+            />
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium text-foreground">Phone</span>
+            <input
+              value={form.phone}
+              onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
+              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-foreground"
+            />
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium text-foreground">Date of Birth</span>
+            <input
+              type="date"
+              value={form.dob}
+              onChange={(event) => setForm((current) => ({ ...current, dob: event.target.value }))}
+              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-foreground"
+            />
+          </label>
+          <label className="space-y-2 text-sm">
+            <span className="font-medium text-foreground">Gender</span>
+            <select
+              value={form.gender}
+              onChange={(event) => setForm((current) => ({ ...current, gender: event.target.value }))}
+              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-foreground"
+            >
+              <option value="">Select</option>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label className="space-y-2 text-sm md:col-span-2">
+            <span className="font-medium text-foreground">Address</span>
+            <textarea
+              value={form.address}
+              onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))}
+              className="min-h-24 w-full rounded-lg border border-border bg-background px-3 py-2 text-foreground"
+            />
+          </label>
+        </div>
+
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
+          <button
+            type="button"
+            onClick={() => router.push("/patients")}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={createPatientMutation.isPending}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+          >
+            {createPatientMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Create Patient
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

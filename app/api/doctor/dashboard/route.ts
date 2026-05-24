@@ -1,168 +1,145 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
+import { appointments, labOrders, patients, prescriptions, queues, visits } from "@/lib/db/schema";
 import { db } from "@/lib/db";
-import { eq, and, desc, sql } from "drizzle-orm";
-import { appointments, patients, labOrders, prescriptions, users } from "@/lib/db/schema";
+import { resolveDoctorContext } from "@/lib/doctor/server";
+
+function startOfToday() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
 
 export async function GET(request: NextRequest) {
+  const context = await resolveDoctorContext(request.headers);
+  if (!context.ok) {
+    return NextResponse.json({ error: context.error }, { status: context.status });
+  }
+
+  const { doctor } = context;
+  if (!doctor.tenantId) {
+    return NextResponse.json({ error: "No tenant context" }, { status: 400 });
+  }
+
   try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const todayStart = startOfToday();
+    const tomorrowStart = new Date(todayStart);
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
 
-    const { searchParams } = new URL(request.url);
-    const slug = searchParams.get("slug");
+    const [totalPatientsRow] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(patients)
+      .where(and(eq(patients.tenantId, doctor.tenantId), isNull(patients.deletedAt)));
 
-    if (!slug) {
-      return NextResponse.json({ error: "Tenant slug required" }, { status: 400 });
-    }
-
-    // Get doctor's user record to verify role
-    const doctorUser = await db
-      .select()
-      .from(users)
-      .where(and(eq(users.id, session.user.id), eq(users.role, "doctor")))
-      .limit(1);
-
-    if (!doctorUser.length) {
-      return NextResponse.json({ error: "Doctor access required" }, { status: 403 });
-    }
-
-    // Get dashboard metrics
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    // Today's appointments
     const todayAppointments = await db
       .select({
         id: appointments.id,
-        patientName: sql<string>`concat(${patients.firstName}, ' ', ${patients.lastName})`,
-        time: appointments.scheduledTime,
-        type: appointments.type,
+        patientId: patients.id,
+        patientName: sql<string>`trim(concat(coalesce(${patients.firstName}, ''), ' ', coalesce(${patients.lastName}, '')))`,
+        patientEmail: patients.email,
+        scheduledAt: appointments.scheduledAt,
         status: appointments.status,
-        priority: appointments.priority,
       })
       .from(appointments)
-      .innerJoin(patients, eq(appointments.patientId, patients.id))
+      .innerJoin(patients, eq(patients.id, appointments.patientId))
       .where(
         and(
-          eq(appointments.doctorId, session.user.id),
-          sql`${appointments.scheduledDate} >= ${today}`,
-          sql`${appointments.scheduledDate} < ${tomorrow}`
+          eq(appointments.tenantId, doctor.tenantId),
+          eq(appointments.doctorId, doctor.id),
+          isNull(appointments.deletedAt),
+          gte(appointments.scheduledAt, todayStart),
+          lt(appointments.scheduledAt, tomorrowStart)
         )
       )
-      .orderBy(appointments.scheduledTime);
+      .orderBy(appointments.scheduledAt);
 
-    // Patient queue (waiting appointments)
-    const patientQueue = await db
+    const queueSnapshot = await db
       .select({
-        id: appointments.id,
-        patientName: sql<string>`concat(${patients.firstName}, ' ', ${patients.lastName})`,
-        time: appointments.scheduledTime,
-        type: appointments.type,
-        status: appointments.status,
-        priority: appointments.priority,
-        checkInTime: appointments.checkInTime,
+        id: queues.id,
+        patientId: patients.id,
+        patientName: sql<string>`trim(concat(coalesce(${patients.firstName}, ''), ' ', coalesce(${patients.lastName}, '')))`,
+        queueNumber: queues.queueNumber,
+        status: queues.status,
+        priority: queues.priority,
+        position: queues.position,
       })
-      .from(appointments)
-      .innerJoin(patients, eq(appointments.patientId, patients.id))
+      .from(queues)
+      .innerJoin(patients, eq(patients.id, queues.patientId))
       .where(
         and(
-          eq(appointments.doctorId, session.user.id),
-          eq(appointments.status, "waiting")
+          eq(queues.tenantId, doctor.tenantId),
+          eq(queues.assignedTo, doctor.id),
+          isNull(queues.deletedAt)
         )
       )
-      .orderBy(appointments.checkInTime);
+      .orderBy(queues.position, queues.createdAt)
+      .limit(6);
 
-    // Pending lab results
-    const pendingLabResults = await db
+    const [visitCountRow] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(visits)
+      .where(and(eq(visits.tenantId, doctor.tenantId), eq(visits.doctorId, doctor.id), isNull(visits.deletedAt)));
+
+    const recentLabOrders = await db
       .select({
         id: labOrders.id,
-        test: labOrders.testName,
-        patientName: sql<string>`concat(${patients.firstName}, ' ', ${patients.lastName})`,
+        patientId: patients.id,
+        patientName: sql<string>`trim(concat(coalesce(${patients.firstName}, ''), ' ', coalesce(${patients.lastName}, '')))`,
         status: labOrders.status,
-        orderedAt: labOrders.orderedAt,
+        orderedAt: labOrders.createdAt,
       })
       .from(labOrders)
-      .innerJoin(patients, eq(labOrders.patientId, patients.id))
+      .innerJoin(visits, eq(visits.id, labOrders.visitId))
+      .innerJoin(patients, eq(patients.id, visits.patientId))
       .where(
         and(
-          eq(labOrders.doctorId, session.user.id),
-          eq(labOrders.status, "completed")
+          eq(labOrders.tenantId, doctor.tenantId),
+          eq(labOrders.orderedBy, doctor.id),
+          isNull(labOrders.deletedAt)
         )
       )
-      .orderBy(desc(labOrders.orderedAt))
+      .orderBy(desc(labOrders.createdAt))
       .limit(5);
 
-    // Recent prescriptions
     const recentPrescriptions = await db
       .select({
         id: prescriptions.id,
-        medication: prescriptions.medication,
-        patientName: sql<string>`concat(${patients.firstName}, ' ', ${patients.lastName})`,
-        dosage: prescriptions.dosage,
-        status: prescriptions.status,
-        prescribedAt: prescriptions.prescribedAt,
+        patientId: patients.id,
+        patientName: sql<string>`trim(concat(coalesce(${patients.firstName}, ''), ' ', coalesce(${patients.lastName}, '')))`,
+        prescribedAt: prescriptions.createdAt,
       })
       .from(prescriptions)
-      .innerJoin(patients, eq(prescriptions.patientId, patients.id))
-      .where(eq(prescriptions.doctorId, session.user.id))
-      .orderBy(desc(prescriptions.prescribedAt))
+      .innerJoin(visits, eq(visits.id, prescriptions.visitId))
+      .innerJoin(patients, eq(patients.id, visits.patientId))
+      .where(
+        and(
+          eq(prescriptions.tenantId, doctor.tenantId),
+          eq(prescriptions.doctorId, doctor.id),
+          isNull(prescriptions.deletedAt)
+        )
+      )
+      .orderBy(desc(prescriptions.createdAt))
       .limit(5);
 
-    // Calculate metrics
-    const metrics = {
-      totalPatients: await db
-        .select({ count: sql<number>`count(*)` })
-        .from(patients)
-        .then(result => result[0].count),
-
-      activeAppointmentsToday: todayAppointments.length,
-      completedAppointmentsToday: todayAppointments.filter(apt => apt.status === "completed").length,
-      patientsInQueue: patientQueue.length,
-      pendingLabOrders: await db
-        .select({ count: sql<number>`count(*)` })
-        .from(labOrders)
-        .where(
-          and(
-            eq(labOrders.doctorId, session.user.id),
-            sql`${labOrders.status} IN ('ordered', 'collected', 'processing')`
-          )
-        )
-        .then(result => result[0].count),
-
-      pendingPrescriptions: await db
-        .select({ count: sql<number>`count(*)` })
-        .from(prescriptions)
-        .where(
-          and(
-            eq(prescriptions.doctorId, session.user.id),
-            eq(prescriptions.status, "pending")
-          )
-        )
-        .then(result => result[0].count),
-
-      pendingLabResults: pendingLabResults.length,
-      completedLabResults: pendingLabResults.length, // For display purposes
-    };
+    const activeQueueCount = queueSnapshot.filter((entry) => entry.status !== "completed").length;
+    const completedToday = todayAppointments.filter((entry) => entry.status === "completed").length;
 
     return NextResponse.json({
-      metrics,
+      metrics: {
+        totalPatients: totalPatientsRow?.count ?? 0,
+        appointmentsToday: todayAppointments.length,
+        completedToday,
+        activeQueue: activeQueueCount,
+        totalVisits: visitCountRow?.count ?? 0,
+        pendingLabOrders: recentLabOrders.filter((entry) => entry.status !== "completed").length,
+        recentPrescriptions: recentPrescriptions.length,
+      },
       todayAppointments,
-      patientQueue,
-      pendingLabResults,
+      queueSnapshot,
+      recentLabOrders,
       recentPrescriptions,
     });
-
   } catch (error) {
     console.error("Doctor dashboard API error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to load doctor dashboard" }, { status: 500 });
   }
 }
-

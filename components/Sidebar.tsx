@@ -74,7 +74,8 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Prescriptions", path: "/doctor/prescriptions", icon: Pill, category: "Orders" },
     { label: "Patient History", path: "/doctor/analytics/my-patients", icon: History, category: "Analytics" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
-    { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
+    { label: "Feedback", path: "/doctor/feedback", icon: MessageSquare, category: "Communication" },
+    { label: "User Settings", path: "/doctor/settings", icon: Settings, category: "Account" },
   ],
    nurse: [
      { label: "Dashboard", path: "/nurse", icon: LayoutDashboard, category: "Main" },

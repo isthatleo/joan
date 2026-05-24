@@ -1,78 +1,116 @@
 "use client";
-import { usePatients } from "@/hooks/use-queries";
-import { useParams } from "next/navigation";
+
 import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { KPICard } from "@/components/KPICard";
+import { Topbar } from "@/components/Topbar";
+
+function formatDate(value?: string | Date | null) {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString();
+}
 
 export default function PatientDetailPage() {
   const params = useParams();
   const id = params.id as string;
-  // In real app, fetch specific patient
-  const { data: patients } = usePatients();
-  const patient = patients?.find((p: any) => p.id === id);
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["doctor-patient-detail", id],
+    queryFn: async () => {
+      const response = await fetch(`/api/doctor/patients/${id}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Failed to load patient");
+      return payload;
+    },
+    enabled: !!id,
+  });
+
+  const patient = data?.patient;
+  const stats = data?.stats ?? {};
+  const recentAppointments = data?.recentAppointments ?? [];
 
   return (
-    <div>
-      <h1 className="text-3xl font-bold mb-6">Patient Profile</h1>
+    <div className="space-y-6">
+      <Topbar breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Patients", href: "/patients" }, { label: patient?.fullName || "Patient" }]} />
 
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <nav className="space-y-2">
-          <Link href="#overview" className="block px-4 py-2 bg-blue-600 text-white rounded">
-            Overview
-          </Link>
-          <Link href="#history" className="block px-4 py-2 hover:bg-gray-100 rounded">
-            Medical History
-          </Link>
-          <Link href="#visits" className="block px-4 py-2 hover:bg-gray-100 rounded">
-            Visits
-          </Link>
-          <Link href="#results" className="block px-4 py-2 hover:bg-gray-100 rounded">
-            Lab Results
-          </Link>
-          <Link href="#prescriptions" className="block px-4 py-2 hover:bg-gray-100 rounded">
-            Prescriptions
-          </Link>
-          <Link href="#billing" className="block px-4 py-2 hover:bg-gray-100 rounded">
-            Billing
-          </Link>
-        </nav>
-
-        <div className="col-span-3">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-2xl font-bold mb-4">{patient?.firstName} {patient?.lastName}</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-gray-600">Date of Birth</p>
-                <p className="font-semibold">{patient?.dob}</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Gender</p>
-                <p className="font-semibold">{patient?.gender}</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Phone</p>
-                <p className="font-semibold">{patient?.phone}</p>
-              </div>
-              <div>
-                <p className="text-gray-600">Email</p>
-                <p className="font-semibold">{patient?.email}</p>
-              </div>
+      {isError ? (
+        <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Failed to load patient details.
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h1 className="text-3xl font-semibold text-foreground">
+                {isLoading ? "Loading patient..." : patient?.fullName || "Patient"}
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                ID: {patient?.globalPatientId || patient?.id || "—"}
+              </p>
             </div>
-
-            <div className="mt-6">
-              <h3 className="text-xl font-bold mb-3">Allergies</h3>
-              <p className="text-gray-600">No known allergies</p>
-            </div>
-
-            <div className="mt-6">
-              <h3 className="text-xl font-bold mb-3">Current Conditions</h3>
-              <ul className="list-disc pl-5 space-y-1">
-                <li>Hypertension</li>
-                <li>Diabetes Type 2</li>
-              </ul>
+            <div className="flex gap-2">
+              <Link href={`/appointments/book?patientId=${id}`} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+                Book Appointment
+              </Link>
+              <Link href="/patients" className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">
+                Back to Patients
+              </Link>
             </div>
           </div>
-        </div>
-      </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <KPICard title="Appointments" value={stats.appointments ?? 0} tone="info" />
+            <KPICard title="Visits" value={stats.visits ?? 0} tone="primary" />
+            <KPICard title="Lab Orders" value={stats.labOrders ?? 0} tone="warning" />
+            <KPICard title="Prescriptions" value={stats.prescriptions ?? 0} tone="success" />
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm xl:col-span-2">
+              <h2 className="text-lg font-semibold text-foreground">Patient Profile</h2>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Email</p>
+                  <p className="mt-1 text-sm text-foreground">{patient?.email || "Not provided"}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Phone</p>
+                  <p className="mt-1 text-sm text-foreground">{patient?.phone || "Not provided"}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Date of Birth</p>
+                  <p className="mt-1 text-sm text-foreground">{formatDate(patient?.dob)}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Gender</p>
+                  <p className="mt-1 text-sm capitalize text-foreground">{patient?.gender || "Not specified"}</p>
+                </div>
+                <div className="md:col-span-2">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Address</p>
+                  <p className="mt-1 text-sm text-foreground">{patient?.address || "Not provided"}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+              <h2 className="text-lg font-semibold text-foreground">Recent Appointments</h2>
+              <div className="mt-4 space-y-3">
+                {recentAppointments.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No appointments recorded.</p>
+                ) : (
+                  recentAppointments.map((appointment: any) => (
+                    <div key={appointment.id} className="rounded-lg border border-border px-4 py-3">
+                      <p className="text-sm font-medium text-foreground">{formatDate(appointment.scheduledAt)}</p>
+                      <p className="mt-1 text-xs capitalize text-muted-foreground">{appointment.status || "scheduled"}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

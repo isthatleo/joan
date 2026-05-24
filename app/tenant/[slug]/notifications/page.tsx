@@ -134,30 +134,30 @@ export default function NotificationsPage() {
   const getNotificationIcon = (type: string) => {
     switch (type) {
       case "appointment":
-        return <Calendar className="h-4 w-4 text-blue-600" />;
+        return <Calendar className="h-4 w-4 text-blue-600 dark:text-blue-300" />;
       case "message":
-        return <MessageSquare className="h-4 w-4 text-purple-600" />;
+        return <MessageSquare className="h-4 w-4 text-violet-600 dark:text-violet-300" />;
       case "alert":
-        return <AlertCircle className="h-4 w-4 text-red-600" />;
+        return <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-300" />;
       case "broadcast":
-        return <Users className="h-4 w-4 text-green-600" />;
+        return <Users className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />;
       default:
-        return <Bell className="h-4 w-4 text-gray-600" />;
+        return <Bell className="h-4 w-4 text-slate-600 dark:text-slate-300" />;
     }
   };
 
   const getNotificationColor = (type: string) => {
     switch (type) {
       case "appointment":
-        return "bg-blue-50 border-blue-200";
+        return "bg-blue-50/80 border-blue-200 dark:bg-blue-500/10 dark:border-blue-400/20";
       case "message":
-        return "bg-purple-50 border-purple-200";
+        return "bg-violet-50/80 border-violet-200 dark:bg-violet-500/10 dark:border-violet-400/20";
       case "alert":
-        return "bg-red-50 border-red-200";
+        return "bg-red-50/80 border-red-200 dark:bg-red-500/10 dark:border-red-400/20";
       case "broadcast":
-        return "bg-green-50 border-green-200";
+        return "bg-emerald-50/80 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-400/20";
       default:
-        return "bg-gray-50 border-gray-200";
+        return "bg-slate-50/80 border-slate-200 dark:bg-slate-500/10 dark:border-slate-400/20";
     }
   };
 
@@ -192,35 +192,35 @@ export default function NotificationsPage() {
             title="Total Notifications"
             value={stats.total}
             icon={Bell}
-            color="text-blue-600"
-            bgColor="bg-blue-50"
+            color="text-blue-600 dark:text-blue-300"
+            bgColor="bg-blue-50 dark:bg-blue-500/10"
           />
           <StatCard
             title="Unread"
             value={stats.unread}
             icon={Clock}
-            color="text-orange-600"
-            bgColor="bg-orange-50"
+            color="text-orange-600 dark:text-orange-300"
+            bgColor="bg-orange-50 dark:bg-orange-500/10"
           />
           <StatCard
             title="Messages"
             value={stats.messages}
             icon={MessageSquare}
-            color="text-purple-600"
-            bgColor="bg-purple-50"
+            color="text-violet-600 dark:text-violet-300"
+            bgColor="bg-violet-50 dark:bg-violet-500/10"
           />
           <StatCard
             title="Appointments"
             value={stats.appointments}
             icon={Calendar}
-            color="text-green-600"
-            bgColor="bg-green-50"
+            color="text-emerald-600 dark:text-emerald-300"
+            bgColor="bg-emerald-50 dark:bg-emerald-500/10"
           />
         </div>
       )}
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-border">
+      <div className="flex flex-wrap gap-2 rounded-2xl border border-border bg-card/60 p-2">
         {[
           { id: "overview", label: "All Notifications", count: stats.total },
           { id: "unread", label: "Unread", count: stats.unread },
@@ -234,14 +234,21 @@ export default function NotificationsPage() {
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={cn(
-              "px-4 py-2 text-sm font-medium transition-colors",
+              "rounded-xl px-4 py-2 text-sm font-medium transition-colors",
               activeTab === tab.id
-                ? "text-foreground border-b-2 border-primary"
-                : "text-muted-foreground hover:text-foreground"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >
-            {tab.label}
-            {tab.count > 0 && <Badge className="ml-2">{tab.count}</Badge>}
+            <span>{tab.label}</span>
+            {tab.count > 0 && (
+              <Badge
+                variant={activeTab === tab.id ? "secondary" : "outline"}
+                className="ml-2"
+              >
+                {tab.count}
+              </Badge>
+            )}
           </button>
         ))}
       </div>
@@ -266,9 +273,9 @@ export default function NotificationsPage() {
             <div
               key={notification.id}
               className={cn(
-                "border rounded-lg p-4 hover:shadow-sm transition-all cursor-pointer",
+                "rounded-2xl border p-4 transition-all cursor-pointer hover:shadow-sm bg-card",
                 getNotificationColor(notification.type),
-                !notification.read && "border-primary/50"
+                !notification.read && "border-primary/50 ring-1 ring-primary/15"
               )}
               onClick={() => {
                 setSelectedNotification(notification);

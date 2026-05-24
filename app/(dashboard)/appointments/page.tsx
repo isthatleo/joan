@@ -1,227 +1,201 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
-import { useAppointments } from "@/hooks/use-queries";
-import { Topbar } from "@/components/Topbar";
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CalendarDays, CheckCircle, Clock, Plus, Search, XCircle } from "lucide-react";
 import { KPICard } from "@/components/KPICard";
-import { DataCard, DataCardItem } from "@/components/DataCard";
-import { Calendar, Clock, Users, Plus, AlertCircle, CheckCircle } from "lucide-react";
+import { Topbar } from "@/components/Topbar";
+import { toast } from "sonner";
+
+function formatDateTime(value?: string | Date | null) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export default function AppointmentsPage() {
-  const { data: appointments, isLoading } = useAppointments();
-  const [filter, setFilter] = useState("upcoming");
-  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
+  const [range, setRange] = useState("upcoming");
 
-  // Mock appointments data
-  const mockAppointments: DataCardItem[] = [
-    {
-      id: "1",
-      title: "John Doe",
-      subtitle: "General Checkup",
-      status: "pending",
-      value: "10:30 AM",
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["doctor-appointments", search, status, range],
+    queryFn: async () => {
+      const params = new URLSearchParams({ status, range });
+      if (search) params.set("search", search);
+      const response = await fetch(`/api/doctor/appointments?${params.toString()}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Failed to load appointments");
+      return payload;
     },
-    {
-      id: "2",
-      title: "Jane Smith",
-      subtitle: "Follow-up",
-      status: "in-progress",
-      value: "11:00 AM",
-    },
-    {
-      id: "3",
-      title: "Bob Johnson",
-      subtitle: "Lab Results",
-      status: "completed",
-      value: "2:00 PM",
-    },
-    {
-      id: "4",
-      title: "Alice Wilson",
-      subtitle: "Vaccination",
-      status: "pending",
-      value: "3:30 PM",
-    },
-  ];
+  });
 
-  useEffect(() => {
-    const appointmentId = searchParams.get("appointmentId");
-    if (appointmentId) {
-      // Handle opening appointment details
-      console.log("Open appointment details for ID:", appointmentId);
-    }
-  }, [searchParams]);
+  const appointments = data ?? [];
+
+  const metrics = useMemo(() => ({
+    total: appointments.length,
+    scheduled: appointments.filter((item: any) => item.status === "scheduled").length,
+    completed: appointments.filter((item: any) => item.status === "completed").length,
+    cancelled: appointments.filter((item: any) => item.status === "cancelled").length,
+  }), [appointments]);
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ id, nextStatus }: { id: string; nextStatus: string }) => {
+      const response = await fetch("/api/doctor/appointments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status: nextStatus }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Failed to update appointment");
+      return payload;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["doctor-appointments"] });
+      toast.success("Appointment updated");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to update appointment");
+    },
+  });
 
   return (
     <div className="space-y-6">
-      <Topbar
-        breadcrumbs={[
-          { label: "Dashboard", href: "/" },
-          { label: "Appointments" },
-        ]}
-      />
+      <Topbar breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Appointments" }]} />
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
-            Appointments
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Schedule and manage patient appointments
+          <h1 className="text-3xl font-semibold text-foreground">Appointments</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Review and schedule your real appointment calendar.
           </p>
         </div>
-        <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2 transition-colors">
-          <Plus className="w-5 h-5" />
+        <Link
+          href="/appointments/book"
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+        >
+          <Plus className="h-4 w-4" />
           New Appointment
-        </button>
+        </Link>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KPICard
-          title="Today's Appointments"
-          value="12"
-          subtitle="Scheduled"
-          color="blue"
-          icon={Calendar}
-          trend={{
-            value: 3,
-            label: "completed",
-            isPositive: true,
-          }}
-        />
-        <KPICard
-          title="Waiting Patients"
-          value="3"
-          subtitle="In queue"
-          color="yellow"
-          icon={Clock}
-          trend={{
-            value: 1,
-            label: "urgent",
-            isPositive: false,
-          }}
-        />
-        <KPICard
-          title="Completed"
-          value="8"
-          subtitle="Today"
-          color="green"
-          icon={CheckCircle}
-        />
-        <KPICard
-          title="No-shows"
-          value="1"
-          subtitle="Today"
-          color="red"
-          icon={AlertCircle}
-        />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <KPICard title="Loaded Appointments" value={metrics.total} tone="info" icon={CalendarDays} />
+        <KPICard title="Scheduled" value={metrics.scheduled} tone="primary" icon={Clock} />
+        <KPICard title="Completed" value={metrics.completed} tone="success" icon={CheckCircle} />
+        <KPICard title="Cancelled" value={metrics.cancelled} tone="destructive" icon={XCircle} />
       </div>
 
-      {/* Filter Buttons */}
-      <div className="bg-white dark:bg-slate-800 rounded-2xl p-4 border border-gray-200 dark:border-slate-700 flex gap-2">
-        <button
-          onClick={() => setFilter("upcoming")}
-          className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
-            filter === "upcoming"
-              ? "bg-blue-600 text-white"
-              : "bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600"
-          }`}
-        >
-          Upcoming
-        </button>
-        <button
-          onClick={() => setFilter("completed")}
-          className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
-            filter === "completed"
-              ? "bg-blue-600 text-white"
-              : "bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600"
-          }`}
-        >
-          Completed
-        </button>
-        <button
-          onClick={() => setFilter("cancelled")}
-          className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
-            filter === "cancelled"
-              ? "bg-blue-600 text-white"
-              : "bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600"
-          }`}
-        >
-          Cancelled
-        </button>
-      </div>
-
-      {/* Appointments List */}
-      <DataCard
-        title={`Appointments - ${filter} (${mockAppointments.length})`}
-        items={mockAppointments}
-        onItemClick={(item) => console.log("View appointment", item)}
-      />
-
-      {/* Upcoming Appointments */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Tomorrow's Appointments
-          </h3>
-          <div className="space-y-3">
-            {[
-              { time: "09:00", patient: "David Wilson", doctor: "Dr. Smith" },
-              { time: "10:30", patient: "Emma Davis", doctor: "Dr. Johnson" },
-              { time: "02:00", patient: "Frank Miller", doctor: "Dr. Brown" },
-            ].map((appt, idx) => (
-              <div
-                key={idx}
-                className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-700 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-600 transition-colors cursor-pointer"
-              >
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">
-                    {appt.patient}
-                  </p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    {appt.doctor}
-                  </p>
-                </div>
-                <span className="text-sm font-mono text-gray-600 dark:text-gray-400">
-                  {appt.time}
-                </span>
-              </div>
-            ))}
+      <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+        <div className="grid gap-3 md:grid-cols-[1fr_180px_180px]">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by patient name or email"
+              className="h-10 w-full rounded-lg border border-border bg-background pl-10 pr-3 text-sm text-foreground"
+            />
           </div>
+          <select value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground">
+            <option value="all">All statuses</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <select value={range} onChange={(event) => setRange(event.target.value)} className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground">
+            <option value="upcoming">Upcoming</option>
+            <option value="today">Today</option>
+            <option value="week">This week</option>
+            <option value="month">This month</option>
+            <option value="all">All dates</option>
+          </select>
         </div>
+      </div>
 
-        <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-200 dark:border-slate-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            This Week
-          </h3>
-          <div className="space-y-3">
-            {[
-              { date: "Wed, Apr 16", count: 14, available: 8 },
-              { date: "Thu, Apr 17", count: 11, available: 5 },
-              { date: "Fri, Apr 18", count: 16, available: 3 },
-              { date: "Mon, Apr 21", count: 9, available: 12 },
-            ].map((day, idx) => (
-              <div
-                key={idx}
-                className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-700 rounded-lg"
-              >
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">
-                    {day.date}
-                  </p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    {day.count} scheduled
-                  </p>
-                </div>
-                <span className="px-3 py-1 bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-200 rounded-full text-sm font-medium">
-                  {day.available} slots
-                </span>
-              </div>
-            ))}
-          </div>
+      {isError && (
+        <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Failed to load appointments.
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="text-base font-semibold text-foreground">Appointment List</h2>
+          <p className="text-sm text-muted-foreground">{appointments.length} appointment(s)</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40">
+              <tr>
+                <th className="px-5 py-3 text-left font-medium text-muted-foreground">Patient</th>
+                <th className="px-5 py-3 text-left font-medium text-muted-foreground">Scheduled</th>
+                <th className="px-5 py-3 text-left font-medium text-muted-foreground">Status</th>
+                <th className="px-5 py-3 text-left font-medium text-muted-foreground">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                Array.from({ length: 6 }).map((_, index) => (
+                  <tr key={index} className="border-t border-border">
+                    <td colSpan={4} className="px-5 py-4 text-muted-foreground">Loading appointments...</td>
+                  </tr>
+                ))
+              ) : appointments.length === 0 ? (
+                <tr className="border-t border-border">
+                  <td colSpan={4} className="px-5 py-8 text-center text-muted-foreground">
+                    No appointments match the current filters.
+                  </td>
+                </tr>
+              ) : (
+                appointments.map((appointment: any) => (
+                  <tr key={appointment.id} className="border-t border-border">
+                    <td className="px-5 py-4">
+                      <div>
+                        <p className="font-medium text-foreground">{appointment.patientName || "Unknown patient"}</p>
+                        <p className="text-xs text-muted-foreground">{appointment.patientEmail || appointment.patientPhone || "No contact details"}</p>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 text-foreground">{formatDateTime(appointment.scheduledAt)}</td>
+                    <td className="px-5 py-4">
+                      <span className="rounded-full bg-muted px-2.5 py-1 text-xs capitalize text-foreground">
+                        {appointment.status || "scheduled"}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="flex flex-wrap gap-2">
+                        <Link href={`/patients/${appointment.patientId}`} className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40">
+                          View Patient
+                        </Link>
+                        {appointment.status !== "completed" && (
+                          <button
+                            onClick={() => updateStatusMutation.mutate({ id: appointment.id, nextStatus: "completed" })}
+                            className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40"
+                          >
+                            Complete
+                          </button>
+                        )}
+                        {appointment.status !== "cancelled" && (
+                          <button
+                            onClick={() => updateStatusMutation.mutate({ id: appointment.id, nextStatus: "cancelled" })}
+                            className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40"
+                          >
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

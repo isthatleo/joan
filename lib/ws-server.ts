@@ -1,25 +1,34 @@
 // WebSocket Server - run this separately
 import { Server } from "socket.io";
 import { createServer } from "http";
-import { redis } from "@/lib/redis";
+import { ensureRedisConnection, redis } from "@/lib/redis";
 
 const httpServer = createServer();
 const io = new Server(httpServer, {
   cors: { origin: "*" },
 });
+const activeSocketCounts = new Map<string, number>();
 
 io.on("connection", (socket) => {
   const { tenantId, departmentId, userId } = socket.handshake.auth;
 
   if (userId) {
     // Join rooms
-    socket.join(`tenant:${tenantId}`);
-    socket.join(`department:${departmentId}`);
+    if (tenantId) {
+      socket.join(`tenant:${tenantId}`);
+    }
+    if (departmentId) {
+      socket.join(`department:${departmentId}`);
+    }
     socket.join(`user:${userId}`);
 
     // Track online status
-    redis.sadd("online-users", userId);
-    io.emit("user-status", { userId, status: "online" });
+    const currentCount = activeSocketCounts.get(userId) || 0;
+    activeSocketCounts.set(userId, currentCount + 1);
+    if (currentCount === 0) {
+      io.emit("user-status", { userId, status: "online" });
+    }
+    socket.emit("presence:snapshot", { onlineUserIds: Array.from(activeSocketCounts.keys()) });
 
     console.log(`User ${userId} connected`);
 
@@ -29,6 +38,21 @@ io.on("connection", (socket) => {
       io.to(`user:${data.receiverId}`).emit("user-typing", {
         userId,
         isTyping: data.isTyping
+      });
+    });
+
+    socket.on("message:new", (data) => {
+      io.to(`user:${data.receiverId}`).emit("message:new", {
+        senderId: userId,
+        message: data.message,
+      });
+    });
+
+    socket.on("message:read", (data) => {
+      io.to(`user:${data.receiverId}`).emit("message:read", {
+        readerId: userId,
+        conversationUserId: data.conversationUserId,
+        messageIds: data.messageIds || [],
       });
     });
 
@@ -75,8 +99,13 @@ io.on("connection", (socket) => {
 
     // Disconnect
     socket.on("disconnect", () => {
-      redis.srem("online-users", userId);
-      io.emit("user-status", { userId, status: "offline" });
+      const remainingCount = Math.max((activeSocketCounts.get(userId) || 1) - 1, 0);
+      if (remainingCount === 0) {
+        activeSocketCounts.delete(userId);
+        io.emit("user-status", { userId, status: "offline" });
+      } else {
+        activeSocketCounts.set(userId, remainingCount);
+      }
       console.log(`User ${userId} disconnected`);
     });
   }
@@ -84,28 +113,39 @@ io.on("connection", (socket) => {
 
 // Redis subscriber
 const redisSub = redis.duplicate();
-redisSub.subscribe("queue-events", (message) => {
-  const { type, payload } = JSON.parse(message);
+void (async () => {
+  try {
+    await ensureRedisConnection();
+    if (!redisSub.isOpen) {
+      await redisSub.connect();
+    }
 
-  switch (type) {
-    case "queue.updated":
-      io.to(`tenant:${payload.tenantId}`).emit(type, payload);
-      break;
+    await redisSub.subscribe("queue-events", (message) => {
+      const { type, payload } = JSON.parse(message);
 
-    case "queue.called":
-      io.to(`department:${payload.departmentId}`).emit(type, payload);
-      break;
+      switch (type) {
+        case "queue.updated":
+          io.to(`tenant:${payload.tenantId}`).emit(type, payload);
+          break;
 
-    case "notification":
+        case "queue.called":
+          io.to(`department:${payload.departmentId}`).emit(type, payload);
+          break;
+
+        case "notification":
+          io.to(`user:${payload.userId}`).emit("notification", payload);
+          break;
+      }
+    });
+
+    await redisSub.subscribe("notifications", (message) => {
+      const payload = JSON.parse(message);
       io.to(`user:${payload.userId}`).emit("notification", payload);
-      break;
+    });
+  } catch (error) {
+    console.error("Failed to initialize Redis subscriptions for realtime messaging:", error);
   }
-});
-
-redisSub.subscribe("notifications", (message) => {
-  const { userId, message: msg, payload } = JSON.parse(message);
-  io.to(`user:${userId}`).emit("notification", payload || { message: msg });
-});
+})();
 
 httpServer.listen(4000, () => {
   console.log("WebSocket server running on port 4000");

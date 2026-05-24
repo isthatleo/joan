@@ -1,49 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
+import { and, count, desc, eq, ilike, isNull } from "drizzle-orm";
+import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { auditLogs, users, tenants } from "@/lib/db/schema";
-import { eq, desc, isNull } from "drizzle-orm";
-import { currentUser } from "@clerk/nextjs/server";
+import { auditLogs, tenants, users } from "@/lib/db/schema";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+function getLogType(action: string) {
+  const normalized = String(action || "").toLowerCase();
+  if (normalized.includes("delete") || normalized.includes("remove") || normalized.includes("missed")) {
+    return "warning" as const;
+  }
+  if (normalized.includes("error") || normalized.includes("fail") || normalized.includes("reject")) {
+    return "error" as const;
+  }
+  return "info" as const;
+}
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const tenantId = searchParams.get("tenantId");
+    const requestedTenantId = searchParams.get("tenantId");
     const role = searchParams.get("role") || "hospital_admin";
-    const limit = parseInt(searchParams.get("limit") || "50");
-    const offset = parseInt(searchParams.get("offset") || "0");
+    const limit = Math.min(1000, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)));
+    const offset = Math.max(0, parseInt(searchParams.get("offset") || "0", 10));
 
-    const user = await currentUser();
-    if (!user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let whereCondition: any;
+    const currentUser = await db.query.users.findFirst({
+      where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
+      columns: { id: true, tenantId: true, role: true },
+    });
 
-    // Super admins see all audit logs across all tenants
+    if (!currentUser) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    let effectiveTenantId: string | null | undefined = requestedTenantId || currentUser.tenantId;
     if (role === "super_admin") {
-      whereCondition = undefined; // No filtering for super admin
-    }
-    // Hospital admins only see their tenant's audit logs
-    else if (role === "hospital_admin") {
-      if (!tenantId) {
-        return NextResponse.json(
-          { error: "tenantId is required for hospital_admin" },
-          { status: 400 }
-        );
-      }
-      whereCondition = eq(auditLogs.tenantId, tenantId);
-    } else {
-      return NextResponse.json(
-        { error: "Invalid role" },
-        { status: 400 }
-      );
+      effectiveTenantId = requestedTenantId || undefined;
+    } else if (!effectiveTenantId) {
+      return NextResponse.json({ error: "tenantId is required for hospital_admin" }, { status: 400 });
     }
 
-    // Build the query
-    let query = db
+    const whereClauses = effectiveTenantId ? [eq(auditLogs.tenantId, effectiveTenantId)] : [];
+
+    const logs = await db
       .select({
         id: auditLogs.id,
         tenantId: auditLogs.tenantId,
@@ -52,73 +58,49 @@ export async function GET(request: NextRequest) {
         entityId: auditLogs.entityId,
         metadata: auditLogs.metadata,
         createdAt: auditLogs.createdAt,
-        user: {
-          id: users.id,
-          fullName: users.fullName,
-          email: users.email,
-        },
-        tenant: {
-          id: tenants.id,
-          name: tenants.name,
-          slug: tenants.slug,
-        },
+        userId: users.id,
+        userFullName: users.fullName,
+        userEmail: users.email,
+        tenantName: tenants.name,
+        tenantSlug: tenants.slug,
       })
       .from(auditLogs)
       .leftJoin(users, eq(auditLogs.userId, users.id))
-      .leftJoin(tenants, eq(auditLogs.tenantId, tenants.id));
-
-    if (whereCondition) {
-      query = query.where(whereCondition);
-    }
-
-    const logs = await query
+      .leftJoin(tenants, eq(auditLogs.tenantId, tenants.id))
+      .where(whereClauses.length > 0 ? and(...whereClauses) : undefined)
       .orderBy(desc(auditLogs.createdAt))
       .limit(limit)
       .offset(offset);
 
-    // Get total count for pagination
-    let countQuery = db.select({ count: auditLogs.id }).from(auditLogs);
-    if (whereCondition) {
-      countQuery = countQuery.where(whereCondition) as any;
-    }
-    const countResult = await countQuery;
-    const totalCount = logs.length; // For current page
+    const totalResult = await db
+      .select({ value: count() })
+      .from(auditLogs)
+      .where(whereClauses.length > 0 ? and(...whereClauses) : undefined);
 
-    // Format the response
     const formattedLogs = logs.map((log) => ({
       id: log.id,
       tenantId: log.tenantId,
-      tenantName: log.tenant?.name || "System",
-      tenantSlug: log.tenant?.slug,
+      tenantName: log.tenantName || "System",
+      tenantSlug: log.tenantSlug || undefined,
       action: log.action,
       entity: log.entity,
       entityId: log.entityId,
-      actor: log.user?.email || log.user?.fullName || "System",
-      userId: log.user?.id,
+      actor: log.userEmail || log.userFullName || "System",
+      userId: log.userId || undefined,
       timestamp: log.createdAt,
       metadata: log.metadata,
-      type: getLogType(log.action),
+      type: getLogType(log.action || ""),
     }));
 
     return NextResponse.json({
       logs: formattedLogs,
-      total: logs.length,
+      total: totalResult[0]?.value ?? formattedLogs.length,
     });
   } catch (error) {
-    console.error("[audit logs GET]", error);
+    console.error("[hospital audit GET]", error);
     return NextResponse.json(
-      { error: "Failed to fetch audit logs", details: String(error) },
+      { error: "Failed to fetch audit logs", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
-}
-
-function getLogType(action: string): "info" | "warning" | "error" {
-  if (action.includes("delete") || action.includes("remove")) {
-    return "warning";
-  }
-  if (action.includes("error") || action.includes("fail")) {
-    return "error";
-  }
-  return "info";
 }

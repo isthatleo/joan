@@ -11,6 +11,7 @@ export async function middleware(request: NextRequest) {
     url.pathname.startsWith("/_next/") ||
     url.pathname.startsWith("/favicon.ico") ||
     url.pathname.startsWith("/assets/") ||
+    url.pathname.startsWith("/tenant/") ||
     url.pathname.startsWith("/tenant-login/") ||
     url.pathname.includes(".")
   ) {

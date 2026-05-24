@@ -1,48 +1,26 @@
-"use client";
+﻿"use client";
 
-import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { useAuthStore } from "@/stores/auth";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Plus,
-  Minus,
-  Search,
-  Pill,
-  AlertTriangle,
-  CheckCircle,
-  XCircle,
-  Loader2,
-  Save,
-  ArrowLeft
-} from "lucide-react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Loader2, Plus, Search, Trash2, XCircle } from "lucide-react";
+import { toast } from "sonner";
+import { useTenantPath } from "@/hooks/useTenantPath";
 
-interface Medication {
+type Patient = {
+  id: string;
+  fullName: string;
+  email?: string | null;
+  phone?: string | null;
+  globalPatientId?: string | null;
+};
+
+type Medication = {
   id: string;
   name: string;
-  genericName?: string;
-  category?: string;
-  dosage?: string;
-  manufacturer?: string;
+  genericName?: string | null;
+  strength?: string | null;
   stockInfo: {
     totalQuantity: number;
     minStockLevel: number;
@@ -50,502 +28,503 @@ interface Medication {
     isOutOfStock: boolean;
     status: "in_stock" | "low_stock" | "out_of_stock";
   };
-}
+};
 
-interface PrescriptionItem {
-  medicationId?: string;
+type PrescriptionItemState = {
+  medicationId: string;
   drugName: string;
-  genericName?: string;
+  genericName: string;
+  strength: string;
+  stockStatus: "" | "in_stock" | "low_stock" | "out_of_stock";
+  availableQuantity: number;
   dosage: string;
   frequency: string;
   duration: string;
   quantity: number;
-  instructions?: string;
-  refills?: number;
-  isPrn?: boolean;
-  route?: string;
-  strength?: string;
-  stockStatus?: "in_stock" | "low_stock" | "out_of_stock";
-  availableQuantity?: number;
+  instructions: string;
+  refills: number;
+  route: string;
+  isPrn: boolean;
+};
+
+function emptyItem(): PrescriptionItemState {
+  return {
+    medicationId: "",
+    drugName: "",
+    genericName: "",
+    strength: "",
+    stockStatus: "",
+    availableQuantity: 0,
+    dosage: "",
+    frequency: "",
+    duration: "",
+    quantity: 1,
+    instructions: "",
+    refills: 0,
+    route: "oral",
+    isPrn: false,
+  };
 }
 
-interface Patient {
-  id: string;
-  firstName: string;
-  lastName: string;
-  dob?: string;
-  phone?: string;
-  email?: string;
+function stockTone(status?: string) {
+  if (status === "out_of_stock") return "text-destructive";
+  if (status === "low_stock") return "text-warning-soft-foreground";
+  return "text-success-soft-foreground";
 }
 
-export default function CreatePrescriptionPage() {
-  const params = useParams();
+export default function NewPrescriptionPage() {
   const router = useRouter();
-  const { user } = useAuthStore();
-  const slug = params?.slug as string;
-
-  const [loading, setLoading] = useState(false);
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [medications, setMedications] = useState<Medication[]>([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedPatient, setSelectedPatient] = useState<string>("");
+  const tenantPath = useTenantPath();
+  const [patientSearch, setPatientSearch] = useState("");
+  const [selectedPatientId, setSelectedPatientId] = useState("");
   const [diagnosis, setDiagnosis] = useState("");
   const [notes, setNotes] = useState("");
-  const [priority, setPriority] = useState<"low" | "normal" | "high" | "urgent">("normal");
+  const [priority, setPriority] = useState("normal");
+  const [pharmacy, setPharmacy] = useState("");
+  const [validUntil, setValidUntil] = useState("");
   const [isEmergency, setIsEmergency] = useState(false);
-  const [prescriptionItems, setPrescriptionItems] = useState<PrescriptionItem[]>([
-    {
-      drugName: "",
-      dosage: "",
-      frequency: "",
-      duration: "",
-      quantity: 1,
-      refills: 0,
-      isPrn: false,
-    }
-  ]);
+  const [items, setItems] = useState<PrescriptionItemState[]>([emptyItem()]);
+  const [searchTerms, setSearchTerms] = useState<string[]>([""]);
+  const [activeSearchRow, setActiveSearchRow] = useState<number | null>(0);
+  const [medicationResults, setMedicationResults] = useState<Medication[]>([]);
+  const [loadingMedications, setLoadingMedications] = useState(false);
 
-  // Search medications
+  const patientsQuery = useQuery({
+    queryKey: ["doctor-patients-for-prescriptions", patientSearch],
+    queryFn: async () => {
+      const params = new URLSearchParams({ status: "active" });
+      if (patientSearch) params.set("search", patientSearch);
+      const response = await fetch(`/api/doctor/patients?${params.toString()}`);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Failed to load patients");
+      return payload.patients ?? [];
+    },
+  });
+
+  const filteredPatients = patientsQuery.data ?? [];
+  const selectedPatient = useMemo(
+    () => filteredPatients.find((patient: Patient) => patient.id === selectedPatientId) ?? null,
+    [filteredPatients, selectedPatientId]
+  );
+
   useEffect(() => {
-    const searchMedications = async () => {
-      if (searchTerm.length < 2) {
-        setMedications([]);
-        return;
-      }
+    if (activeSearchRow === null) {
+      setMedicationResults([]);
+      return;
+    }
 
+    const term = searchTerms[activeSearchRow] || "";
+    if (term.trim().length < 2) {
+      setMedicationResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setLoadingMedications(true);
       try {
-        const response = await fetch(`/api/tenant/${slug}/medications/for-prescription?search=${encodeURIComponent(searchTerm)}`);
-        if (response.ok) {
-          const data = await response.json();
-          setMedications(data.medications);
-        }
+        const response = await fetch(`/api/doctor/prescriptions/medications?search=${encodeURIComponent(term)}`);
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "Failed to search medications");
+        setMedicationResults(payload.medications ?? []);
       } catch (error) {
-        console.error("Failed to search medications:", error);
+        toast.error(error instanceof Error ? error.message : "Failed to search medications");
+      } finally {
+        setLoadingMedications(false);
       }
-    };
+    }, 250);
 
-    const debounceTimer = setTimeout(searchMedications, 300);
-    return () => clearTimeout(debounceTimer);
-  }, [searchTerm, slug]);
+    return () => clearTimeout(timer);
+  }, [activeSearchRow, searchTerms]);
 
-  // Load patients (you might want to add patient search functionality)
-  useEffect(() => {
-    // For now, we'll assume patients are passed via URL params or context
-    // In a real app, you'd have a patient search component
-  }, []);
-
-  const addPrescriptionItem = () => {
-    setPrescriptionItems([...prescriptionItems, {
-      drugName: "",
-      dosage: "",
-      frequency: "",
-      duration: "",
-      quantity: 1,
-      refills: 0,
-      isPrn: false,
-    }]);
-  };
-
-  const removePrescriptionItem = (index: number) => {
-    setPrescriptionItems(prescriptionItems.filter((_, i) => i !== index));
-  };
-
-  const updatePrescriptionItem = (index: number, field: keyof PrescriptionItem, value: any) => {
-    const updatedItems = [...prescriptionItems];
-    updatedItems[index] = { ...updatedItems[index], [field]: value };
-
-    // If medication is selected, update stock status
-    if (field === "medicationId" && value) {
-      const medication = medications.find(m => m.id === value);
-      if (medication) {
-        updatedItems[index].stockStatus = medication.stockInfo.status;
-        updatedItems[index].availableQuantity = medication.stockInfo.totalQuantity;
-        updatedItems[index].drugName = medication.name;
-        updatedItems[index].genericName = medication.genericName;
-        updatedItems[index].strength = medication.dosage;
-      }
-    }
-
-    setPrescriptionItems(updatedItems);
-  };
-
-  const selectMedication = (index: number, medication: Medication) => {
-    updatePrescriptionItem(index, "medicationId", medication.id);
-    setSearchTerm(""); // Clear search
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      const prescriptionData = {
-        patientId: selectedPatient,
-        doctorId: user?.id,
-        diagnosis,
-        notes,
-        priority,
-        isEmergency,
-        items: prescriptionItems.map(item => ({
-          medicationId: item.medicationId,
-          drugName: item.drugName,
-          genericName: item.genericName,
-          dosage: item.dosage,
-          frequency: item.frequency,
-          duration: item.duration,
-          quantity: item.quantity,
-          instructions: item.instructions,
-          refills: item.refills,
-          isPrn: item.isPrn,
-          route: item.route,
-          strength: item.strength,
-        })),
-      };
-
-      const response = await fetch(`/api/tenant/${slug}/prescriptions`, {
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch("/api/doctor/prescriptions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(prescriptionData),
+        body: JSON.stringify({
+          patientId: selectedPatientId,
+          diagnosis,
+          notes,
+          priority,
+          pharmacy,
+          validUntil,
+          isEmergency,
+          items,
+        }),
       });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Failed to create prescription");
+      return payload;
+    },
+    onSuccess: (payload) => {
+      toast.success("Prescription created");
+      router.push(tenantPath(`/doctor/prescriptions/${payload.prescription.id}`));
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to create prescription");
+    },
+  });
 
-      if (response.ok) {
-        const data = await response.json();
-        router.push(`/tenant/${slug}/doctor/prescriptions/${data.prescription.id}`);
-      } else {
-        const error = await response.json();
-        alert(`Error: ${error.error}`);
-      }
-    } catch (error) {
-      console.error("Failed to create prescription:", error);
-      alert("Failed to create prescription");
-    } finally {
-      setLoading(false);
-    }
-  };
+  function updateItem(index: number, patch: Partial<PrescriptionItemState>) {
+    setItems((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
+  }
 
-  const getStockStatusIcon = (status?: string) => {
-    switch (status) {
-      case "in_stock":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case "low_stock":
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
-      case "out_of_stock":
-        return <XCircle className="h-4 w-4 text-red-500" />;
-      default:
-        return null;
-    }
-  };
+  function selectMedication(index: number, medication: Medication) {
+    updateItem(index, {
+      medicationId: medication.id,
+      drugName: medication.name,
+      genericName: medication.genericName || "",
+      strength: medication.strength || "",
+      stockStatus: medication.stockInfo.status,
+      availableQuantity: medication.stockInfo.totalQuantity,
+    });
+    setSearchTerms((current) => current.map((value, itemIndex) => (itemIndex === index ? medication.name : value)));
+    setActiveSearchRow(null);
+    setMedicationResults([]);
+  }
 
-  const getStockStatusText = (status?: string) => {
-    switch (status) {
-      case "in_stock":
-        return "In Stock";
-      case "low_stock":
-        return "Low Stock";
-      case "out_of_stock":
-        return "Out of Stock";
-      default:
-        return "Unknown";
+  function addItem() {
+    setItems((current) => [...current, emptyItem()]);
+    setSearchTerms((current) => [...current, ""]);
+    setActiveSearchRow(items.length);
+  }
+
+  function removeItem(index: number) {
+    setItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setSearchTerms((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setActiveSearchRow(null);
+  }
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedPatientId) {
+      toast.error("Select a patient before writing a prescription");
+      return;
     }
-  };
+
+    const invalidItem = items.find((item) => !item.drugName || !item.dosage || !item.frequency || !item.duration);
+    if (invalidItem) {
+      toast.error("Each medication row requires name, dosage, frequency, and duration");
+      return;
+    }
+
+    createMutation.mutate();
+  }
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
-      <div className="flex items-center gap-4 mb-6">
-        <Button
-          variant="outline"
-          onClick={() => router.back()}
-          className="flex items-center gap-2"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </Button>
-        <div>
-          <h1 className="text-3xl font-bold">Create Prescription</h1>
-          <p className="text-muted-foreground">Prescribe medications to patients with stock availability checking</p>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-3">
+          <Link href={tenantPath("/doctor/prescriptions")} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border text-foreground hover:bg-muted/40">
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <div>
+            <h1 className="text-3xl font-semibold text-foreground">Write Prescription</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Search live inventory, compose the regimen, and dispatch the order to pharmacy.
+            </p>
+          </div>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Patient Information */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Patient Information</CardTitle>
-            <CardDescription>Select the patient for this prescription</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="patient">Patient *</Label>
-              <Select value={selectedPatient} onValueChange={setSelectedPatient}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a patient" />
-                </SelectTrigger>
-                <SelectContent>
-                  {/* In a real app, you'd populate this with actual patients */}
-                  <SelectItem value="patient-1">John Doe (ID: patient-1)</SelectItem>
-                  <SelectItem value="patient-2">Jane Smith (ID: patient-2)</SelectItem>
-                </SelectContent>
-              </Select>
+      <form onSubmit={submit} className="space-y-6">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-foreground">Patient and order details</h2>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Find patient</label>
+              <input
+                value={patientSearch}
+                onChange={(event) => setPatientSearch(event.target.value)}
+                placeholder="Search by patient name, email, phone, or patient ID"
+                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+              />
             </div>
-
-            <div>
-              <Label htmlFor="diagnosis">Diagnosis</Label>
-              <Input
-                id="diagnosis"
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Select patient</label>
+              <select
+                value={selectedPatientId}
+                onChange={(event) => setSelectedPatientId(event.target.value)}
+                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+              >
+                <option value="">Select a patient</option>
+                {filteredPatients.map((patient: Patient) => (
+                  <option key={patient.id} value={patient.id}>
+                    {patient.fullName} {patient.globalPatientId ? `(${patient.globalPatientId})` : ""}
+                  </option>
+                ))}
+              </select>
+              {selectedPatient && (
+                <p className="text-xs text-muted-foreground">
+                  {selectedPatient.email || selectedPatient.phone || "No contact details"}
+                  {selectedPatient.globalPatientId ? ` · ${selectedPatient.globalPatientId}` : ""}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Diagnosis</label>
+              <input
                 value={diagnosis}
-                onChange={(e) => setDiagnosis(e.target.value)}
-                placeholder="Enter diagnosis or condition"
+                onChange={(event) => setDiagnosis(event.target.value)}
+                placeholder="Primary diagnosis or indication"
+                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
               />
             </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="priority">Priority</Label>
-                <Select value={priority} onValueChange={(value: any) => setPriority(value)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="normal">Normal</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="urgent">Urgent</SelectItem>
-                  </SelectContent>
-                </Select>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Priority</label>
+                <select value={priority} onChange={(event) => setPriority(event.target.value)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground">
+                  <option value="low">Low</option>
+                  <option value="normal">Normal</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </select>
               </div>
-
-              <div className="flex items-center space-x-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Valid until</label>
                 <input
-                  type="checkbox"
-                  id="emergency"
-                  checked={isEmergency}
-                  onChange={(e) => setIsEmergency(e.target.checked)}
-                  className="rounded"
+                  type="date"
+                  value={validUntil}
+                  onChange={(event) => setValidUntil(event.target.value)}
+                  className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
                 />
-                <Label htmlFor="emergency">Emergency Prescription</Label>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Preferred pharmacy</label>
+                <input
+                  value={pharmacy}
+                  onChange={(event) => setPharmacy(event.target.value)}
+                  placeholder="Main dispensary"
+                  className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+                />
               </div>
             </div>
-
-            <div>
-              <Label htmlFor="notes">Notes</Label>
-              <Textarea
-                id="notes"
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium text-foreground">Clinical notes</label>
+              <textarea
                 value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Additional notes or instructions"
-                rows={3}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Counselling notes, follow-up instructions, or medication-specific guidance"
+                className="min-h-24 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
               />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+          <label className="mt-4 inline-flex items-center gap-2 text-sm text-foreground">
+            <input type="checkbox" checked={isEmergency} onChange={(event) => setIsEmergency(event.target.checked)} />
+            Mark this prescription as urgent / emergency
+          </label>
+        </div>
 
-        {/* Prescription Items */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              Medications
-              <Button type="button" onClick={addPrescriptionItem} size="sm">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Medication
-              </Button>
-            </CardTitle>
-            <CardDescription>Add medications to this prescription</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {prescriptionItems.map((item, index) => (
-              <div key={index} className="border rounded-lg p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-medium">Medication {index + 1}</h4>
-                  {prescriptionItems.length > 1 && (
-                    <Button
+        <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Medications</h2>
+              <p className="text-sm text-muted-foreground">Search live inventory and build the prescription line by line.</p>
+            </div>
+            <button
+              type="button"
+              onClick={addItem}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-muted/40"
+            >
+              <Plus className="h-4 w-4" />
+              Add Medication
+            </button>
+          </div>
+
+          <div className="mt-4 space-y-5">
+            {items.map((item, index) => (
+              <div key={index} className="rounded-xl border border-border bg-background/40 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">Medication {index + 1}</p>
+                    <p className="text-xs text-muted-foreground">Choose from stocked inventory or enter a medication manually.</p>
+                  </div>
+                  {items.length > 1 && (
+                    <button
                       type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => removePrescriptionItem(index)}
+                      onClick={() => removeItem(index)}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground hover:bg-muted/40 hover:text-destructive"
                     >
-                      <Minus className="h-4 w-4" />
-                    </Button>
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   )}
                 </div>
 
-                {/* Medication Search */}
-                <div className="relative">
-                  <Label>Medication Search</Label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search medications..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10"
-                    />
-                  </div>
-
-                  {medications.length > 0 && searchTerm && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-y-auto">
-                      {medications.map((medication) => (
-                        <button
-                          key={medication.id}
-                          type="button"
-                          onClick={() => selectMedication(index, medication)}
-                          className="w-full text-left p-3 hover:bg-gray-50 border-b last:border-b-0"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="font-medium">{medication.name}</div>
-                              {medication.genericName && (
-                                <div className="text-sm text-muted-foreground">{medication.genericName}</div>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {getStockStatusIcon(medication.stockInfo.status)}
-                              <Badge variant={
-                                medication.stockInfo.status === "in_stock" ? "default" :
-                                medication.stockInfo.status === "low_stock" ? "secondary" : "destructive"
-                              }>
-                                {medication.stockInfo.totalQuantity} available
-                              </Badge>
-                            </div>
-                          </div>
-                        </button>
-                      ))}
+                <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="xl:col-span-2">
+                    <label className="text-sm font-medium text-foreground">Search stocked medications</label>
+                    <div className="relative mt-2">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        value={searchTerms[index] || ""}
+                        onFocus={() => setActiveSearchRow(index)}
+                        onChange={(event) => {
+                          setActiveSearchRow(index);
+                          setSearchTerms((current) => current.map((value, itemIndex) => (itemIndex === index ? event.target.value : value)));
+                        }}
+                        placeholder="Search by medication name"
+                        className="h-10 w-full rounded-lg border border-border bg-background pl-10 pr-3 text-sm text-foreground"
+                      />
+                      {activeSearchRow === index && (loadingMedications || medicationResults.length > 0) && (
+                        <div className="absolute left-0 right-0 top-full z-20 mt-2 rounded-xl border border-border bg-popover shadow-lg">
+                          {loadingMedications ? (
+                            <div className="px-4 py-3 text-sm text-muted-foreground">Searching inventory...</div>
+                          ) : (
+                            medicationResults.map((medication) => (
+                              <button
+                                key={medication.id}
+                                type="button"
+                                onClick={() => selectMedication(index, medication)}
+                                className="flex w-full items-start justify-between gap-3 border-b border-border px-4 py-3 text-left last:border-b-0 hover:bg-muted/40"
+                              >
+                                <div>
+                                  <p className="text-sm font-medium text-foreground">{medication.name}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {medication.genericName || "No generic metadata"}
+                                    {medication.strength ? ` · ${medication.strength}` : ""}
+                                  </p>
+                                </div>
+                                <div className={`text-xs font-medium ${stockTone(medication.stockInfo.status)}`}>
+                                  {medication.stockInfo.totalQuantity} in stock
+                                </div>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-
-                {/* Selected Medication Info */}
-                {item.medicationId && (
-                  <Alert>
-                    <Pill className="h-4 w-4" />
-                    <AlertDescription className="flex items-center justify-between">
-                      <span>
-                        <strong>{item.drugName}</strong>
-                        {item.genericName && ` (${item.genericName})`}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        {getStockStatusIcon(item.stockStatus)}
-                        <span className="text-sm">
-                          {getStockStatusText(item.stockStatus)} ({item.availableQuantity} available)
-                        </span>
-                      </div>
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                <div className="grid grid-cols-2 gap-4">
+                  </div>
                   <div>
-                    <Label>Dosage *</Label>
-                    <Input
+                    <label className="text-sm font-medium text-foreground">Drug name</label>
+                    <input
+                      value={item.drugName}
+                      onChange={(event) => updateItem(index, { drugName: event.target.value })}
+                      placeholder="Medication name"
+                      className="mt-2 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-foreground">Dosage</label>
+                    <input
                       value={item.dosage}
-                      onChange={(e) => updatePrescriptionItem(index, "dosage", e.target.value)}
-                      placeholder="e.g., 500mg, 10mg/ml"
-                      required
+                      onChange={(event) => updateItem(index, { dosage: event.target.value })}
+                      placeholder="1 tablet"
+                      className="mt-2 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
                     />
                   </div>
-
                   <div>
-                    <Label>Frequency *</Label>
-                    <Input
+                    <label className="text-sm font-medium text-foreground">Frequency</label>
+                    <input
                       value={item.frequency}
-                      onChange={(e) => updatePrescriptionItem(index, "frequency", e.target.value)}
-                      placeholder="e.g., twice daily, every 8 hours"
-                      required
+                      onChange={(event) => updateItem(index, { frequency: event.target.value })}
+                      placeholder="Twice daily"
+                      className="mt-2 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
                     />
                   </div>
-
                   <div>
-                    <Label>Duration *</Label>
-                    <Input
+                    <label className="text-sm font-medium text-foreground">Duration</label>
+                    <input
                       value={item.duration}
-                      onChange={(e) => updatePrescriptionItem(index, "duration", e.target.value)}
-                      placeholder="e.g., 7 days, 2 weeks"
-                      required
+                      onChange={(event) => updateItem(index, { duration: event.target.value })}
+                      placeholder="7 days"
+                      className="mt-2 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
                     />
                   </div>
-
                   <div>
-                    <Label>Quantity *</Label>
-                    <Input
+                    <label className="text-sm font-medium text-foreground">Quantity</label>
+                    <input
                       type="number"
-                      min="1"
+                      min={1}
                       value={item.quantity}
-                      onChange={(e) => updatePrescriptionItem(index, "quantity", parseInt(e.target.value))}
-                      required
+                      onChange={(event) => updateItem(index, { quantity: Number(event.target.value || 1) })}
+                      className="mt-2 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
                     />
                   </div>
-
                   <div>
-                    <Label>Refills</Label>
-                    <Input
+                    <label className="text-sm font-medium text-foreground">Refills</label>
+                    <input
                       type="number"
-                      min="0"
-                      value={item.refills || 0}
-                      onChange={(e) => updatePrescriptionItem(index, "refills", parseInt(e.target.value))}
+                      min={0}
+                      value={item.refills}
+                      onChange={(event) => updateItem(index, { refills: Number(event.target.value || 0) })}
+                      className="mt-2 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
                     />
                   </div>
-
                   <div>
-                    <Label>Route</Label>
-                    <Select
-                      value={item.route || ""}
-                      onValueChange={(value) => updatePrescriptionItem(index, "route", value)}
+                    <label className="text-sm font-medium text-foreground">Route</label>
+                    <select
+                      value={item.route}
+                      onChange={(event) => updateItem(index, { route: event.target.value })}
+                      className="mt-2 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select route" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="oral">Oral</SelectItem>
-                        <SelectItem value="intravenous">Intravenous</SelectItem>
-                        <SelectItem value="intramuscular">Intramuscular</SelectItem>
-                        <SelectItem value="subcutaneous">Subcutaneous</SelectItem>
-                        <SelectItem value="topical">Topical</SelectItem>
-                        <SelectItem value="inhalation">Inhalation</SelectItem>
-                        <SelectItem value="rectal">Rectal</SelectItem>
-                        <SelectItem value="ocular">Ocular</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      <option value="oral">Oral</option>
+                      <option value="iv">IV</option>
+                      <option value="im">IM</option>
+                      <option value="topical">Topical</option>
+                      <option value="inhaled">Inhaled</option>
+                      <option value="subcutaneous">Subcutaneous</option>
+                    </select>
+                  </div>
+                  <div className="xl:col-span-4">
+                    <label className="text-sm font-medium text-foreground">Instructions</label>
+                    <textarea
+                      value={item.instructions}
+                      onChange={(event) => updateItem(index, { instructions: event.target.value })}
+                      placeholder="Take with food, avoid alcohol, return if symptoms worsen..."
+                      className="mt-2 min-h-20 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                    />
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    id={`prn-${index}`}
-                    checked={item.isPrn || false}
-                    onChange={(e) => updatePrescriptionItem(index, "isPrn", e.target.checked)}
-                    className="rounded"
-                  />
-                  <Label htmlFor={`prn-${index}`}>PRN (as needed)</Label>
-                </div>
-
-                <div>
-                  <Label>Instructions</Label>
-                  <Textarea
-                    value={item.instructions || ""}
-                    onChange={(e) => updatePrescriptionItem(index, "instructions", e.target.value)}
-                    placeholder="Patient instructions, e.g., 'Take with food', 'Shake well before use'"
-                    rows={2}
-                  />
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
+                  {item.medicationId && (
+                    <>
+                      <span className="rounded-full bg-muted px-2.5 py-1 text-foreground">
+                        {item.genericName || item.drugName}
+                      </span>
+                      <span className="rounded-full bg-muted px-2.5 py-1 text-foreground">
+                        {item.strength || "Strength not set"}
+                      </span>
+                    </>
+                  )}
+                  {item.medicationId && (
+                    <span className={`inline-flex items-center gap-1 ${stockTone(item.stockStatus)}`}>
+                      {item.stockStatus === "out_of_stock" ? (
+                        <XCircle className="h-3.5 w-3.5" />
+                      ) : item.stockStatus === "low_stock" ? (
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                      ) : (
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                      )}
+                      {item.availableQuantity} units available
+                    </span>
+                  )}
+                  <label className="inline-flex items-center gap-2 text-foreground">
+                    <input
+                      type="checkbox"
+                      checked={item.isPrn}
+                      onChange={(event) => updateItem(index, { isPrn: event.target.checked })}
+                    />
+                    PRN / as needed
+                  </label>
                 </div>
               </div>
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        {/* Submit */}
-        <div className="flex justify-end gap-4">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => router.back()}
+        <div className="flex items-center justify-end gap-3">
+            <Link href={tenantPath("/doctor/prescriptions")} className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted/40">
+              Cancel
+            </Link>
+          <button
+            type="submit"
+            disabled={createMutation.isPending}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
           >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={loading || !selectedPatient}>
-            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            <Save className="h-4 w-4 mr-2" />
-            Create Prescription
-          </Button>
+            {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save Prescription
+          </button>
         </div>
       </form>
     </div>
