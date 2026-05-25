@@ -86,6 +86,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
      { label: "Beds", path: "/nurse/beds", icon: BedDouble, category: "Ward" },
      { label: "Queue", path: "/nurse/queue", icon: ClipboardList, category: "Ward" },
      { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
+     { label: "Feedback", path: "/nurse/feedback", icon: MessageSquare, category: "Communication" },
      { label: "Reports", path: "/nurse/analytics/nursing", icon: BarChart3, category: "Reports" },
      { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
    ],

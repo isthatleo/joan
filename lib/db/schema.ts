@@ -195,6 +195,12 @@ export const vitals = pgTable("vitals", {
   temperature: text("temperature"),
   bloodPressure: text("blood_pressure"),
   heartRate: text("heart_rate"),
+  respiratoryRate: text("respiratory_rate"),
+  oxygenSaturation: text("oxygen_saturation"),
+  painScore: integer("pain_score"),
+  recordedBy: uuid("recorded_by").references(() => users.id),
+  recordedAt: timestamp("recorded_at").defaultNow(),
+  notes: text("notes"),
 });
 
 // Prescriptions + Pharmacy
@@ -246,6 +252,82 @@ export const prescriptionItems = pgTable("prescription_items", {
   isPrn: boolean("is_prn").default(false),
   route: text("route"),
 });
+
+export const medicationAdministrations = pgTable("medication_administrations", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id),
+  prescriptionId: uuid("prescription_id").references(() => prescriptions.id),
+  prescriptionItemId: uuid("prescription_item_id").references(() => prescriptionItems.id),
+  patientId: uuid("patient_id").references(() => patients.id),
+  scheduledAt: timestamp("scheduled_at"),
+  administeredAt: timestamp("administered_at"),
+  administeredBy: uuid("administered_by").references(() => users.id),
+  status: text("status").default("pending").notNull(),
+  notes: text("notes"),
+}, (table) => ({
+  medicationAdministrationTenantIdx: index("med_admin_tenant_idx").on(table.tenantId),
+  medicationAdministrationPatientIdx: index("med_admin_patient_idx").on(table.patientId),
+  medicationAdministrationPrescriptionIdx: index("med_admin_prescription_idx").on(table.prescriptionId),
+  medicationAdministrationStatusIdx: index("med_admin_status_idx").on(table.status),
+}));
+
+export const bedAssignments = pgTable("bed_assignments", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id),
+  patientId: uuid("patient_id").references(() => patients.id),
+  bedNumber: text("bed_number").notNull(),
+  ward: text("ward").notNull(),
+  room: text("room"),
+  status: text("status").default("available").notNull(),
+  assignedNurseId: uuid("assigned_nurse_id").references(() => users.id),
+  admissionDate: timestamp("admission_date"),
+  dischargeDate: timestamp("discharge_date"),
+  condition: text("condition"),
+  notes: text("notes"),
+}, (table) => ({
+  bedAssignmentTenantIdx: index("bed_assignment_tenant_idx").on(table.tenantId),
+  bedAssignmentPatientIdx: index("bed_assignment_patient_idx").on(table.patientId),
+  bedAssignmentStatusIdx: index("bed_assignment_status_idx").on(table.status),
+  bedAssignmentBedIdx: index("bed_assignment_bed_idx").on(table.bedNumber),
+}));
+
+export const carePlans = pgTable("care_plans", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id),
+  patientId: uuid("patient_id").references(() => patients.id),
+  createdBy: uuid("created_by").references(() => users.id),
+  assignedNurseId: uuid("assigned_nurse_id").references(() => users.id),
+  title: text("title").notNull(),
+  diagnosis: text("diagnosis"),
+  goals: text("goals"),
+  interventions: text("interventions"),
+  status: text("status").default("active").notNull(),
+  priority: text("priority").default("routine").notNull(),
+  startDate: timestamp("start_date"),
+  targetDate: timestamp("target_date"),
+  completedAt: timestamp("completed_at"),
+  notes: text("notes"),
+}, (table) => ({
+  carePlanTenantIdx: index("care_plan_tenant_idx").on(table.tenantId),
+  carePlanPatientIdx: index("care_plan_patient_idx").on(table.patientId),
+  carePlanNurseIdx: index("care_plan_nurse_idx").on(table.assignedNurseId),
+  carePlanStatusIdx: index("care_plan_status_idx").on(table.status),
+}));
+
+export const carePlanTasks = pgTable("care_plan_tasks", {
+  ...baseColumns,
+  carePlanId: uuid("care_plan_id").references(() => carePlans.id),
+  assignedTo: uuid("assigned_to").references(() => users.id),
+  title: text("title").notNull(),
+  description: text("description"),
+  dueAt: timestamp("due_at"),
+  completedAt: timestamp("completed_at"),
+  status: text("status").default("pending").notNull(),
+  notes: text("notes"),
+}, (table) => ({
+  carePlanTaskPlanIdx: index("care_plan_task_plan_idx").on(table.carePlanId),
+  carePlanTaskStatusIdx: index("care_plan_task_status_idx").on(table.status),
+}));
 
 export const inventoryItems = pgTable("inventory_items", {
   ...baseColumns,

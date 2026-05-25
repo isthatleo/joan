@@ -1,5 +1,6 @@
 "use client";
 
+import { DashboardGreeting } from "@/components/DashboardGreeting";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
@@ -163,6 +164,7 @@ export default function AccountantDashboard() {
 
   return (
     <div className="space-y-6">
+      <DashboardGreeting roleLabel="Accountant" />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Accountant Dashboard</p>

@@ -1,5 +1,6 @@
 "use client";
 
+import { DashboardGreeting } from "@/components/DashboardGreeting";
 import { useEffect, useMemo, useState } from "react";
 import {
   PageHeader,

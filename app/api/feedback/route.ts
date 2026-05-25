@@ -122,6 +122,51 @@ async function notifyFeedbackRecipients(options: {
   );
 }
 
+async function notifyFeedbackSubmitter(options: {
+  feedbackId: string;
+  feedbackTitle: string;
+  feedbackType: string;
+  feedbackScope: string;
+  feedbackOwnerId?: string | null;
+  tenantId?: string | null;
+  updatedById: string;
+  updatedByName: string;
+  status?: string;
+  resolution?: string;
+}) {
+  if (!options.feedbackOwnerId || options.feedbackOwnerId === options.updatedById) return;
+
+  const statusLabel = options.status ? options.status.replaceAll("_", " ") : "updated";
+  const message = options.resolution
+    ? `${options.updatedByName} marked "${options.feedbackTitle}" as ${statusLabel} and added a resolution update.`
+    : `${options.updatedByName} updated "${options.feedbackTitle}" to ${statusLabel}.`;
+
+  await db.insert(notifications).values({
+    tenantId: options.feedbackScope === "tenant" ? options.tenantId ?? null : null,
+    userId: options.feedbackOwnerId,
+    type: "feedback_updated",
+    title: "Feedback update",
+    message,
+    metadata: {
+      feedbackId: options.feedbackId,
+      feedbackType: options.feedbackType,
+      feedbackScope: options.feedbackScope,
+      status: options.status ?? null,
+      resolution: options.resolution ?? null,
+      updatedBy: options.updatedById,
+      tenantId: options.tenantId ?? null,
+    },
+    read: false,
+  });
+}
+
+function canManageFeedback(currentUser: Awaited<ReturnType<typeof resolveCurrentAppUser>>, feedback: Awaited<ReturnType<FeedbackService["getFeedbackAccess"]>>) {
+  if (!currentUser || !feedback) return false;
+  if (currentUser.role === "super_admin") return true;
+  if (!feedback.tenantId || feedback.tenantId !== currentUser.tenantId) return false;
+  return currentUser.role === "hospital_admin" || currentUser.role === "admin";
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -217,12 +262,38 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Feedback ID required" }, { status: 400 });
     }
 
+    const currentUser = await resolveCurrentAppUser(request);
+    if (!currentUser) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const feedbackAccess = await service.getFeedbackAccess(feedbackId);
+    if (!feedbackAccess || !canManageFeedback(currentUser, feedbackAccess)) {
+      return NextResponse.json({ error: "Feedback not found" }, { status: 404 });
+    }
+
     const updatedFeedback = await service.updateFeedbackStatus(
       feedbackId,
       status,
       assignedTo,
       resolution
     );
+
+    const fullFeedback = await service.getFeedbackById(feedbackId);
+    if (fullFeedback) {
+      await notifyFeedbackSubmitter({
+        feedbackId,
+        feedbackTitle: fullFeedback.title,
+        feedbackType: fullFeedback.type,
+        feedbackScope: fullFeedback.scope || feedbackAccess.scope,
+        feedbackOwnerId: fullFeedback.user?.id,
+        tenantId: fullFeedback.user?.tenantId || feedbackAccess.tenantId,
+        updatedById: currentUser.id,
+        updatedByName: currentUser.fullName || currentUser.email,
+        status: status || fullFeedback.status,
+        resolution,
+      });
+    }
 
     return NextResponse.json({ feedback: updatedFeedback });
   } catch (error) {

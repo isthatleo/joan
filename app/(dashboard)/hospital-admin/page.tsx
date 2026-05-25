@@ -1,5 +1,6 @@
 "use client";
 
+import { DashboardGreeting } from "@/components/DashboardGreeting";
 import { useEffect, useState } from "react";
 import {
   Users,
@@ -172,6 +173,7 @@ export default function HospitalAdminDashboard() {
 
   return (
     <div className="space-y-6">
+      <DashboardGreeting roleLabel="Hospital Admin" />
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">

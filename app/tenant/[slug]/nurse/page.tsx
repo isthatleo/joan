@@ -1,205 +1,227 @@
-"use client";
+﻿"use client";
 
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
-import {
-  PageHeader,
-  SectionCard,
-  Button,
-  StatCard,
-  Badge,
-  Skeleton,
-} from "@/components/ui";
-import {
-  LayoutDashboard,
-  Users,
-  HeartPulse,
-  Activity,
-  Clock,
-  AlertCircle,
-  CheckCircle,
-  TrendingUp,
-  Pill,
-  Thermometer,
-  Zap,
-  FileText,
-  AlertTriangle,
-} from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { format } from "date-fns";
+import { AlertTriangle, ArrowRight, Bell, ClipboardList, HeartPulse, Pill, RefreshCw, ShieldAlert, UserRound, Users } from "lucide-react";
+import { Badge, Button, PageHeader, SectionCard, Skeleton } from "@/components/ui";
+import { DashboardGreeting } from "@/components/DashboardGreeting";
+import { withTenantPrefix } from "@/lib/tenant-routing";
 
-interface NursingMetrics {
-  totalPatients: number;
-  patientsOnWatchList: number;
-  medicationsDue: number;
-  vitalsAlerts: number;
-  completedTasks: number;
-  pendingTasks: number;
-  bedsOccupied: number;
-  bedsAvailable: number;
+function MetricCard({ title, value, subtitle, icon: Icon, tone }: { title: string; value: number; subtitle: string; icon: any; tone: string }) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-muted-foreground">{title}</p>
+          <p className="mt-2 text-3xl font-semibold text-foreground">{value}</p>
+          <p className="mt-2 text-xs text-muted-foreground">{subtitle}</p>
+        </div>
+        <div className={`rounded-2xl p-3 ${tone}`}>
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
-export default function NurseDashboard() {
+export default function NurseDashboardPage() {
   const params = useParams();
   const slug = params?.slug as string;
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+  const toTenantPath = (path: string) => withTenantPrefix(path, slug, hostname);
 
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // Fetch dashboard data
-  const { data: dashboardData, isLoading } = useQuery({
-    queryKey: ["nurse-dashboard", slug],
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ["tenant-nurse-dashboard", slug],
     queryFn: async () => {
-      const [metricsRes, patientsRes, vitalsRes, medicationsRes, tasksRes] = await Promise.all([
-        fetch(`/api/nurse/dashboard?slug=${slug}`),
-        fetch(`/api/nurse/patients?slug=${slug}&limit=5`),
-        fetch(`/api/nurse/vitals/alerts?slug=${slug}`),
-        fetch(`/api/nurse/medications/due?slug=${slug}`),
-        fetch(`/api/nurse/tasks?slug=${slug}&status=pending`),
-      ]);
-
-      return {
-        metrics: await metricsRes.json(),
-        patients: await patientsRes.json(),
-        vitalsAlerts: await vitalsRes.json(),
-        medicationsDue: await medicationsRes.json(),
-        tasks: await tasksRes.json(),
-      };
+      const response = await fetch(`/api/nurse/dashboard?slug=${slug}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to load dashboard");
+      return response.json();
     },
     refetchInterval: 30000,
   });
 
-  const stats = [
-    {
-      title: "Assigned Patients",
-      value: dashboardData?.metrics?.totalPatients || 0,
-      subtitle: `${dashboardData?.metrics?.bedsOccupied || 0} beds occupied`,
-      icon: Users,
-      color: "text-blue-600",
-      bgColor: "bg-blue-50",
-    },
-    {
-      title: "Vitals Alerts",
-      value: dashboardData?.metrics?.vitalsAlerts || 0,
-      subtitle: "Require immediate attention",
-      icon: AlertTriangle,
-      color: "text-red-600",
-      bgColor: "bg-red-50",
-    },
-    {
-      title: "Medications Due",
-      value: dashboardData?.metrics?.medicationsDue || 0,
-      subtitle: "Next 2 hours",
-      icon: Pill,
-      color: "text-green-600",
-      bgColor: "bg-green-50",
-    },
-    {
-      title: "Pending Tasks",
-      value: dashboardData?.metrics?.pendingTasks || 0,
-      subtitle: `${dashboardData?.metrics?.completedTasks || 0} completed today`,
-      icon: CheckCircle,
-      color: "text-purple-600",
-      bgColor: "bg-purple-50",
-    },
-  ];
+  const metrics = data?.metrics;
+  const quickActions = useMemo(
+    () => [
+      { label: "Open Patient Roster", href: "/nurse/patients", note: "Review assigned patients and status changes." },
+      { label: "Record Vitals", href: "/nurse/vitals", note: "Capture high-frequency observations and escalations." },
+      { label: "Medication Round", href: "/nurse/medications", note: "Administer due medications and close completed courses." },
+      { label: "Care Plans", href: "/nurse/care-plans", note: "Track interventions, tasks, and outcomes." },
+      { label: "Bed Board", href: "/nurse/beds", note: "Review admissions, discharges, and ward capacity." },
+      { label: "Nursing Reports", href: "/nurse/analytics/nursing", note: "Generate shift-ready summaries and handover packs." },
+    ],
+    []
+  );
 
   return (
     <div className="space-y-6">
+      <DashboardGreeting roleLabel="Nurse" />
+
       <PageHeader
-        title={`Good ${currentTime.getHours() < 12 ? 'morning' : currentTime.getHours() < 17 ? 'afternoon' : 'evening'}, Nurse ${currentTime.getHours() < 12 ? '👋' : '🌙'}`}
-        subtitle={`Today is ${format(currentTime, 'EEEE, MMMM do, yyyy')} • ${format(currentTime, 'h:mm a')}`}
+        title="Nursing Operations Dashboard"
+        subtitle="Live ward overview for patient safety, medication rounds, care plans, and shift handover."
+        actions={
+          <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        }
       />
 
-      {/* Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, index) => (
-          <StatCard key={index} {...stat} />
-        ))}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-36 w-full" />)
+        ) : (
+          <>
+            <MetricCard title="Patients Under Care" value={metrics?.totalPatients ?? 0} subtitle={`${metrics?.bedsOccupied ?? 0} currently admitted in monitored beds`} icon={Users} tone="bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300" />
+            <MetricCard title="Vitals Escalations" value={metrics?.vitalsAlerts ?? 0} subtitle={`${metrics?.patientsOnWatchList ?? 0} patients on close watch`} icon={HeartPulse} tone="bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" />
+            <MetricCard title="Medications Due" value={metrics?.medicationsDue ?? 0} subtitle="Within the next two hours" icon={Pill} tone="bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" />
+            <MetricCard title="Open Care Tasks" value={metrics?.pendingTasks ?? 0} subtitle={`${metrics?.completedTasks ?? 0} completed today`} icon={ClipboardList} tone="bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" />
+          </>
+        )}
       </div>
 
-      {isLoading ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {[...Array(4)].map((_, i) => (
-            <SectionCard key={i}>
-              <Skeleton className="h-64 w-full" />
-            </SectionCard>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Critical Alerts */}
-          {dashboardData?.vitalsAlerts && dashboardData.vitalsAlerts.length > 0 && (
-            <SectionCard title="Critical Vitals Alerts" action={<Button size="sm">View All</Button>}>
-              <div className="space-y-3">
-                {dashboardData.vitalsAlerts.slice(0, 5).map((alert: any) => (
-                  <div key={alert.id} className="p-3 rounded-lg border border-red-200 bg-red-50">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-red-900">{alert.patientName}</p>
-                        <p className="text-xs text-red-700 mt-1">{alert.alertType}: {alert.value} {alert.unit}</p>
-                      </div>
-                      <AlertTriangle className="h-5 w-5 text-red-600" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </SectionCard>
-          )}
-
-          {/* Patients Under Care */}
-          <SectionCard title="Patients Under Your Care" action={<Button size="sm">View All</Button>}>
+      <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
+        <SectionCard title="Attention Board" description="High-priority clinical signals that need action this shift.">
+          {isLoading ? (
             <div className="space-y-3">
-              {dashboardData?.patients?.slice(0, 5).map((patient: any) => (
-                <div key={patient.id} className="p-3 rounded-lg border border-gray-100 hover:bg-gray-50">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-sm font-medium text-gray-900">{patient.firstName} {patient.lastName}</h4>
-                    <Badge variant="outline">{patient.room}</Badge>
-                  </div>
-                  <p className="text-xs text-gray-600">{patient.condition}</p>
-                </div>
-              ))}
+              {Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-20 w-full" />)}
             </div>
-          </SectionCard>
-
-          {/* Medications Due Soon */}
-          {dashboardData?.medicationsDue && dashboardData.medicationsDue.length > 0 && (
-            <SectionCard title="Medications Due Soon" action={<Button size="sm">View All</Button>}>
-              <div className="space-y-3">
-                {dashboardData.medicationsDue.slice(0, 5).map((med: any) => (
-                  <div key={med.id} className="p-3 rounded-lg border border-blue-100 bg-blue-50">
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-sm font-medium text-blue-900">{med.medication}</p>
-                      <span className="text-xs font-semibold text-blue-600">{med.dueTime}</span>
+          ) : (
+            <div className="space-y-3">
+              {data?.vitalsAlerts?.length ? data.vitalsAlerts.map((alert: any) => (
+                <div key={alert.id} className="rounded-2xl border border-rose-200 bg-rose-50 p-4 dark:border-rose-500/30 dark:bg-rose-500/10">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{alert.patientName}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Room {alert.room || "Unassigned"}</p>
+                      <p className="mt-2 text-sm text-rose-700 dark:text-rose-300">BP {alert.bloodPressure || "-"} | HR {alert.heartRate || "-"} | Temp {alert.temperature || "-"}</p>
                     </div>
-                    <p className="text-xs text-blue-700">{med.patientName} - {med.dosage}</p>
+                    <Badge variant={alert.status === "critical" ? "destructive" : "outline"}>{alert.status}</Badge>
                   </div>
-                ))}
-              </div>
-            </SectionCard>
+                </div>
+              )) : <p className="text-sm text-muted-foreground">No active vitals escalations right now.</p>}
+            </div>
           )}
+        </SectionCard>
 
-          {/* Pending Care Tasks */}
-          {dashboardData?.tasks && dashboardData.tasks.length > 0 && (
-            <SectionCard title="Care Tasks" action={<Button size="sm">View All</Button>}>
-              <div className="space-y-3">
-                {dashboardData.tasks.slice(0, 5).map((task: any) => (
-                  <div key={task.id} className="p-3 rounded-lg border border-purple-100 bg-purple-50">
-                    <div className="flex items-start justify-between mb-1">
-                      <p className="text-sm font-medium text-purple-900">{task.title}</p>
-                      <Badge variant="outline" className="text-xs">{task.priority}</Badge>
+        <SectionCard title="Shift Quick Actions" description="Fast links for the most common nursing workflows.">
+          <div className="space-y-3">
+            {quickActions.map((action) => (
+              <Link key={action.href} href={toTenantPath(action.href)} className="flex items-center justify-between rounded-2xl border border-border bg-background px-4 py-3 transition-colors hover:bg-muted/40">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">{action.label}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{action.note}</p>
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground" />
+              </Link>
+            ))}
+          </div>
+        </SectionCard>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
+        <SectionCard title="Medication Window" description="Next doses queued for administration." actions={<Link href={toTenantPath("/nurse/medications")} className="text-sm font-medium text-primary">Open round</Link>}>
+          {isLoading ? <Skeleton className="h-56 w-full" /> : (
+            <div className="space-y-3">
+              {data?.medicationsDue?.length ? data.medicationsDue.map((medication: any) => (
+                <div key={medication.id} className="rounded-xl border border-border bg-background p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{medication.medication || "Medication"}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{medication.patientName} | {medication.ward || "Ward"} / {medication.room || "Room"}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">{medication.dosage || "Dose pending"} | {medication.route || "Route pending"}</p>
                     </div>
-                    <p className="text-xs text-purple-700">{task.patientName}</p>
+                    <Badge variant="outline">{medication.dueTime}</Badge>
                   </div>
-                ))}
-              </div>
-            </SectionCard>
+                </div>
+              )) : <p className="text-sm text-muted-foreground">No medications due in the next two hours.</p>}
+            </div>
           )}
-        </div>
-      )}
+        </SectionCard>
+
+        <SectionCard title="Patients Snapshot" description="Current roster with bed and condition context." actions={<Link href={toTenantPath("/nurse/patients")} className="text-sm font-medium text-primary">View roster</Link>}>
+          {isLoading ? <Skeleton className="h-56 w-full" /> : (
+            <div className="space-y-3">
+              {data?.patients?.map((patient: any) => (
+                <div key={patient.id} className="rounded-xl border border-border bg-background p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{patient.firstName} {patient.lastName}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{patient.ward || "Ward"} | Room {patient.room || "-"}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">{patient.condition || "Condition not documented yet."}</p>
+                    </div>
+                    <Badge variant="outline">{patient.status || "active"}</Badge>
+                  </div>
+                </div>
+              )) || <p className="text-sm text-muted-foreground">No assigned patients found.</p>}
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Care Tasks" description="Pending care-plan tasks and interventions for this shift." actions={<Link href={toTenantPath("/nurse/care-plans")} className="text-sm font-medium text-primary">Open plans</Link>}>
+          {isLoading ? <Skeleton className="h-56 w-full" /> : (
+            <div className="space-y-3">
+              {data?.tasks?.length ? data.tasks.map((task: any) => (
+                <div key={task.id} className="rounded-xl border border-border bg-background p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{task.title}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{task.patientName}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">Due {task.dueAt ? new Date(task.dueAt).toLocaleString() : "this shift"}</p>
+                    </div>
+                    <Badge variant="outline">{task.planPriority || "routine"}</Badge>
+                  </div>
+                </div>
+              )) : <p className="text-sm text-muted-foreground">No open care tasks right now.</p>}
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        <SectionCard title="Safety Signals" description="Unread notifications and bedside alerts routed to nursing.">
+          {isLoading ? <Skeleton className="h-44 w-full" /> : (
+            <div className="space-y-3">
+              {data?.notifications?.length ? data.notifications.map((notification: any) => (
+                <div key={notification.id} className="rounded-xl border border-border bg-background p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-xl bg-orange-50 p-2 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300">
+                      <Bell className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{notification.title}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{notification.message}</p>
+                    </div>
+                  </div>
+                </div>
+              )) : <p className="text-sm text-muted-foreground">No unread nursing notifications.</p>}
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Operational Focus" description="What matters most before the next handover.">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><ShieldAlert className="h-4 w-4 text-rose-500" /> Watch List</div>
+              <p className="mt-3 text-3xl font-semibold text-foreground">{metrics?.patientsOnWatchList ?? 0}</p>
+              <p className="mt-2 text-xs text-muted-foreground">Patients with abnormal vitals or escalating trends.</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><UserRound className="h-4 w-4 text-blue-500" /> Bed Capacity</div>
+              <p className="mt-3 text-3xl font-semibold text-foreground">{metrics?.bedsAvailable ?? 0}</p>
+              <p className="mt-2 text-xs text-muted-foreground">Beds available for transfers, admissions, or step-down care.</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4 sm:col-span-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><AlertTriangle className="h-4 w-4 text-amber-500" /> Queue Pressure</div>
+              <p className="mt-3 text-3xl font-semibold text-foreground">{metrics?.activeQueue ?? 0}</p>
+              <p className="mt-2 text-xs text-muted-foreground">Patients still waiting for nursing preparation, transfer, or task completion.</p>
+            </div>
+          </div>
+        </SectionCard>
+      </div>
     </div>
   );
 }

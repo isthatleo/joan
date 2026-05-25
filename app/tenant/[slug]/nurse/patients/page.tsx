@@ -1,307 +1,148 @@
-"use client";
+﻿"use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import {
-  PageHeader,
-  SectionCard,
-  Button,
-  Input,
-  Badge,
-  Skeleton,
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Textarea,
-} from "@/components/ui";
-import {
-  Users,
-  Search,
-  Plus,
-  Filter,
-  User,
-  Phone,
-  Mail,
-  Calendar,
-  FileText,
-  Eye,
-  Edit,
-  Bed,
-  AlertCircle,
-} from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, BedDouble, HeartPulse, Mail, Phone, RefreshCw, Search, ShieldAlert, UserRound } from "lucide-react";
+import { Badge, Button, Input, PageHeader, SectionCard, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton } from "@/components/ui";
+import { withTenantPrefix } from "@/lib/tenant-routing";
 
-interface Patient {
-  id: string;
-  firstName: string;
-  lastName: string;
-  age: number;
-  gender: string;
-  phone: string;
-  email: string;
-  admissionDate: string;
-  room: string;
-  bed: string;
-  primaryCondition: string;
-  secondaryConditions?: string[];
-  allergies?: string[];
-  emergencyContact: string;
-  emergencyPhone: string;
-  insuranceProvider?: string;
-  medicalHistory?: string;
-  currentStatus: "stable" | "critical" | "improving" | "declining";
-  assignedNurse: string;
-  doctorName: string;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
+function toAge(dob?: string | Date | null) {
+  if (!dob) return "-";
+  const birth = new Date(dob);
+  return String(Math.max(0, new Date().getFullYear() - birth.getFullYear()));
 }
 
 export default function NursePatientsPage() {
   const params = useParams();
   const slug = params?.slug as string;
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
-  const [showPatientModal, setShowPatientModal] = useState(false);
+  const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+  const toTenantPath = (path: string) => withTenantPrefix(path, slug, hostname);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
 
-  const queryClient = useQueryClient();
-
-  // Fetch patients
-  const { data: patients, isLoading } = useQuery({
-    queryKey: ["nurse-patients", slug, statusFilter],
+  const { data, isLoading, isFetching, refetch } = useQuery({
+    queryKey: ["tenant-nurse-patients", slug, search, status],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        status: statusFilter,
-        search: searchTerm,
-      });
-      const response = await fetch(`/api/nurse/patients?${params}&slug=${slug}`);
-      if (!response.ok) throw new Error("Failed to fetch patients");
+      const qs = new URLSearchParams({ slug, status, search });
+      const response = await fetch(`/api/nurse/patients?${qs.toString()}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to load patients");
       return response.json();
     },
   });
 
-  const filteredPatients = patients?.filter((patient: Patient) => {
-    const matchesSearch = patient.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         patient.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         patient.room.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesSearch;
-  }) || [];
-
-  const getStatusColor = (status: Patient["currentStatus"]) => {
-    switch (status) {
-      case "stable": return "bg-green-50 text-green-700 border-green-200";
-      case "critical": return "bg-red-50 text-red-700 border-red-200";
-      case "improving": return "bg-blue-50 text-blue-700 border-blue-200";
-      case "declining": return "bg-yellow-50 text-yellow-700 border-yellow-200";
-      default: return "bg-gray-50 text-gray-700 border-gray-200";
-    }
-  };
+  const patients = data?.patients || [];
+  const stats = data?.stats;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Assigned Patients"
-        subtitle="Manage and monitor all patients under your care"
+        subtitle="Live nursing roster with bed placement, allergies, condition flags, and doctor context."
+        actions={<Button variant="outline" onClick={() => refetch()} disabled={isFetching}><RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />Refresh</Button>}
       />
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="flex flex-col sm:flex-row gap-4 flex-1">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Search patients..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {isLoading ? Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-28 w-full" />) : (
+          <>
+            <div className="rounded-2xl border border-border bg-card p-5"><p className="text-sm text-muted-foreground">Roster Size</p><p className="mt-2 text-3xl font-semibold text-foreground">{stats?.total ?? 0}</p><p className="mt-2 text-xs text-muted-foreground">Patients currently visible to the nursing team.</p></div>
+            <div className="rounded-2xl border border-border bg-card p-5"><p className="text-sm text-muted-foreground">Critical Status</p><p className="mt-2 text-3xl font-semibold text-foreground">{stats?.critical ?? 0}</p><p className="mt-2 text-xs text-muted-foreground">Needs rapid review or escalated monitoring.</p></div>
+            <div className="rounded-2xl border border-border bg-card p-5"><p className="text-sm text-muted-foreground">Bed Occupancy</p><p className="mt-2 text-3xl font-semibold text-foreground">{stats?.occupiedBeds ?? 0}</p><p className="mt-2 text-xs text-muted-foreground">Patients with documented ward and bed assignments.</p></div>
+            <div className="rounded-2xl border border-border bg-card p-5"><p className="text-sm text-muted-foreground">Needs Review</p><p className="mt-2 text-3xl font-semibold text-foreground">{stats?.pendingReview ?? 0}</p><p className="mt-2 text-xs text-muted-foreground">Improving or declining cases to revisit this shift.</p></div>
+          </>
+        )}
+      </div>
+
+      <SectionCard title="Roster Filters" description="Search by patient, MRN, room, or current status.">
+        <div className="flex flex-col gap-4 lg:flex-row">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search patient, MRN, or room" className="pl-10" />
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className="w-full lg:w-48"><SelectValue placeholder="Filter by status" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="stable">Stable</SelectItem>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
               <SelectItem value="critical">Critical</SelectItem>
               <SelectItem value="improving">Improving</SelectItem>
               <SelectItem value="declining">Declining</SelectItem>
             </SelectContent>
           </Select>
         </div>
-      </div>
-
-      {/* Patients Grid */}
-      <SectionCard>
-        {isLoading ? (
-          <div className="space-y-4">
-            {[...Array(5)].map((_, i) => (
-              <Skeleton key={i} className="h-24 w-full" />
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {filteredPatients.length === 0 ? (
-              <div className="text-center py-12">
-                <Users className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No patients found</h3>
-                <p className="text-gray-500">Try adjusting your search filters.</p>
-              </div>
-            ) : (
-              filteredPatients.map((patient: Patient) => (
-                <div
-                  key={patient.id}
-                  className="p-6 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-start gap-4">
-                      <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center">
-                        <User className="h-6 w-6 text-blue-600" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900">
-                          {patient.firstName} {patient.lastName}
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          {patient.age} years • {patient.gender} • Room {patient.room}, Bed {patient.bed}
-                        </p>
-                        <div className="flex items-center gap-2 mt-2">
-                          <Badge variant="outline" className="text-xs">
-                            {patient.primaryCondition}
-                          </Badge>
-                          <Badge className={getStatusColor(patient.currentStatus)}>
-                            {patient.currentStatus}
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-500">Admitted</p>
-                      <p className="text-sm font-medium text-gray-900">
-                        {format(new Date(patient.admissionDate), "MMM dd")}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 text-sm">
-                    <div>
-                      <p className="text-gray-500">Emergency Contact</p>
-                      <p className="font-medium text-gray-900">{patient.emergencyContact}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Doctor in Charge</p>
-                      <p className="font-medium text-gray-900">{patient.doctorName}</p>
-                    </div>
-                  </div>
-
-                  {patient.allergies && patient.allergies.length > 0 && (
-                    <div className="mb-4 p-3 bg-red-50 rounded-lg border border-red-200">
-                      <div className="flex items-start gap-2">
-                        <AlertCircle className="h-4 w-4 text-red-600 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-red-900">Allergies</p>
-                          <p className="text-sm text-red-700">{patient.allergies.join(", ")}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedPatient(patient);
-                        setShowPatientModal(true);
-                      }}
-                    >
-                      <Eye className="h-4 w-4 mr-2" />
-                      View Details
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <Bed className="h-4 w-4 mr-2" />
-                      Vitals
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <FileText className="h-4 w-4 mr-2" />
-                      Notes
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
       </SectionCard>
 
-      {/* Patient Details Modal */}
-      <Dialog open={showPatientModal} onOpenChange={setShowPatientModal}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>Patient Details</DialogTitle>
-          </DialogHeader>
-          {selectedPatient && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Personal Information</h3>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Full Name</label>
-                      <p className="text-sm text-gray-900">{selectedPatient.firstName} {selectedPatient.lastName}</p>
+      <div className="grid gap-6 xl:grid-cols-[1.5fr_0.9fr]">
+        <SectionCard title="Patient Registry" description="Clinical and bedside context for each admitted patient.">
+          {isLoading ? (
+            <div className="space-y-4">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-44 w-full" />)}</div>
+          ) : patients.length ? (
+            <div className="space-y-4">
+              {patients.map((patient: any) => (
+                <div key={patient.id} className="rounded-2xl border border-border bg-background p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="space-y-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-lg font-semibold text-foreground">{patient.fullName || `${patient.firstName || ""} ${patient.lastName || ""}`.trim()}</h3>
+                          <Badge variant="outline">MRN {patient.mrn || "Pending"}</Badge>
+                          <Badge variant={patient.currentStatus === "critical" ? "destructive" : "outline"}>{patient.currentStatus || "active"}</Badge>
+                        </div>
+                        <p className="mt-1 text-sm text-muted-foreground">{toAge(patient.dob)} years | {patient.gender || "Not set"} | {patient.ward || "Ward pending"} / Room {patient.room || "-"} / Bed {patient.bed || "-"}</p>
+                      </div>
+
+                      <div className="grid gap-3 text-sm md:grid-cols-2">
+                        <div className="rounded-xl border border-border p-3">
+                          <p className="font-medium text-foreground">Primary condition</p>
+                          <p className="mt-1 text-muted-foreground">{patient.primaryCondition || "Not documented"}</p>
+                        </div>
+                        <div className="rounded-xl border border-border p-3">
+                          <p className="font-medium text-foreground">Attending doctor</p>
+                          <p className="mt-1 text-muted-foreground">{patient.doctorName || "Unassigned"}</p>
+                        </div>
+                      </div>
+
+                      {patient.allergies?.length ? (
+                        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-500/30 dark:bg-rose-500/10">
+                          <div className="flex items-center gap-2 text-sm font-semibold text-rose-700 dark:text-rose-300"><AlertTriangle className="h-4 w-4" />Allergies</div>
+                          <p className="mt-2 text-sm text-rose-700 dark:text-rose-300">{patient.allergies.join(", ")}</p>
+                        </div>
+                      ) : null}
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Age & Gender</label>
-                      <p className="text-sm text-gray-900">{selectedPatient.age} years • {selectedPatient.gender}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Phone</label>
-                      <p className="text-sm text-gray-900">{selectedPatient.phone}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Email</label>
-                      <p className="text-sm text-gray-900">{selectedPatient.email}</p>
+
+                    <div className="flex flex-wrap gap-2 lg:w-64 lg:justify-end">
+                      <Link href={toTenantPath(`/nurse/vitals?patientId=${patient.id}`)} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground"><HeartPulse className="h-4 w-4" />Vitals</Link>
+                      <Link href={toTenantPath(`/nurse/care-plans?patientId=${patient.id}`)} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground"><ShieldAlert className="h-4 w-4" />Care Plan</Link>
+                      {patient.phone ? <a href={`tel:${patient.phone}`} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground"><Phone className="h-4 w-4" />Call</a> : null}
+                      {patient.email ? <a href={`mailto:${patient.email}`} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground"><Mail className="h-4 w-4" />Email</a> : null}
                     </div>
                   </div>
                 </div>
-
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Medical Information</h3>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Primary Condition</label>
-                      <p className="text-sm text-gray-900">{selectedPatient.primaryCondition}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Current Status</label>
-                      <Badge className="mt-1">{selectedPatient.currentStatus}</Badge>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700">Doctor in Charge</label>
-                      <p className="text-sm text-gray-900">{selectedPatient.doctorName}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowPatientModal(false)}>
-                  Close
-                </Button>
-              </DialogFooter>
+              ))}
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+          ) : <p className="text-sm text-muted-foreground">No patients matched the current filters.</p>}
+        </SectionCard>
+
+        <SectionCard title="Roster Intelligence" description="Fast safety and continuity-of-care view for the current shift.">
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><BedDouble className="h-4 w-4 text-blue-500" />Bed coverage</div>
+              <p className="mt-3 text-3xl font-semibold text-foreground">{stats?.occupiedBeds ?? 0}</p>
+              <p className="mt-2 text-xs text-muted-foreground">Patients with active bed placement and bedside documentation.</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><AlertTriangle className="h-4 w-4 text-rose-500" />Clinical review</div>
+              <p className="mt-3 text-3xl font-semibold text-foreground">{stats?.critical ?? 0}</p>
+              <p className="mt-2 text-xs text-muted-foreground">Patients already flagged as critical in the nurse roster.</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><UserRound className="h-4 w-4 text-amber-500" />Doctor coverage</div>
+              <p className="mt-3 text-sm text-muted-foreground">Every roster card includes the latest linked doctor from the patient encounter history so handoffs stay traceable.</p>
+            </div>
+          </div>
+        </SectionCard>
+      </div>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { DashboardGreeting } from "@/components/DashboardGreeting";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
@@ -174,6 +175,7 @@ export default function GuardianDashboard() {
 
   return (
     <div className="space-y-6">
+      <DashboardGreeting roleLabel="Guardian" />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

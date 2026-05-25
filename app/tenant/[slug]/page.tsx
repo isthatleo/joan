@@ -1,5 +1,6 @@
 "use client";
 
+import { DashboardGreeting } from "@/components/DashboardGreeting";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -209,6 +210,7 @@ export default function HospitalAdminDashboard() {
 
   return (
     <div className="space-y-6">
+      <DashboardGreeting roleLabel="Hospital Admin" />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

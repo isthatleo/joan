@@ -1,5 +1,6 @@
 "use client";
 
+import { DashboardGreeting } from "@/components/DashboardGreeting";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
@@ -151,6 +152,7 @@ export default function PharmacyPage() {
 
   return (
     <div className="space-y-6">
+      <DashboardGreeting roleLabel="Pharmacist" />
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
