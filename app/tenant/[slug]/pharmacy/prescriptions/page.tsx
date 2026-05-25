@@ -1,311 +1,174 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import {
-  Pill, Search, Plus, Eye, CheckCircle, Clock, Loader2,
-  Filter, Download, X, ChevronDown, AlertCircle, Printer
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, Loader2, Plus, RefreshCw, Search, ShieldAlert, XCircle } from "lucide-react";
+type PatientOption = { id: string; fullName: string; phone?: string | null; mrn?: string | null };
+type InventoryOption = { id: string; name: string; genericName: string; dosage: string; stock: number; unitPrice: number };
+type Prescription = { id: string; patientName: string; doctorName: string; patientId: string; status: string; priority: string; createdAt: string; billing?: { invoiceId: string; totalAmount: number; amountDue: number; paidAmount: number; currency: string; status: string; clearedForTakeHomeDispense: boolean } | null; medications: Array<{ medicationId: string; name: string; dosage: string; quantity: number; instructions: string }> };
 
-const orange = "#F97316";
+type PrescriptionPayload = { prescriptions: Prescription[]; stats: { total: number; pending: number; dispensing: number; filled: number; partiallyFilled: number; urgent: number } };
 
-interface Prescription {
-  id: string;
-  patientId: string;
-  patientName: string;
-  patientPhone: string;
-  doctorId: string;
-  doctorName: string;
-  medications: Array<{
-    medicationId: string;
-    name: string;
-    dosage: string;
-    quantity: number;
-    instructions: string;
-    refills: number;
-  }>;
-  status: "pending" | "filled" | "partially-filled" | "cancelled" | "expired";
-  priority: "normal" | "urgent" | "routine";
-  createdAt: string;
-  filledAt?: string;
-  expiresAt: string;
-}
-
-export default function PrescriptionsPage() {
-  const params = useParams();
-  const slug = params?.slug as string;
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function PharmacyPrescriptionsPage() {
+  const [data, setData] = useState<PrescriptionPayload | null>(null);
+  const [patients, setPatients] = useState<PatientOption[]>([]);
+  const [inventory, setInventory] = useState<InventoryOption[]>([]);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("pending");
-  const [selectedPrescription, setSelectedPrescription] = useState<Prescription | null>(null);
-  const [showDetail, setShowDetail] = useState(false);
+  const [status, setStatus] = useState("all");
+  const [priority, setPriority] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showComposer, setShowComposer] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [form, setForm] = useState({ patientId: "", prescribedBy: "", priority: "routine", notes: "", medicationId: "", quantity: 1, instructions: "" });
 
-  useEffect(() => {
-    fetchPrescriptions();
-  }, [statusFilter]);
-
-  const fetchPrescriptions = async () => {
-    setLoading(true);
+  const fetchPage = async (silent = false) => {
+    if (!silent) setLoading(true);
+    setRefreshing(true);
     try {
-      const res = await fetch(`/api/tenant/${slug}/pharmacy/prescriptions?status=${statusFilter}`);
-      if (res.ok) {
-        setPrescriptions(await res.json());
-      }
-    } catch (error) {
-      console.error("Failed to fetch prescriptions:", error);
+      const [rxRes, patientsRes, medsRes] = await Promise.all([
+        fetch(`/api/pharmacy/prescriptions?search=${encodeURIComponent(search)}&status=${status}&priority=${priority}`, { cache: "no-store" }),
+        fetch("/api/pharmacy/patients", { cache: "no-store" }),
+        fetch("/api/pharmacy/medications", { cache: "no-store" }),
+      ]);
+      if (rxRes.ok) setData(await rxRes.json());
+      if (patientsRes.ok) setPatients((await patientsRes.json()).patients || []);
+      if (medsRes.ok) setInventory(await medsRes.json());
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const handleFillPrescription = async (prescriptionId: string) => {
+  useEffect(() => {
+    fetchPage();
+  }, [status, priority]);
+
+  const selectedMedication = useMemo(() => inventory.find((item) => item.id === form.medicationId) || null, [inventory, form.medicationId]);
+  const formatCurrency = (value: number, currency = "USD") =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency }).format(value || 0);
+
+  const filteredPrescriptions = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return (data?.prescriptions || []).filter((item) =>
+      !term ||
+      item.patientName.toLowerCase().includes(term) ||
+      item.doctorName.toLowerCase().includes(term) ||
+      item.id.toLowerCase().includes(term) ||
+      item.medications.some((med) => med.name.toLowerCase().includes(term))
+    );
+  }, [data, search]);
+
+  const handleCreate = async () => {
+    if (!form.patientId || !selectedMedication) return;
+    setSubmitting(true);
     try {
-      const res = await fetch(`/api/tenant/${slug}/pharmacy/prescriptions/${prescriptionId}/fill`, {
+      await fetch("/api/pharmacy/prescriptions", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          patientId: form.patientId,
+          prescribedBy: form.prescribedBy || "Pharmacy intake",
+          priority: form.priority,
+          notes: form.notes,
+          medications: [{
+            medicationId: selectedMedication.id,
+            name: selectedMedication.name,
+            genericName: selectedMedication.genericName,
+            dosage: selectedMedication.dosage,
+            quantity: form.quantity,
+            instructions: form.instructions,
+          }],
+        }),
       });
-      if (res.ok) {
-        fetchPrescriptions();
-        setShowDetail(false);
-      }
-    } catch (error) {
-      console.error("Failed to fill prescription:", error);
+      setShowComposer(false);
+      setForm({ patientId: "", prescribedBy: "", priority: "routine", notes: "", medicationId: "", quantity: 1, instructions: "" });
+      await fetchPage(true);
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const filteredPrescriptions = prescriptions.filter(rx => {
-    const matchesSearch = rx.patientName.toLowerCase().includes(search.toLowerCase()) ||
-                         rx.id.includes(search) ||
-                         rx.doctorName.toLowerCase().includes(search.toLowerCase());
-    return matchesSearch;
-  });
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "pending": return "bg-yellow-50 text-yellow-700 border-yellow-100";
-      case "filled": return "bg-green-50 text-green-700 border-green-100";
-      case "partially-filled": return "bg-blue-50 text-blue-700 border-blue-100";
-      case "cancelled": return "bg-red-50 text-red-700 border-red-100";
-      case "expired": return "bg-gray-50 text-gray-700 border-gray-100";
-      default: return "bg-muted text-muted-foreground border-border";
-    }
-  };
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case "urgent": return "text-red-600 bg-red-50";
-      case "normal": return "text-orange-600 bg-orange-50";
-      default: return "text-blue-600 bg-blue-50";
-    }
+  const updateStatus = async (id: string, action: string) => {
+    await fetch(`/api/pharmacy/prescriptions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    await fetchPage(true);
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Pharmacy</p>
-          <h1 className="text-3xl font-bold text-foreground mt-1">Prescriptions</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage and fill patient prescriptions.</p>
+          <p className="text-xs font-mono uppercase tracking-[0.3em] text-muted-foreground">Pharmacy Queue</p>
+          <h1 className="mt-1 text-3xl font-semibold text-foreground">Prescriptions</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Validate, prioritise, and fulfil medication orders against live stock.</p>
         </div>
         <div className="flex gap-2">
-          <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all">
-            <Download className="size-4" />
-            Export
-          </button>
-          <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-sm hover:opacity-90" style={{ backgroundColor: orange }}>
-            <Plus className="size-4" />
-            New Prescription
-          </button>
+          <button onClick={() => fetchPage(true)} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button>
+          <button onClick={() => setShowComposer((value) => !value)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"><Plus className="h-4 w-4" />New Prescription</button>
         </div>
       </div>
 
-      {/* Search and Filters */}
-      <div className="bg-card border border-border rounded-xl p-4 space-y-4">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search by patient name, prescription ID, or doctor..."
-              className="w-full h-10 pl-10 pr-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300"
-            />
-          </div>
-          <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            className="h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none"
-          >
-            <option value="pending">Pending</option>
-            <option value="filled">Filled</option>
-            <option value="partially-filled">Partially Filled</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+      <div className="grid gap-4 md:grid-cols-4">
+        {[
+          ["Total", data?.stats.total ?? 0],
+          ["Pending", data?.stats.pending ?? 0],
+          ["Dispensing", data?.stats.dispensing ?? 0],
+          ["Urgent", data?.stats.urgent ?? 0],
+        ].map(([label, value]) => (
+          <div key={String(label)} className="rounded-2xl border border-border bg-card p-4 shadow-sm"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{label}</p><p className="mt-3 text-2xl font-semibold text-foreground">{value}</p></div>
+        ))}
+      </div>
+
+      <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+        <div className="grid gap-3 lg:grid-cols-[1fr_180px_180px]">
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search patient, doctor, prescription, medication" className="h-11 w-full rounded-lg border border-border bg-background pl-10 pr-3 text-sm text-foreground outline-none" />
+          </label>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none"><option value="all">All statuses</option><option value="pending">Pending</option><option value="dispensing">Dispensing</option><option value="filled">Filled</option><option value="partially-filled">Partially filled</option><option value="cancelled">Cancelled</option></select>
+          <select value={priority} onChange={(e) => setPriority(e.target.value)} className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none"><option value="all">All priorities</option><option value="routine">Routine</option><option value="urgent">Urgent</option></select>
         </div>
       </div>
 
-      {/* Prescriptions Table */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <div className="bg-card border border-border rounded-xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 border-b border-border">
-                  <tr className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
-                    <th className="text-left px-5 py-3">Rx ID</th>
-                    <th className="text-left px-5 py-3">Patient</th>
-                    <th className="text-left px-5 py-3">Doctor</th>
-                    <th className="text-left px-5 py-3">Status</th>
-                    <th className="text-left px-5 py-3">Priority</th>
-                    <th className="text-left px-5 py-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {loading ? (
-                    <tr><td colSpan={6} className="py-16 text-center"><Loader2 className="size-6 text-orange-500 animate-spin mx-auto" /></td></tr>
-                  ) : filteredPrescriptions.length === 0 ? (
-                    <tr><td colSpan={6} className="py-16 text-center">
-                      <Pill className="size-10 text-muted mx-auto mb-2" />
-                      <p className="text-muted-foreground font-medium">No prescriptions found</p>
-                    </td></tr>
-                  ) : (
-                    filteredPrescriptions.map(rx => (
-                      <tr key={rx.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-5 py-3 whitespace-nowrap">
-                          <p className="font-mono font-semibold text-foreground text-xs">#{rx.id.slice(-6)}</p>
-                        </td>
-                        <td className="px-5 py-3 whitespace-nowrap">
-                          <div>
-                            <p className="font-semibold text-foreground">{rx.patientName}</p>
-                            <p className="text-xs text-muted-foreground">{rx.patientPhone}</p>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3 whitespace-nowrap">
-                          <p className="text-foreground">{rx.doctorName}</p>
-                        </td>
-                        <td className="px-5 py-3 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold border ${getStatusColor(rx.status)}`}>
-                            {rx.status.replace('-', ' ').toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${getPriorityColor(rx.priority)}`}>
-                            {rx.priority.toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3 whitespace-nowrap">
-                          <button
-                            onClick={() => {
-                              setSelectedPrescription(rx);
-                              setShowDetail(true);
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-muted-foreground hover:text-orange-600 hover:bg-orange-50 font-semibold text-xs transition-colors"
-                          >
-                            <Eye className="size-3" />
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+      {showComposer && (
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <select value={form.patientId} onChange={(e) => setForm((s) => ({ ...s, patientId: e.target.value }))} className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none"><option value="">Select patient</option>{patients.map((patient) => <option key={patient.id} value={patient.id}>{patient.fullName}</option>)}</select>
+            <input value={form.prescribedBy} onChange={(e) => setForm((s) => ({ ...s, prescribedBy: e.target.value }))} placeholder="Prescriber name" className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none" />
+            <select value={form.medicationId} onChange={(e) => setForm((s) => ({ ...s, medicationId: e.target.value }))} className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none"><option value="">Select medication</option>{inventory.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.stock} in stock)</option>)}</select>
+            <input type="number" min={1} value={form.quantity} onChange={(e) => setForm((s) => ({ ...s, quantity: Number(e.target.value) || 1 }))} className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none" />
+            <select value={form.priority} onChange={(e) => setForm((s) => ({ ...s, priority: e.target.value }))} className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none"><option value="routine">Routine</option><option value="urgent">Urgent</option></select>
+            <input value={form.instructions} onChange={(e) => setForm((s) => ({ ...s, instructions: e.target.value }))} placeholder="Instructions" className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none md:col-span-2" />
+            <input value={form.notes} onChange={(e) => setForm((s) => ({ ...s, notes: e.target.value }))} placeholder="Pharmacy notes" className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none md:col-span-2 xl:col-span-4" />
           </div>
+          <div className="mt-4 flex justify-end gap-2"><button onClick={() => setShowComposer(false)} className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">Close</button><button disabled={submitting || !form.patientId || !form.medicationId} onClick={handleCreate} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">{submitting ? "Saving..." : "Create"}</button></div>
         </div>
+      )}
 
-        {/* Prescription Detail */}
-        <div>
-          {showDetail && selectedPrescription ? (
-            <div className="bg-card border border-border rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-foreground">Prescription Details</h3>
-                <button
-                  onClick={() => setShowDetail(false)}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Prescription ID</p>
-                  <p className="font-mono font-semibold text-foreground">#{selectedPrescription.id.slice(-6)}</p>
-                </div>
-
-                <div>
-                  <p className="text-xs text-muted-foreground">Patient</p>
-                  <p className="font-semibold text-foreground">{selectedPrescription.patientName}</p>
-                  <p className="text-xs text-muted-foreground">{selectedPrescription.patientPhone}</p>
-                </div>
-
-                <div>
-                  <p className="text-xs text-muted-foreground">Doctor</p>
-                  <p className="font-semibold text-foreground">{selectedPrescription.doctorName}</p>
-                </div>
-
-                <div className="border-t border-border pt-4">
-                  <p className="text-xs text-muted-foreground font-semibold mb-3">Medications</p>
-                  <div className="space-y-3">
-                    {selectedPrescription.medications.map((med, idx) => (
-                      <div key={idx} className="p-3 bg-muted/30 rounded-lg">
-                        <p className="font-semibold text-foreground text-sm">{med.name}</p>
-                        <p className="text-xs text-muted-foreground">{med.dosage}</p>
-                        <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                          <span>Qty: {med.quantity}</span>
-                          <span>Refills: {med.refills}</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-2">{med.instructions}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-muted/50 p-3 rounded-lg">
-                    <p className="text-xs text-muted-foreground">Status</p>
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold border ${getStatusColor(selectedPrescription.status)}`}>
-                      {selectedPrescription.status.replace('-', ' ').toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="bg-muted/50 p-3 rounded-lg">
-                    <p className="text-xs text-muted-foreground">Priority</p>
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${getPriorityColor(selectedPrescription.priority)}`}>
-                      {selectedPrescription.priority.toUpperCase()}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-2 pt-4 border-t border-border">
-                  {selectedPrescription.status === "pending" && (
-                    <button
-                      onClick={() => handleFillPrescription(selectedPrescription.id)}
-                      className="w-full px-4 py-2 rounded-lg bg-green-50 text-green-600 font-semibold text-sm hover:bg-green-100 transition-all flex items-center gap-2 justify-center"
-                    >
-                      <CheckCircle className="size-4" />
-                      Fill Prescription
-                    </button>
-                  )}
-                  <button className="w-full px-4 py-2 rounded-lg border border-border text-muted-foreground font-semibold text-sm hover:bg-muted transition-all flex items-center gap-2 justify-center">
-                    <Printer className="size-4" />
-                    Print
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-card border border-border rounded-xl p-6 flex items-center justify-center h-96 text-muted-foreground">
-              <div className="text-center">
-                <Pill className="size-12 mx-auto mb-4 opacity-50" />
-                <p>Select a prescription to view details</p>
-              </div>
-            </div>
-          )}
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-muted/50 text-left text-xs uppercase tracking-[0.2em] text-muted-foreground">
+              <tr><th className="px-4 py-3">Prescription</th><th className="px-4 py-3">Patient</th><th className="px-4 py-3">Medications</th><th className="px-4 py-3">Billing</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Actions</th></tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {loading ? <tr><td colSpan={6} className="px-4 py-10 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" /></td></tr> : null}
+              {!loading && filteredPrescriptions.map((item) => (
+                <tr key={item.id} className="align-top">
+                  <td className="px-4 py-4"><p className="font-medium text-foreground">#{item.id.slice(-6)}</p><p className="text-xs text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</p></td>
+                  <td className="px-4 py-4"><p className="font-medium text-foreground">{item.patientName}</p><p className="text-xs text-muted-foreground">{item.doctorName}</p></td>
+                  <td className="px-4 py-4"><div className="space-y-1">{item.medications.slice(0, 2).map((med) => <p key={med.medicationId} className="text-xs text-muted-foreground">{med.name} - {med.quantity} units</p>)}</div></td>
+                  <td className="px-4 py-4"><div className="space-y-1 text-xs"><p className="font-medium text-foreground">Due {formatCurrency(item.billing?.amountDue ?? 0, item.billing?.currency || "USD")}</p><p className={`font-medium ${item.billing?.clearedForTakeHomeDispense ? "text-green-600" : "text-amber-600"}`}>{item.billing?.clearedForTakeHomeDispense ? "Cleared for take-home dispense" : "Checkout pending"}</p></div></td><td className="px-4 py-4"><div className="space-y-2"><span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground">{item.status}</span>{item.priority === "urgent" ? <div className="flex items-center gap-1 text-xs text-red-500"><ShieldAlert className="h-3.5 w-3.5" />Urgent</div> : null}</div></td>
+                  <td className="px-4 py-4"><div className="flex flex-wrap gap-2"><button onClick={() => updateStatus(item.id, "start-dispensing")} className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground">Start</button><button disabled={!item.billing?.clearedForTakeHomeDispense} onClick={() => updateStatus(item.id, "fill")} className="rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-1.5 text-xs font-medium text-green-700 disabled:opacity-50 dark:text-green-300"><CheckCircle2 className="mr-1 inline h-3.5 w-3.5" />Fill</button><button onClick={() => updateStatus(item.id, "cancel")} className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-300"><XCircle className="mr-1 inline h-3.5 w-3.5" />Cancel</button></div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
   );
 }
-

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -773,10 +774,10 @@ export default function TenantDetailsPage() {
                     <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                       Contact Phone
                     </label>
-                    <input
+                    <PhoneNumberInput
                       value={editForm.contactPhone}
-                      onChange={(e) => setEditForm({ ...editForm, contactPhone: e.target.value })}
-                      className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100 dark:focus:ring-orange-900/20"
+                      onChange={(value) => setEditForm({ ...editForm, contactPhone: value })}
+                      className="focus-within:border-orange-300 focus-within:ring-2 focus-within:ring-orange-100 dark:focus-within:ring-orange-900/20"
                     />
                   </div>
                   <div>

@@ -1,268 +1,72 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import {
-  FileText, Download, Filter, Calendar, Loader2, BarChart3,
-  TrendingUp, Users, Package, AlertTriangle, CheckCircle
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Download, FileText, Loader2, Printer, RefreshCw } from "lucide-react";
 
-const orange = "#F97316";
-
-interface PharmacyReport {
-  id: string;
-  title: string;
-  description: string;
-  type: "daily" | "weekly" | "monthly" | "custom";
-  status: "pending" | "ready" | "archived";
-  generatedAt: string;
-  dataPoints: number;
-  summary: {
-    totalPrescriptions: number;
-    totalFilled: number;
-    totalRevenue: number;
-    averageValue: number;
-  };
-}
+type ReportsPayload = { templates: Array<{ id: string; name: string; description: string }>; recentRuns: Array<{ id: string; title: string; format: string; generatedAt: string; generatedBy: string }>; preview: { prescriptions: Array<{ id: string; patientName: string; status: string }>; inventory: Array<{ id: string; name: string; status: string; stock: number }>; analytics: any } };
 
 export default function PharmacyReportsPage() {
-  const params = useParams();
-  const slug = params?.slug as string;
-  const [reports, setReports] = useState<PharmacyReport[]>([]);
+  const [data, setData] = useState<ReportsPayload | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState("dispensing-summary");
   const [loading, setLoading] = useState(true);
-  const [reportType, setReportType] = useState("all");
-  const [selectedReport, setSelectedReport] = useState<PharmacyReport | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
-  useEffect(() => {
-    fetchReports();
-  }, [reportType]);
-
-  const fetchReports = async () => {
-    setLoading(true);
+  const fetchReports = async (silent = false) => {
+    if (!silent) setLoading(true);
+    setRefreshing(true);
     try {
-      const res = await fetch(
-        `/api/tenant/${slug}/pharmacy/reports?type=${reportType}`
-      );
-      if (res.ok) {
-        setReports(await res.json());
-      }
-    } catch (error) {
-      console.error("Failed to fetch reports:", error);
+      const res = await fetch("/api/pharmacy/reports", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to load reports");
+      setData(await res.json());
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const handleDownloadReport = async (reportId: string) => {
+  useEffect(() => { fetchReports(); }, []);
+
+  const template = useMemo(() => data?.templates.find((item) => item.id === selectedTemplate) || data?.templates[0] || null, [data, selectedTemplate]);
+
+  const generate = async (format: string) => {
+    setGenerating(true);
     try {
-      const res = await fetch(
-        `/api/tenant/${slug}/pharmacy/reports/${reportId}/download`,
-        { method: "GET" }
-      );
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `report-${reportId}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
+      const res = await fetch("/api/pharmacy/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ template: selectedTemplate, format }) });
+      const payload = await res.json();
+      const printable = `<!doctype html><html><head><title>${payload.template.name}</title><style>body{font-family:Arial,sans-serif;padding:24px}h1{margin-bottom:8px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{padding:8px;border:1px solid #ddd;text-align:left}</style></head><body><h1>${payload.template.name}</h1><p>${payload.template.description}</p><table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>${Object.entries(payload.analytics.summary).map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("")}</tbody></table></body></html>`;
+      if (format === "print" || format === "pdf") {
+        const win = window.open("", "_blank", "width=1100,height=800");
+        if (win) { win.document.write(printable); win.document.close(); win.focus(); win.print(); }
+      } else {
+        const blob = new Blob([printable], { type: "text/html" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `${payload.template.id}.html`;
+        link.click();
+        URL.revokeObjectURL(link.href);
       }
-    } catch (error) {
-      console.error("Failed to download report:", error);
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "ready": return "bg-green-50 text-green-700 border-green-100";
-      case "pending": return "bg-yellow-50 text-yellow-700 border-yellow-100";
-      case "archived": return "bg-gray-50 text-gray-700 border-gray-100";
-      default: return "bg-muted text-muted-foreground border-border";
-    }
-  };
-
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case "daily": return "Daily";
-      case "weekly": return "Weekly";
-      case "monthly": return "Monthly";
-      case "custom": return "Custom";
-      default: return type;
+      await fetchReports(true);
+    } finally {
+      setGenerating(false);
     }
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Reports</p>
-          <h1 className="text-3xl font-bold text-foreground mt-1">Pharmacy Reports</h1>
-          <p className="text-sm text-muted-foreground mt-1">Generate and download pharmacy performance reports.</p>
-        </div>
-        <div className="flex gap-2">
-          <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all">
-            <FileText className="size-4" />
-            New Report
-          </button>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div><p className="text-xs font-mono uppercase tracking-[0.3em] text-muted-foreground">Reporting</p><h1 className="mt-1 text-3xl font-semibold text-foreground">Pharmacy Reports</h1><p className="mt-2 text-sm text-muted-foreground">Generate printable operational reports without sidebar or dashboard chrome.</p></div>
+        <button onClick={() => fetchReports(true)} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[280px_1fr]">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-sm"><p className="text-sm font-semibold text-foreground">Report Templates</p><div className="mt-3 space-y-2">{data?.templates.map((item) => <button key={item.id} onClick={() => setSelectedTemplate(item.id)} className={`w-full rounded-xl border px-4 py-3 text-left transition ${selectedTemplate === item.id ? "border-primary/40 bg-primary/10 text-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted"}`}><p className="text-sm font-medium">{item.name}</p><p className="mt-1 text-xs">{item.description}</p></button>)}</div></div>
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+          {loading ? <div className="py-16 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" /></div> : template ? <><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-2"><FileText className="h-5 w-5 text-primary" /><h2 className="text-lg font-semibold text-foreground">{template.name}</h2></div><p className="mt-1 text-sm text-muted-foreground">{template.description}</p></div><div className="flex flex-wrap gap-2"><button disabled={generating} onClick={() => generate("print")} className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground"><Printer className="h-4 w-4" />Print</button><button disabled={generating} onClick={() => generate("pdf")} className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground"><Download className="h-4 w-4" />PDF</button><button disabled={generating} onClick={() => generate("html")} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">{generating ? "Generating..." : "Export"}</button></div></div><div className="mt-5 grid gap-6 lg:grid-cols-2"><div className="rounded-xl border border-border bg-background p-4"><p className="text-sm font-medium text-foreground">Recent prescriptions</p><div className="mt-3 space-y-2">{data?.preview.prescriptions.map((item) => <div key={item.id} className="flex items-center justify-between text-xs text-muted-foreground"><span>{item.patientName}</span><span>{item.status}</span></div>)}</div></div><div className="rounded-xl border border-border bg-background p-4"><p className="text-sm font-medium text-foreground">Inventory snapshot</p><div className="mt-3 space-y-2">{data?.preview.inventory.map((item) => <div key={item.id} className="flex items-center justify-between text-xs text-muted-foreground"><span>{item.name}</span><span>{item.stock} / {item.status}</span></div>)}</div></div></div></> : null}
         </div>
       </div>
 
-      {/* Filter */}
-      <div className="bg-card border border-border rounded-xl p-4">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <select
-            value={reportType}
-            onChange={e => setReportType(e.target.value)}
-            className="flex-1 h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none"
-          >
-            <option value="all">All Reports</option>
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-            <option value="custom">Custom</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Reports Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          {loading ? (
-            <div className="flex justify-center py-16">
-              <Loader2 className="size-6 text-orange-500 animate-spin" />
-            </div>
-          ) : reports.length === 0 ? (
-            <div className="bg-card border border-border rounded-xl p-8 text-center">
-              <FileText className="size-12 text-muted mx-auto mb-4" />
-              <p className="text-muted-foreground font-medium">No reports found</p>
-              <p className="text-xs text-muted-foreground mt-2">Create a new report to get started</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {reports.map(report => (
-                <div
-                  key={report.id}
-                  onClick={() => setSelectedReport(report)}
-                  className={`bg-card border rounded-xl p-4 cursor-pointer hover:shadow-lg transition-all ${
-                    selectedReport?.id === report.id ? "ring-2 ring-orange-500" : "border-border"
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-foreground text-lg">{report.title}</h3>
-                      <p className="text-xs text-muted-foreground mt-1">{report.description}</p>
-                    </div>
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold border whitespace-nowrap ${getStatusColor(report.status)}`}>
-                      {report.status.toUpperCase()}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-4 gap-2 mb-3">
-                    <div className="bg-muted/50 p-2 rounded-lg">
-                      <span className="text-xs text-muted-foreground">Prescriptions</span>
-                      <p className="font-semibold text-foreground">{report.summary.totalPrescriptions}</p>
-                    </div>
-                    <div className="bg-muted/50 p-2 rounded-lg">
-                      <span className="text-xs text-muted-foreground">Filled</span>
-                      <p className="font-semibold text-foreground">{report.summary.totalFilled}</p>
-                    </div>
-                    <div className="bg-muted/50 p-2 rounded-lg">
-                      <span className="text-xs text-muted-foreground">Revenue</span>
-                      <p className="font-semibold text-foreground">${report.summary.totalRevenue}</p>
-                    </div>
-                    <div className="bg-muted/50 p-2 rounded-lg">
-                      <span className="text-xs text-muted-foreground">Type</span>
-                      <p className="font-semibold text-foreground">{getTypeLabel(report.type)}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{report.dataPoints} data points</span>
-                    <span>{new Date(report.generatedAt).toLocaleDateString()}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Detail Panel */}
-        <div>
-          {selectedReport ? (
-            <div className="bg-card border border-border rounded-xl p-6 sticky top-6">
-              <h3 className="font-semibold text-foreground mb-4">Report Details</h3>
-
-              <div className="space-y-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Title</p>
-                  <p className="font-semibold text-foreground">{selectedReport.title}</p>
-                </div>
-
-                <div>
-                  <p className="text-xs text-muted-foreground">Type</p>
-                  <p className="font-semibold text-foreground">{getTypeLabel(selectedReport.type)}</p>
-                </div>
-
-                <div>
-                  <p className="text-xs text-muted-foreground">Status</p>
-                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold border ${getStatusColor(selectedReport.status)}`}>
-                    {selectedReport.status.toUpperCase()}
-                  </span>
-                </div>
-
-                <div className="border-t border-border pt-4">
-                  <p className="text-xs text-muted-foreground font-semibold mb-3">Summary</p>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Total Prescriptions</span>
-                      <span className="font-semibold text-foreground">{selectedReport.summary.totalPrescriptions}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Filled</span>
-                      <span className="font-semibold text-foreground">{selectedReport.summary.totalFilled}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Total Revenue</span>
-                      <span className="font-semibold text-foreground">${selectedReport.summary.totalRevenue.toFixed(2)}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Avg Value</span>
-                      <span className="font-semibold text-foreground">${selectedReport.summary.averageValue.toFixed(2)}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-xs text-muted-foreground">Generated</p>
-                  <p className="text-sm text-foreground">{new Date(selectedReport.generatedAt).toLocaleString()}</p>
-                </div>
-
-                {selectedReport.status === "ready" && (
-                  <button
-                    onClick={() => handleDownloadReport(selectedReport.id)}
-                    className="w-full px-4 py-2 rounded-lg bg-orange-50 text-orange-600 font-semibold text-sm hover:bg-orange-100 transition-all flex items-center gap-2 justify-center border border-orange-100"
-                  >
-                    <Download className="size-4" />
-                    Download Report
-                  </button>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="bg-card border border-border rounded-xl p-6 flex items-center justify-center h-96 text-muted-foreground">
-              <div className="text-center">
-                <FileText className="size-12 mx-auto mb-4 opacity-50" />
-                <p>Select a report to view details</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-sm"><h2 className="text-lg font-semibold text-foreground">Recent report runs</h2><div className="mt-4 space-y-3">{data?.recentRuns.length ? data.recentRuns.map((run) => <div key={run.id} className="rounded-xl border border-border bg-background p-4"><div className="flex items-center justify-between gap-3"><div><p className="font-medium text-foreground">{run.title}</p><p className="text-xs text-muted-foreground">{new Date(run.generatedAt).toLocaleString()} - {run.generatedBy}</p></div><span className="rounded-full border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground">{run.format}</span></div></div>) : <p className="text-sm text-muted-foreground">No report runs recorded yet.</p>}</div></div>
     </div>
   );
 }
-

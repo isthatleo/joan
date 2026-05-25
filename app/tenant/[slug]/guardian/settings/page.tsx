@@ -7,6 +7,7 @@ import {
   Save, Loader2, CheckCircle, AlertCircle,
   Key, Mail, Phone, MapPin, Calendar
 } from "lucide-react";
+import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
 
 const orange = "#F97316";
 
@@ -231,14 +232,13 @@ export default function GuardianSettingsPage() {
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Phone Number
                 </label>
-                <input
-                  type="tel"
+                <PhoneNumberInput
                   value={settings.profile.phone}
-                  onChange={(e) => setSettings({
+                  onChange={(value) => setSettings({
                     ...settings,
-                    profile: { ...settings.profile, phone: e.target.value }
+                    profile: { ...settings.profile, phone: value }
                   })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  className="border-gray-300"
                 />
               </div>
 
@@ -322,20 +322,19 @@ export default function GuardianSettingsPage() {
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Phone Number
                   </label>
-                  <input
-                    type="tel"
+                  <PhoneNumberInput
                     value={settings.profile.emergencyContact.phone}
-                    onChange={(e) => setSettings({
+                    onChange={(value) => setSettings({
                       ...settings,
                       profile: {
                         ...settings.profile,
                         emergencyContact: {
                           ...settings.profile.emergencyContact,
-                          phone: e.target.value
+                          phone: value
                         }
                       }
                     })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    className="border-gray-300"
                   />
                 </div>
               </div>

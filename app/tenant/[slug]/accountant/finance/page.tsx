@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { DollarSign, FileText, Loader2, Pencil, Plus, Receipt, Trash2, TrendingDown, Wallet } from "lucide-react";
+import { CurrencySelect } from "@/components/forms/CurrencySelect";
 
 type Tab = "expenses" | "payable" | "budgets" | "journal" | "tax";
 
@@ -437,7 +438,7 @@ function FinanceFormFields({
         </select>
         <input name="reference" value={formState.reference || ""} onChange={onChange} placeholder="Reference" className="rounded border px-3 py-2 text-sm" />
         <input name="receiptUrl" value={formState.receiptUrl || ""} onChange={onChange} placeholder="Receipt URL" className="rounded border px-3 py-2 text-sm" />
-        <input name="currency" value={formState.currency || ""} onChange={onChange} placeholder="Currency" className="rounded border px-3 py-2 text-sm" />
+        <CurrencySelect value={formState.currency || ""} onChange={(value) => setFormState((current) => ({ ...current, currency: value }))} />
         <input name="description" value={formState.description || ""} onChange={onChange} placeholder="Description" className="rounded border px-3 py-2 text-sm sm:col-span-3" />
       </>
     );
@@ -451,7 +452,7 @@ function FinanceFormFields({
         <input name="invoiceNumber" value={formState.invoiceNumber || ""} onChange={onChange} placeholder="Invoice number" className="rounded border px-3 py-2 text-sm" />
         <input name="amount" required value={formState.amount || ""} onChange={onChange} type="number" step="0.01" placeholder="Amount" className="rounded border px-3 py-2 text-sm" />
         <input name="amountPaid" value={formState.amountPaid || ""} onChange={onChange} type="number" step="0.01" placeholder="Amount paid" className="rounded border px-3 py-2 text-sm" />
-        <input name="currency" value={formState.currency || ""} onChange={onChange} placeholder="Currency" className="rounded border px-3 py-2 text-sm" />
+        <CurrencySelect value={formState.currency || ""} onChange={(value) => setFormState((current) => ({ ...current, currency: value }))} />
         <input name="issueDate" value={formState.issueDate || ""} onChange={onChange} type="date" className="rounded border px-3 py-2 text-sm" />
         <input name="dueDate" value={formState.dueDate || ""} onChange={onChange} type="date" className="rounded border px-3 py-2 text-sm" />
         <select name="status" value={formState.status || "open"} onChange={onChange} className="rounded border px-3 py-2 text-sm">
@@ -473,7 +474,7 @@ function FinanceFormFields({
         <input name="category" value={formState.category || ""} onChange={onChange} placeholder="Category" className="rounded border px-3 py-2 text-sm" />
         <input name="amount" required value={formState.amount || ""} onChange={onChange} type="number" step="0.01" placeholder="Amount" className="rounded border px-3 py-2 text-sm" />
         <input name="spent" value={formState.spent || ""} onChange={onChange} type="number" step="0.01" placeholder="Spent" className="rounded border px-3 py-2 text-sm" />
-        <input name="currency" value={formState.currency || ""} onChange={onChange} placeholder="Currency" className="rounded border px-3 py-2 text-sm" />
+        <CurrencySelect value={formState.currency || ""} onChange={(value) => setFormState((current) => ({ ...current, currency: value }))} />
         <select name="period" value={formState.period || "monthly"} onChange={onChange} className="rounded border px-3 py-2 text-sm">
           {["monthly", "quarterly", "yearly"].map((period) => (
             <option key={period} value={period}>
@@ -502,7 +503,7 @@ function FinanceFormFields({
         <input name="amount" required value={formState.amount || ""} onChange={onChange} type="number" step="0.01" placeholder="Amount" className="rounded border px-3 py-2 text-sm" />
         <input name="debitAccount" required value={formState.debitAccount || ""} onChange={onChange} placeholder="Debit account" className="rounded border px-3 py-2 text-sm" />
         <input name="creditAccount" required value={formState.creditAccount || ""} onChange={onChange} placeholder="Credit account" className="rounded border px-3 py-2 text-sm" />
-        <input name="currency" value={formState.currency || ""} onChange={onChange} placeholder="Currency" className="rounded border px-3 py-2 text-sm" />
+        <CurrencySelect value={formState.currency || ""} onChange={(value) => setFormState((current) => ({ ...current, currency: value }))} />
         <select name="status" value={formState.status || "posted"} onChange={onChange} className="rounded border px-3 py-2 text-sm">
           {["draft", "posted", "reversed"].map((status) => (
             <option key={status} value={status}>
@@ -523,7 +524,7 @@ function FinanceFormFields({
       <input name="taxableAmount" value={formState.taxableAmount || ""} onChange={onChange} type="number" step="0.01" placeholder="Taxable amount" className="rounded border px-3 py-2 text-sm" />
       <input name="taxAmount" value={formState.taxAmount || ""} onChange={onChange} type="number" step="0.01" placeholder="Tax amount" className="rounded border px-3 py-2 text-sm" />
       <input name="rate" value={formState.rate || ""} onChange={onChange} type="number" step="0.0001" placeholder="Rate" className="rounded border px-3 py-2 text-sm" />
-      <input name="currency" value={formState.currency || ""} onChange={onChange} placeholder="Currency" className="rounded border px-3 py-2 text-sm" />
+      <CurrencySelect value={formState.currency || ""} onChange={(value) => setFormState((current) => ({ ...current, currency: value }))} />
       <input name="dueDate" value={formState.dueDate || ""} onChange={onChange} type="date" className="rounded border px-3 py-2 text-sm" />
       <select name="status" value={formState.status || "draft"} onChange={onChange} className="rounded border px-3 py-2 text-sm">
         {["draft", "filed", "paid", "overdue"].map((status) => (

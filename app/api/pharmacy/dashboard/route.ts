@@ -1,30 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PharmacyService } from "@/lib/services/pharmacy.service";
-import { resolvePermissions, can } from "@/lib/auth/permission-engine";
-import { auth } from "@/lib/auth/config";
+import { buildPharmacyDashboard } from "@/lib/pharmacy/data";
+import { resolvePharmacyContext } from "@/lib/pharmacy/server";
 
-const service = new PharmacyService();
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const slug = request.nextUrl.searchParams.get("slug");
+  const context = await resolvePharmacyContext(request.headers, slug);
+  if (!context.ok) return NextResponse.json({ error: context.error }, { status: context.status });
+
   try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    const permissions = await resolvePermissions(session.user.id);
-    if (!can(permissions, "pharmacy.dashboard.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-    const tenantId = session.user.tenantId;
-    if (!tenantId) return NextResponse.json({ error: "No tenant context" }, { status: 400 });
-
-    const metrics = await service.getDashboardMetrics(tenantId);
-    const recentActivities = await service.getRecentActivities(tenantId, 5);
-
-    return NextResponse.json({
-      metrics,
-      recentActivities
-    });
+    const dashboard = await buildPharmacyDashboard(context.pharmacist.tenantId, context.pharmacist.id);
+    return NextResponse.json(dashboard, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
-    console.error('Error fetching dashboard data:', error);
-    return NextResponse.json({ error: "Failed to fetch dashboard data" }, { status: 500 });
+    console.error("Failed to load pharmacy dashboard:", error);
+    return NextResponse.json({ error: "Failed to load dashboard" }, { status: 500 });
   }
 }

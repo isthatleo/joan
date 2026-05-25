@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
+import { CurrencySelect } from "@/components/forms/CurrencySelect";
 
 const orange = "#F97316";
 
@@ -468,7 +469,12 @@ export default function TenantSettingsPage() {
                       <Select label="Language" value={settings.preferences.language} options={LANGUAGES} onChange={x => update("preferences.language", x)} />
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <Select label="Currency" value={settings.preferences.currency} options={CURRENCIES.map(c => ({ v: c, l: c }))} onChange={x => update("preferences.currency", x)} />
+                      <div>
+                        <label className="text-sm font-medium">Currency</label>
+                        <div className="mt-1.5">
+                          <CurrencySelect value={settings.preferences.currency} onChange={x => update("preferences.currency", x)} />
+                        </div>
+                      </div>
                       <Select label="Date Format" value={settings.preferences.dateFormat} options={DATE_FORMATS.map(d => ({ v: d, l: d }))} onChange={x => update("preferences.dateFormat", x)} />
                       <div>
                         <label className="text-sm font-medium">Number Format</label>

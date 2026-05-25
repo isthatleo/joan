@@ -1,49 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PharmacyService } from "@/lib/services/pharmacy.service";
-import { resolvePermissions, can } from "@/lib/auth/permission-engine";
-import { auth } from "@/lib/auth/config";
+import { getPrescriptionById, updatePrescriptionStatus } from "@/lib/pharmacy/data";
+import { resolvePharmacyContext } from "@/lib/pharmacy/server";
 
-const service = new PharmacyService();
+export const dynamic = "force-dynamic";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const resolvedParams = await params;
-  try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const context = await resolvePharmacyContext(request.headers, request.nextUrl.searchParams.get("slug"));
+  if (!context.ok) return NextResponse.json({ error: context.error }, { status: context.status });
 
-    const permissions = await resolvePermissions(session.user.id);
-    if (!can(permissions, "pharmacy.prescription.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-    const prescription = await service.getPrescriptionById(resolvedParams.id);
-    return NextResponse.json(prescription);
-  } catch (error) {
-    console.error('Error fetching prescription:', error);
-    return NextResponse.json({ error: "Failed to fetch prescription" }, { status: 500 });
-  }
+  const prescription = await getPrescriptionById(context.pharmacist.tenantId, id);
+  if (!prescription) return NextResponse.json({ error: "Prescription not found" }, { status: 404 });
+  return NextResponse.json(prescription, { headers: { "Cache-Control": "no-store, max-age=0" } });
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const resolvedParams = await params;
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const body = await request.json();
+  const context = await resolvePharmacyContext(request.headers, body.slug);
+  if (!context.ok) return NextResponse.json({ error: context.error }, { status: context.status });
+  if (!body.action && !body.status) return NextResponse.json({ error: "Action or status is required" }, { status: 400 });
+
   try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    const permissions = await resolvePermissions(session.user.id);
-    if (!can(permissions, "pharmacy.prescription.write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-    const data = await request.json();
-    const { status, dispensedBy } = data;
-
-    const result = await service.updatePrescriptionStatus(resolvedParams.id, status, dispensedBy);
-    return NextResponse.json(result);
+    const updated = await updatePrescriptionStatus(context.pharmacist.tenantId, context.pharmacist.id, id, body.action || "status", body);
+    return NextResponse.json(updated);
   } catch (error) {
-    console.error('Error updating prescription:', error);
-    return NextResponse.json({ error: "Failed to update prescription" }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to update prescription" }, { status: 400 });
   }
 }

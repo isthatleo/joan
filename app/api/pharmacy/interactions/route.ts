@@ -1,31 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PharmacyService } from "@/lib/services/pharmacy.service";
-import { resolvePermissions, can } from "@/lib/auth/permission-engine";
-import { auth } from "@/lib/auth/config";
+import { getPharmacySettings, listDrugInteractions, saveInteractions } from "@/lib/pharmacy/data";
+import { resolvePharmacyContext } from "@/lib/pharmacy/server";
 
-const service = new PharmacyService();
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const slug = request.nextUrl.searchParams.get("slug");
+  const context = await resolvePharmacyContext(request.headers, slug);
+  if (!context.ok) return NextResponse.json({ error: context.error }, { status: context.status });
 
-    const permissions = await resolvePermissions(session.user.id);
-    if (!can(permissions, "pharmacy.interactions.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const data = await listDrugInteractions(context.pharmacist.tenantId);
+  return NextResponse.json(data, { headers: { "Cache-Control": "no-store, max-age=0" } });
+}
 
-    const tenantId = session.user.tenantId;
-    if (!tenantId) return NextResponse.json({ error: "No tenant context" }, { status: 400 });
-
-    const { searchParams } = new URL(request.url);
-    const filters = {
-      severity: searchParams.get('severity') || undefined,
-      drugId: searchParams.get('drugId') || undefined,
-    };
-
-    const interactions = await service.getDrugInteractions(tenantId, filters);
-    return NextResponse.json(interactions);
-  } catch (error) {
-    console.error('Error fetching drug interactions:', error);
-    return NextResponse.json({ error: "Failed to fetch drug interactions" }, { status: 500 });
+export async function POST(request: NextRequest) {
+  const body = await request.json();
+  const context = await resolvePharmacyContext(request.headers, body.slug);
+  if (!context.ok) return NextResponse.json({ error: context.error }, { status: context.status });
+  if (!body.medicationA || !body.medicationB || !body.effect || !body.recommendation) {
+    return NextResponse.json({ error: "Medication pair, effect, and recommendation are required" }, { status: 400 });
   }
+
+  const settings = await getPharmacySettings(context.pharmacist.tenantId);
+  const interactions = [{
+    id: body.id || crypto.randomUUID(),
+    medicationA: String(body.medicationA).trim(),
+    medicationB: String(body.medicationB).trim(),
+    severity: body.severity || "moderate",
+    effect: String(body.effect).trim(),
+    recommendation: String(body.recommendation).trim(),
+    source: body.source || null,
+    active: body.active !== false,
+    createdAt: body.createdAt || new Date().toISOString(),
+  }, ...settings.interactions.filter((item) => item.id !== body.id)];
+  await saveInteractions(context.pharmacist.tenantId, interactions, context.pharmacist.id);
+  return NextResponse.json({ success: true });
+}
+
+export async function DELETE(request: NextRequest) {
+  const body = await request.json();
+  const context = await resolvePharmacyContext(request.headers, body.slug);
+  if (!context.ok) return NextResponse.json({ error: context.error }, { status: context.status });
+  const settings = await getPharmacySettings(context.pharmacist.tenantId);
+  await saveInteractions(context.pharmacist.tenantId, settings.interactions.filter((item) => item.id !== body.id), context.pharmacist.id);
+  return NextResponse.json({ success: true });
 }
