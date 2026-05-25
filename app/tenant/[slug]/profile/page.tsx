@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
 
 interface ProfileData {
   id: string;
@@ -446,11 +447,10 @@ export default function ProfilePage() {
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone Number</Label>
                 {isEditing ? (
-                  <Input
+                  <PhoneNumberInput
                     id="phone"
-                    type="tel"
                     value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, phone: value })}
                     placeholder="Enter your phone number"
                   />
                 ) : (

@@ -7,6 +7,7 @@ import {
   ChevronLeft, ChevronRight, X, RotateCw, ExternalLink, Clock, CheckCircle2, XCircle, Trash2,
 } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
+import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
 
 type Tenant = {
   id: string;
@@ -704,7 +705,7 @@ export default function TenantsPage() {
                   </>}
                   {step === 1 && <>
                     <TextField label="Contact Email *" value={form.contactEmail} onChange={(v: string) => setForm({ ...form, contactEmail: v })} placeholder="contact@hospital.com" error={errors.contactEmail} />
-                    <TextField label="Contact Phone" value={form.contactPhone} onChange={(v: string) => setForm({ ...form, contactPhone: v })} placeholder="+1 555 123 4567" />
+                    <TextField label="Contact Phone" value={form.contactPhone} onChange={(v: string) => setForm({ ...form, contactPhone: v })} placeholder="+1 555 123 4567" type="phone" />
                   </>}
                   {step === 2 && <>
                     <TextField label="Address" value={form.address} onChange={(v: string) => setForm({ ...form, address: v })} />
@@ -779,12 +780,21 @@ export default function TenantsPage() {
   );
 }
 
-function TextField({ label, value, onChange, placeholder, error }: any) {
+function TextField({ label, value, onChange, placeholder, error, type = "text" }: any) {
   return (
     <div>
       <label className="block text-xs font-medium text-muted-foreground mb-1.5">{label}</label>
-      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        className={`w-full h-10 px-3 rounded-lg border bg-background text-sm text-foreground focus:outline-none focus:ring-2 ${error ? "border-red-300 focus:border-red-400 focus:ring-red-100" : "border-border focus:border-orange-300 focus:ring-orange-100 dark:focus:ring-orange-900/20"}`} />
+      {type === "phone" ? (
+        <PhoneNumberInput
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          className={error ? "border-red-300 focus-within:border-red-400 focus-within:ring-red-100" : "focus-within:border-orange-300 focus-within:ring-orange-100 dark:focus-within:ring-orange-900/20"}
+        />
+      ) : (
+        <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+          className={`w-full h-10 px-3 rounded-lg border bg-background text-sm text-foreground focus:outline-none focus:ring-2 ${error ? "border-red-300 focus:border-red-400 focus:ring-red-100" : "border-border focus:border-orange-300 focus:ring-orange-100 dark:focus:ring-orange-900/20"}`} />
+      )}
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
     </div>
   );

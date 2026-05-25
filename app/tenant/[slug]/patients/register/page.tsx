@@ -7,6 +7,7 @@ import {
   FileText, Heart, AlertTriangle, CheckCircle2, Loader2, Save,
   ArrowLeft, Upload, Camera
 } from "lucide-react";
+import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
 
 interface PatientFormData {
   firstName: string;
@@ -234,11 +235,10 @@ export default function PatientRegistrationPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Phone Number *
                 </label>
-                <input
-                  type="tel"
+                <PhoneNumberInput
                   value={formData.phone}
-                  onChange={(e) => updateFormData("phone", "", e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 transition-all"
+                  onChange={(value) => updateFormData("phone", "", value)}
+                  className="border-gray-300 focus-within:border-orange-500 focus-within:ring-2 focus-within:ring-orange-200"
                   placeholder="(555) 123-4567"
                 />
               </div>
@@ -363,11 +363,10 @@ export default function PatientRegistrationPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Phone Number
                   </label>
-                  <input
-                    type="tel"
+                  <PhoneNumberInput
                     value={formData.emergencyContact.phone}
-                    onChange={(e) => updateFormData("emergencyContact", "phone", e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 transition-all"
+                    onChange={(value) => updateFormData("emergencyContact", "phone", value)}
+                    className="border-gray-300 focus-within:border-orange-500 focus-within:ring-2 focus-within:ring-orange-200"
                     placeholder="(555) 123-4567"
                   />
                 </div>

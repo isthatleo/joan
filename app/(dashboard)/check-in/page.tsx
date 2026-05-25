@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Topbar } from "@/components/Topbar";
 import { KPICard } from "@/components/KPICard";
 import { UserCheck, Clock, Users, CheckCircle, AlertCircle, Plus } from "lucide-react";
+import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
 
 export default function CheckInPage() {
   const [patientName, setPatientName] = useState("");
@@ -96,12 +97,11 @@ export default function CheckInPage() {
             <label className="block text-sm font-medium text-gray-900 dark:text-white mb-2">
               Phone Number
             </label>
-            <input
-              type="tel"
+            <PhoneNumberInput
               value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
+              onChange={setPhoneNumber}
               placeholder="Enter phone number"
-              className="w-full px-4 py-3 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="min-h-[3rem] border-gray-200 bg-white dark:border-slate-600 dark:bg-slate-700 dark:text-white"
             />
           </div>
 

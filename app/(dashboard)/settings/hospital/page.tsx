@@ -15,6 +15,8 @@ import {
 import { toast } from "sonner";
 import { useTheme } from "next-themes";
 import { IntegrationManager } from "@/components/integrations/integration-manager";
+import { CurrencySelect } from "@/components/forms/CurrencySelect";
+import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
 
 /* ============ Types ============ */
 type SectionId =
@@ -1008,11 +1010,11 @@ function ContactInfoSection({
           />
         </Field>
         <Field label="Phone">
-          <TextInput
+          <PhoneNumberInput
             value={settings.contact.phone}
-            onChange={(e) =>
+            onChange={(value) =>
               onSettingsChange({
-                contact: { ...settings.contact, phone: e.target.value },
+                contact: { ...settings.contact, phone: value },
               })
             }
             placeholder="+254 XXX XXX XXX"
@@ -1372,19 +1374,14 @@ function BillingSection({
             />
           </Field>
           <Field label="Currency">
-            <SelectInput
+            <CurrencySelect
               value={settings.billing.currency}
-              onChange={(e) =>
+              onChange={(value) =>
                 onSettingsChange({
-                  billing: { ...settings.billing, currency: e.target.value },
+                  billing: { ...settings.billing, currency: value },
                 })
               }
-            >
-              <option value="KES">KES (Kenyan Shilling)</option>
-              <option value="USD">USD (US Dollar)</option>
-              <option value="EUR">EUR (Euro)</option>
-              <option value="GBP">GBP (British Pound)</option>
-            </SelectInput>
+            />
           </Field>
           <Field label="Tax Rate (%)">
             <TextInput
@@ -2481,22 +2478,17 @@ function PreferencesSection({
             </SelectInput>
           </Field>
           <Field label="Currency">
-            <SelectInput
+            <CurrencySelect
               value={settings.preferences.currency}
-              onChange={(e) =>
+              onChange={(value) =>
                 onSettingsChange({
                   preferences: {
                     ...settings.preferences,
-                    currency: e.target.value,
+                    currency: value,
                   },
                 })
               }
-            >
-              <option value="USD">USD</option>
-              <option value="KES">KES</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
-            </SelectInput>
+            />
           </Field>
           <Field label="Date Format">
             <SelectInput

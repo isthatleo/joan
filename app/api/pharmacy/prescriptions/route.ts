@@ -1,23 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PharmacyService } from "@/lib/services/pharmacy.service";
+import { createPrescriptionRecord, listPrescriptions } from "@/lib/pharmacy/data";
+import { resolvePharmacyContext } from "@/lib/pharmacy/server";
 
-const service = new PharmacyService();
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  try {
-    const queue = await service.getPrescriptionQueue("tenant-id");
-    return NextResponse.json(queue);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to fetch prescription queue" }, { status: 500 });
-  }
+  const slug = request.nextUrl.searchParams.get("slug");
+  const context = await resolvePharmacyContext(request.headers, slug);
+  if (!context.ok) return NextResponse.json({ error: context.error }, { status: context.status });
+
+  const data = await listPrescriptions(context.pharmacist.tenantId, {
+    search: request.nextUrl.searchParams.get("search"),
+    status: request.nextUrl.searchParams.get("status"),
+    priority: request.nextUrl.searchParams.get("priority"),
+  });
+  return NextResponse.json(data, { headers: { "Cache-Control": "no-store, max-age=0" } });
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const data = await request.json();
-    const prescription = await service.createPrescription(data);
-    return NextResponse.json(prescription);
-  } catch (error) {
-    return NextResponse.json({ error: "Failed to create prescription" }, { status: 500 });
+  const body = await request.json();
+  const context = await resolvePharmacyContext(request.headers, body.slug);
+  if (!context.ok) return NextResponse.json({ error: context.error }, { status: context.status });
+
+  if (!body.patientId || !Array.isArray(body.medications) || body.medications.length === 0) {
+    return NextResponse.json({ error: "Patient and at least one medication are required" }, { status: 400 });
   }
+
+  const created = await createPrescriptionRecord(context.pharmacist.tenantId, context.pharmacist.id, body);
+  return NextResponse.json(created, { status: 201 });
 }

@@ -20,6 +20,7 @@ interface Invoice {
   patientId: string;
   patientName: string;
   patientEmail: string;
+  currency?: string;
   totalAmount: number;
   status: "paid" | "pending" | "overdue" | "partial" | "sent" | "viewed";
   createdAt: string;
@@ -44,6 +45,7 @@ interface InvoiceStats {
   overdueInvoices: number;
   totalRevenue: number;
   averageInvoiceValue: number;
+  currency?: string;
 }
 
 export default function AccountantInvoicesPage() {
@@ -61,6 +63,8 @@ export default function AccountantInvoicesPage() {
   const [selectedInvoices, setSelectedInvoices] = useState<string[]>([]);
   const [showBulkActions, setShowBulkActions] = useState(false);
   const exportRef = useRef<HTMLDivElement | null>(null);
+  const formatCurrency = (amount: number, currency = stats?.currency || invoices[0]?.currency || "USD") =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount || 0);
 
   useEffect(() => {
     fetchInvoices();
@@ -347,13 +351,13 @@ export default function AccountantInvoicesPage() {
             <div className="flex justify-between items-center">
               <span className="text-sm text-muted-foreground">Total Revenue</span>
               <span className="text-lg font-bold text-foreground">
-                ${stats?.totalRevenue?.toLocaleString() || '0'}
+                {formatCurrency(stats?.totalRevenue || 0)}
               </span>
             </div>
             <div className="flex justify-between items-center">
               <span className="text-sm text-muted-foreground">Average Invoice</span>
               <span className="text-sm font-medium text-foreground">
-                ${stats?.averageInvoiceValue?.toFixed(2) || '0.00'}
+                {formatCurrency(stats?.averageInvoiceValue || 0)}
               </span>
             </div>
           </div>
@@ -554,11 +558,11 @@ export default function AccountantInvoicesPage() {
                     <td className="px-4 py-3">
                       <div>
                         <p className="text-lg font-semibold text-foreground">
-                          ${invoice.totalAmount.toFixed(2)}
+                          {formatCurrency(invoice.totalAmount, invoice.currency)}
                         </p>
                         {invoice.paidAmount && invoice.paidAmount > 0 && (
                           <p className="text-xs text-muted-foreground">
-                            Paid: ${invoice.paidAmount.toFixed(2)}
+                            Paid: {formatCurrency(invoice.paidAmount, invoice.currency)}
                           </p>
                         )}
                       </div>

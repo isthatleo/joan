@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { tenants } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { getTenantDefaultCurrency, syncTenantPatientCareLedgers } from "@/lib/billing/patient-ledger";
 
 export async function GET(
   request: NextRequest,
@@ -33,6 +34,8 @@ export async function GET(
     }
 
     const tenantId = tenant.id;
+    await syncTenantPatientCareLedgers(tenantId);
+    const currency = await getTenantDefaultCurrency(tenantId);
 
     // Get invoice statistics
     const stats = await db.$queryRaw`
@@ -56,6 +59,7 @@ export async function GET(
       overdueInvoices: Number(data.overdue_invoices || 0),
       totalRevenue: Number(data.total_revenue || 0),
       averageInvoiceValue: Number(data.average_invoice_value || 0),
+      currency,
     });
   } catch (error) {
     console.error("Error fetching invoice stats:", error);

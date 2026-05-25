@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
 import { parseJsonBody, validateFinancePayload } from "@/lib/accountant/finance-api";
 import { invoiceCreateSchema } from "@/lib/accountant/route-schemas";
+import { getTenantDefaultCurrency, syncTenantPatientCareLedgers } from "@/lib/billing/patient-ledger";
 
 export async function GET(
   request: NextRequest,
@@ -26,6 +27,9 @@ export async function GET(
     if (!tenantId) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
+
+    await syncTenantPatientCareLedgers(tenantId);
+    const currency = await getTenantDefaultCurrency(tenantId);
 
     const { searchParams } = new URL(request.url);
     const recent = searchParams.get("recent") === "true";
@@ -108,6 +112,7 @@ export async function GET(
       createdAt: invoice.issue_date,
       issueDate: invoice.issue_date,
       updatedAt: invoice.updated_at,
+      currency,
     }));
 
     return NextResponse.json(formattedInvoices);

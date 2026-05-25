@@ -10,6 +10,7 @@ import {
   Globe, Monitor, Moon, Sun, ArrowLeft, AlertCircle
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
 
 const orange = "#F97316";
 
@@ -191,12 +192,11 @@ export default function LabSettingsPage() {
 
             <div>
               <label className="block text-sm font-semibold text-foreground mb-2">Phone Number</label>
-              <input
-                type="tel"
+              <PhoneNumberInput
                 value={settings.phone || ""}
-                onChange={e => handleSettingChange("phone", e.target.value)}
+                onChange={value => handleSettingChange("phone", value)}
                 placeholder="+1 (555) 000-0000"
-                className="w-full h-10 px-4 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
+                className="h-10"
               />
             </div>
 

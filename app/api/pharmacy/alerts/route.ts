@@ -1,47 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PharmacyService } from "@/lib/services/pharmacy.service";
-import { resolvePermissions, can } from "@/lib/auth/permission-engine";
-import { auth } from "@/lib/auth/config";
+import { getPharmacySettings, listStockAlerts, saveAlertState } from "@/lib/pharmacy/data";
+import { resolvePharmacyContext } from "@/lib/pharmacy/server";
 
-const service = new PharmacyService();
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const slug = request.nextUrl.searchParams.get("slug");
+  const context = await resolvePharmacyContext(request.headers, slug);
+  if (!context.ok) return NextResponse.json({ error: context.error }, { status: context.status });
 
-    const permissions = await resolvePermissions(session.user.id);
-    if (!can(permissions, "pharmacy.alerts.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-    const tenantId = session.user.tenantId;
-    if (!tenantId) return NextResponse.json({ error: "No tenant context" }, { status: 400 });
-
-    const { searchParams } = new URL(request.url);
-    const resolved = searchParams.get('resolved') === 'true' ? true : searchParams.get('resolved') === 'false' ? false : undefined;
-
-    const alerts = await service.getStockAlerts(tenantId, resolved);
-    return NextResponse.json(alerts);
-  } catch (error) {
-    console.error('Error fetching stock alerts:', error);
-    return NextResponse.json({ error: "Failed to fetch stock alerts" }, { status: 500 });
-  }
+  const data = await listStockAlerts(context.pharmacist.tenantId);
+  return NextResponse.json(data, { headers: { "Cache-Control": "no-store, max-age=0" } });
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const body = await request.json();
+  const context = await resolvePharmacyContext(request.headers, body.slug);
+  if (!context.ok) return NextResponse.json({ error: context.error }, { status: context.status });
+  if (!body.itemId || !body.action) return NextResponse.json({ error: "Alert item and action are required" }, { status: 400 });
 
-    const permissions = await resolvePermissions(session.user.id);
-    if (!can(permissions, "pharmacy.alerts.write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-    const data = await request.json();
-    const { id, actionTaken } = data;
-
-    const result = await service.resolveStockAlert(id, session.user.id, actionTaken);
-    return NextResponse.json(result);
-  } catch (error) {
-    console.error('Error resolving stock alert:', error);
-    return NextResponse.json({ error: "Failed to resolve stock alert" }, { status: 500 });
-  }
+  const settings = await getPharmacySettings(context.pharmacist.tenantId);
+  const alertState = { ...settings.alertState };
+  const existing = alertState[body.itemId] || {};
+  if (body.action === "dismiss") existing.dismissedAt = new Date().toISOString();
+  if (body.action === "reorder") existing.reorderRequestedAt = new Date().toISOString();
+  if (body.note !== undefined) existing.note = body.note;
+  alertState[body.itemId] = existing;
+  await saveAlertState(context.pharmacist.tenantId, alertState, context.pharmacist.id);
+  return NextResponse.json({ success: true });
 }

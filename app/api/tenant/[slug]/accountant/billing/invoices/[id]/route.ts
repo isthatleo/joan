@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
 import { parseJsonBody, validateFinancePayload } from "@/lib/accountant/finance-api";
 import { invoiceUpdateSchema } from "@/lib/accountant/route-schemas";
+import { getTenantDefaultCurrency, syncPatientCareInvoice } from "@/lib/billing/patient-ledger";
 
 export async function GET(
   request: NextRequest,
@@ -16,6 +17,7 @@ export async function GET(
     const { slug, id } = await params;
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const currency = await getTenantDefaultCurrency(tenantId);
 
     const result = await db.$queryRaw`
       SELECT
@@ -31,8 +33,26 @@ export async function GET(
       LIMIT 1
     `;
 
-    const invoice = (result as any[])[0];
+    let invoice = (result as any[])[0];
     if (!invoice) return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+
+    if (invoice.description === "Patient care ledger" && invoice.patient_id) {
+      await syncPatientCareInvoice(tenantId, invoice.patient_id);
+      const refreshed = await db.$queryRaw`
+        SELECT
+          i.*,
+          p.full_name AS patient_name,
+          p.email AS patient_email,
+          COALESCE(SUM(pay.amount::numeric), 0) AS paid_amount
+        FROM invoices i
+        LEFT JOIN patients p ON i.patient_id = p.id
+        LEFT JOIN payments pay ON pay.invoice_id = i.id AND pay.status = 'completed'
+        WHERE i.tenant_id = ${tenantId} AND i.id = ${id}
+        GROUP BY i.id, p.full_name, p.email
+        LIMIT 1
+      `;
+      invoice = (refreshed as any[])[0] || invoice;
+    }
 
     return NextResponse.json({
       id: invoice.id,
@@ -50,6 +70,7 @@ export async function GET(
       description: invoice.description || "",
       notes: invoice.notes || "",
       paymentTerms: invoice.payment_terms || "",
+      currency,
       items: (() => {
         try {
           if (!invoice.items) return [];

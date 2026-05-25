@@ -1,3 +1,5 @@
+@import "react-phone-number-input/style.css";
+
 /* Inter is loaded via a <link> tag in `app/layout.tsx` so PostCSS/Tailwind
    build doesn't hit @import ordering constraints. The --font-sans variable
    below still points to Inter as the preferred face. */
@@ -192,6 +194,55 @@
     padding-top: 0.45rem !important;
     padding-bottom: 0.45rem !important;
   }
+}
+
+.phone-field.PhoneInput {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  padding: 0 0.75rem;
+  color: hsl(var(--foreground));
+}
+
+.phone-field .PhoneInputCountry {
+  margin-right: 0.125rem;
+}
+
+.phone-field .PhoneInputCountrySelect {
+  border: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.phone-field .PhoneInputCountryIcon {
+  width: 1.25rem;
+  height: 1rem;
+  box-shadow: none;
+}
+
+.phone-field .PhoneInputCountrySelectArrow {
+  opacity: 0.65;
+}
+
+.phone-field .PhoneInputInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.phone-field .PhoneInputInput::placeholder {
+  color: hsl(var(--muted-foreground));
 }
 
 @layer utilities {

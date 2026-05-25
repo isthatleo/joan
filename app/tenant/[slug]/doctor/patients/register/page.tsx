@@ -6,6 +6,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTenantPath } from "@/hooks/useTenantPath";
+import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
 
 export default function PatientRegistrationPage() {
   const router = useRouter();
@@ -86,10 +87,10 @@ export default function PatientRegistrationPage() {
           </label>
           <label className="space-y-2 text-sm">
             <span className="font-medium text-foreground">Phone</span>
-            <input
+            <PhoneNumberInput
               value={form.phone}
-              onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
-              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-foreground"
+              onChange={(value) => setForm((current) => ({ ...current, phone: value }))}
+              className="h-10"
             />
           </label>
           <label className="space-y-2 text-sm">
