@@ -1,162 +1,107 @@
-"use client";
+﻿"use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import {
-  PageHeader,
-  SectionCard,
-  Button,
-  Input,
-  Badge,
-  Skeleton,
-} from "@/components/ui";
-import {
-  Pill,
-  Search,
-  Plus,
-  CheckCircle,
-  Clock,
-  AlertCircle,
-  Eye,
-} from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { format } from "date-fns";
-
-interface Medication {
-  id: string;
-  patientName: string;
-  patientRoom: string;
-  medication: string;
-  dosage: string;
-  route: string;
-  frequency: string;
-  dueTime: string;
-  status: "pending" | "administered" | "missed" | "skipped";
-  prescribedBy: string;
-  administeredBy?: string;
-  administeredAt?: string;
-  notes?: string;
-}
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2, RefreshCw, Search, SkipForward, UserRound } from "lucide-react";
+import { Badge, Button, Input, PageHeader, SectionCard, Skeleton } from "@/components/ui";
+import { withTenantPrefix } from "@/lib/tenant-routing";
 
 export default function NurseMedicationsPage() {
   const params = useParams();
   const slug = params?.slug as string;
-  const [searchTerm, setSearchTerm] = useState("");
+  const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+  const toTenantPath = (path: string) => withTenantPrefix(path, slug, hostname);
+  const [search, setSearch] = useState("");
+  const queryClient = useQueryClient();
 
-  const { data: medications, isLoading } = useQuery({
-    queryKey: ["nurse-medications", slug],
+  const medicationsQuery = useQuery({
+    queryKey: ["tenant-nurse-medications", slug, search],
     queryFn: async () => {
-      const response = await fetch(`/api/nurse/medications?slug=${slug}&search=${searchTerm}`);
-      if (!response.ok) throw new Error("Failed to fetch medications");
+      const qs = new URLSearchParams({ slug, search });
+      const response = await fetch(`/api/nurse/medications?${qs.toString()}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to load medications");
       return response.json();
     },
     refetchInterval: 30000,
   });
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "pending": return "bg-yellow-50 text-yellow-700 border-yellow-200";
-      case "administered": return "bg-green-50 text-green-700 border-green-200";
-      case "missed": return "bg-red-50 text-red-700 border-red-200";
-      case "skipped": return "bg-gray-50 text-gray-700 border-gray-200";
-      default: return "bg-gray-50 text-gray-700 border-gray-200";
-    }
-  };
+  const actionMutation = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) => {
+      const response = await fetch("/api/nurse/medications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, ...payload }),
+      });
+      if (!response.ok) throw new Error("Failed to update medication");
+      return response.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tenant-nurse-medications"] }),
+  });
 
-  const pendingMeds = medications?.filter((m: Medication) => m.status === "pending") || [];
-  const administeredMeds = medications?.filter((m: Medication) => m.status === "administered") || [];
+  const medications = medicationsQuery.data?.medications || [];
+  const stats = medicationsQuery.data?.stats;
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Medication Management"
-        subtitle="Track and administer patient medications"
+        title="Medication Administration"
+        subtitle="Doctor-prescribed medication schedule with completion tracking shared across nursing and doctor views."
+        actions={<Button variant="outline" onClick={() => medicationsQuery.refetch()} disabled={medicationsQuery.isFetching}><RefreshCw className={`mr-2 h-4 w-4 ${medicationsQuery.isFetching ? "animate-spin" : ""}`} />Refresh</Button>}
       />
 
-      {/* Pending Medications Alert */}
-      {pendingMeds.length > 0 && (
-        <div className="p-4 rounded-lg border border-orange-200 bg-orange-50">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-orange-600 mt-0.5" />
-            <div>
-              <h3 className="text-sm font-semibold text-orange-900">Pending Medications</h3>
-              <p className="text-sm text-orange-700 mt-1">
-                {pendingMeds.length} medication{pendingMeds.length > 1 ? 's' : ''} due for administration.
-              </p>
-            </div>
-          </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {medicationsQuery.isLoading ? Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-28 w-full" />) : (
+          <>
+            <MetricTile title="Medication Lines" value={stats?.total ?? 0} subtitle="All scheduled administrations on the current roster." />
+            <MetricTile title="Pending" value={stats?.pending ?? 0} subtitle="Still due or waiting to be administered." />
+            <MetricTile title="Administered" value={stats?.administered ?? 0} subtitle="Successfully given and documented by nursing." />
+            <MetricTile title="Missed or Skipped" value={(stats?.missed ?? 0) + (medications.filter((item: any) => item.status === "skipped").length)} subtitle="Needs follow-up, explanation, or rescheduling." />
+          </>
+        )}
+      </div>
+
+      <SectionCard title="Medication Worklist" description="Search by patient, medication, or room to manage the active medication round.">
+        <div className="relative mb-5">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search patient or medication" className="pl-10" />
         </div>
-      )}
 
-      {/* Search */}
-      <div className="relative flex-1 max-w-md">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-        <Input
-          placeholder="Search medications..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10"
-        />
-      </div>
-
-      {/* Medications List */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Pending */}
-        <SectionCard title={`Pending (${pendingMeds.length})`}>
-          {isLoading ? (
-            <div className="space-y-3">
-              {[...Array(3)].map((_, i) => (
-                <Skeleton key={i} className="h-20 w-full" />
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {pendingMeds.map((med: Medication) => (
-                <div key={med.id} className="p-4 rounded-lg border border-yellow-200 bg-yellow-50">
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{med.medication}</p>
-                      <p className="text-xs text-gray-600">{med.patientName} - Room {med.patientRoom}</p>
+        {medicationsQuery.isLoading ? (
+          <div className="space-y-4">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-44 w-full" />)}</div>
+        ) : medications.length ? (
+          <div className="space-y-4">
+            {medications.map((medication: any) => (
+              <div key={medication.id} className="rounded-2xl border border-border bg-background p-5">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-semibold text-foreground">{medication.medication || "Medication"}</h3>
+                      <Badge variant={medication.status === "pending" ? "outline" : medication.status === "administered" ? "secondary" : "destructive"}>{medication.status}</Badge>
+                      <Badge variant="outline">{medication.dueTime ? new Date(medication.dueTime).toLocaleString() : "Due now"}</Badge>
                     </div>
-                    <Badge className={getStatusColor(med.status)}>{med.status}</Badge>
+                    <p className="mt-1 text-sm text-muted-foreground">{medication.patientName} | Room {medication.patientRoom || "-"}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">{medication.dosage || "Dose pending"} | {medication.route || "Route pending"} | {medication.frequency || "Schedule pending"}</p>
+                    <p className="mt-2 text-xs text-muted-foreground">Prescribed by {medication.prescribedBy || "Doctor"}</p>
                   </div>
-                  <p className="text-xs text-gray-700 mb-3">{med.dosage} • {med.route} • {med.frequency}</p>
-                  <div className="flex gap-2">
-                    <Button size="sm" className="flex-1">Administer</Button>
-                    <Button size="sm" variant="outline">Skip</Button>
+
+                  <div className="flex flex-wrap gap-2 xl:max-w-xs xl:justify-end">
+                    <Link href={toTenantPath(`/nurse/patients`)} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground"><UserRound className="h-4 w-4" />Patient</Link>
+                    <Button variant="outline" onClick={() => actionMutation.mutate({ action: "skip", id: medication.id })} disabled={actionMutation.isPending || medication.status !== "pending"}><SkipForward className="mr-2 h-4 w-4" />Skip</Button>
+                    <Button variant="outline" onClick={() => actionMutation.mutate({ action: "administer", id: medication.id })} disabled={actionMutation.isPending || medication.status !== "pending"}><CheckCircle2 className="mr-2 h-4 w-4" />Administer</Button>
+                    <Button onClick={() => actionMutation.mutate({ action: "complete-prescription", prescriptionId: medication.prescriptionId })} disabled={actionMutation.isPending || medication.prescriptionStatus === "completed"}>Mark Course Complete</Button>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-
-        {/* Administered Today */}
-        <SectionCard title={`Administered Today (${administeredMeds.length})`}>
-          {isLoading ? (
-            <div className="space-y-3">
-              {[...Array(3)].map((_, i) => (
-                <Skeleton key={i} className="h-20 w-full" />
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {administeredMeds.map((med: Medication) => (
-                <div key={med.id} className="p-4 rounded-lg border border-green-200 bg-green-50">
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{med.medication}</p>
-                      <p className="text-xs text-gray-600">{med.patientName} - {med.administeredBy}</p>
-                    </div>
-                    <CheckCircle className="h-5 w-5 text-green-600" />
-                  </div>
-                  <p className="text-xs text-gray-700">{med.administeredAt && format(new Date(med.administeredAt), "h:mm a")}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-      </div>
+              </div>
+            ))}
+          </div>
+        ) : <p className="text-sm text-muted-foreground">No medications matched the current search.</p>}
+      </SectionCard>
     </div>
   );
+}
+
+function MetricTile({ title, value, subtitle }: { title: string; value: number; subtitle: string }) {
+  return <div className="rounded-2xl border border-border bg-card p-5"><p className="text-sm text-muted-foreground">{title}</p><p className="mt-2 text-3xl font-semibold text-foreground">{value}</p><p className="mt-2 text-xs text-muted-foreground">{subtitle}</p></div>;
 }

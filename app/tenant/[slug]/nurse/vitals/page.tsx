@@ -1,474 +1,221 @@
-"use client";
+﻿"use client";
 
-import { useState } from "react";
-import { useParams } from "next/navigation";
-import {
-  PageHeader,
-  SectionCard,
-  Button,
-  Input,
-  Badge,
-  Skeleton,
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui";
-import {
-  HeartPulse,
-  Search,
-  Plus,
-  Thermometer,
-  Wind,
-  Zap,
-  Eye,
-  AlertTriangle,
-  TrendingUp,
-  TrendingDown,
-  CheckCircle,
-  Clock,
-} from "lucide-react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
-
-interface VitalReading {
-  id: string;
-  patientId: string;
-  patientName: string;
-  patientRoom: string;
-  heartRate: number;
-  bloodPressure: string;
-  temperature: number;
-  respiratoryRate: number;
-  oxygenSaturation: number;
-  recordedAt: string;
-  recordedBy: string;
-  status: "normal" | "warning" | "critical";
-  notes?: string;
-}
+import { useMemo, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, HeartPulse, RefreshCw, Search, Stethoscope } from "lucide-react";
+import { Badge, Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, Input, PageHeader, SectionCard, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Textarea } from "@/components/ui";
 
 export default function NurseVitalsPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const slug = params?.slug as string;
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [selectedReading, setSelectedReading] = useState<VitalReading | null>(null);
-  const [showReadingModal, setShowReadingModal] = useState(false);
-  const [showRecordModal, setShowRecordModal] = useState(false);
-
+  const initialPatientId = searchParams.get("patientId") || "";
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("all");
+  const [showRecordDialog, setShowRecordDialog] = useState(false);
+  const [selectedReading, setSelectedReading] = useState<any | null>(null);
+  const [form, setForm] = useState({ patientId: initialPatientId, heartRate: "", systolic: "", diastolic: "", temperature: "", respiratoryRate: "", oxygenSaturation: "", painScore: "", notes: "" });
   const queryClient = useQueryClient();
 
-  // Fetch vital readings
-  const { data: vitals, isLoading } = useQuery({
-    queryKey: ["nurse-vitals", slug, statusFilter],
+  const vitalsQuery = useQuery({
+    queryKey: ["tenant-nurse-vitals", slug, search, status],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        status: statusFilter,
-        search: searchTerm,
-      });
-      const response = await fetch(`/api/nurse/vitals?${params}&slug=${slug}`);
-      if (!response.ok) throw new Error("Failed to fetch vitals");
+      const qs = new URLSearchParams({ slug, search, status });
+      const response = await fetch(`/api/nurse/vitals?${qs.toString()}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to load vitals");
       return response.json();
     },
     refetchInterval: 60000,
   });
 
-  // Record vital sign mutation
-  const recordVitalMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const response = await fetch("/api/nurse/vitals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, slug }),
-      });
-      if (!response.ok) throw new Error("Failed to record vital");
+  const patientsQuery = useQuery({
+    queryKey: ["tenant-nurse-patient-select", slug],
+    queryFn: async () => {
+      const response = await fetch(`/api/nurse/patients?slug=${slug}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to load patient list");
       return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["nurse-vitals"] });
-      setShowRecordModal(false);
     },
   });
 
-  const filteredVitals = vitals?.filter((vital: VitalReading) => {
-    const matchesSearch = vital.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         vital.patientRoom.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesSearch;
-  }) || [];
+  const recordMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch("/api/nurse/vitals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug,
+          patientId: form.patientId,
+          heartRate: Number(form.heartRate),
+          bloodPressure: `${form.systolic}/${form.diastolic}`,
+          temperature: Number(form.temperature),
+          respiratoryRate: Number(form.respiratoryRate),
+          oxygenSaturation: Number(form.oxygenSaturation),
+          painScore: form.painScore ? Number(form.painScore) : null,
+          notes: form.notes,
+        }),
+      });
+      if (!response.ok) throw new Error("Failed to record vitals");
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tenant-nurse-vitals"] });
+      setShowRecordDialog(false);
+      setForm({ patientId: initialPatientId, heartRate: "", systolic: "", diastolic: "", temperature: "", respiratoryRate: "", oxygenSaturation: "", painScore: "", notes: "" });
+    },
+  });
 
-  const getStatusColor = (status: VitalReading["status"]) => {
-    switch (status) {
-      case "normal": return "bg-green-50 text-green-700 border-green-200";
-      case "warning": return "bg-yellow-50 text-yellow-700 border-yellow-200";
-      case "critical": return "bg-red-50 text-red-700 border-red-200";
-      default: return "bg-gray-50 text-gray-700 border-gray-200";
-    }
-  };
+  const data = vitalsQuery.data?.vitals || [];
+  const stats = vitalsQuery.data?.stats;
+  const patients = patientsQuery.data?.patients || [];
 
-  const criticalReadings = filteredVitals.filter((v: VitalReading) => v.status === "critical");
-  const warningReadings = filteredVitals.filter((v: VitalReading) => v.status === "warning");
+  const alertBanner = useMemo(() => {
+    if (!stats?.critical) return null;
+    return `${stats.critical} patient${stats.critical === 1 ? "" : "s"} currently have critical bedside observations.`;
+  }, [stats]);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Vital Signs Monitoring"
-        subtitle="Track and record patient vital signs"
+        title="Vitals Monitoring"
+        subtitle="Capture bedside observations, surface abnormal readings, and keep the doctor handoff current."
+        actions={
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => vitalsQuery.refetch()} disabled={vitalsQuery.isFetching}><RefreshCw className={`mr-2 h-4 w-4 ${vitalsQuery.isFetching ? "animate-spin" : ""}`} />Refresh</Button>
+            <Button onClick={() => setShowRecordDialog(true)}>Record Vitals</Button>
+          </div>
+        }
       />
 
-      {/* Critical Alerts */}
-      {criticalReadings.length > 0 && (
-        <div className="p-4 rounded-lg border border-red-200 bg-red-50">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5" />
-            <div>
-              <h3 className="text-sm font-semibold text-red-900">Critical Alerts</h3>
-              <p className="text-sm text-red-700 mt-1">
-                {criticalReadings.length} patient{criticalReadings.length > 1 ? 's' : ''} have critical vitals requiring immediate attention.
-              </p>
-            </div>
-          </div>
+      {alertBanner ? (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
+          <div className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" />Critical observation alert</div>
+          <p className="mt-1">{alertBanner}</p>
         </div>
-      )}
+      ) : null}
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="flex flex-col sm:flex-row gap-4 flex-1">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Search patient..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {vitalsQuery.isLoading ? Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-28 w-full" />) : (
+          <>
+            <div className="rounded-2xl border border-border bg-card p-5"><p className="text-sm text-muted-foreground">Latest Readings</p><p className="mt-2 text-3xl font-semibold text-foreground">{stats?.total ?? 0}</p><p className="mt-2 text-xs text-muted-foreground">Most recent reading per patient.</p></div>
+            <div className="rounded-2xl border border-border bg-card p-5"><p className="text-sm text-muted-foreground">Critical</p><p className="mt-2 text-3xl font-semibold text-foreground">{stats?.critical ?? 0}</p><p className="mt-2 text-xs text-muted-foreground">Immediate review or escalation required.</p></div>
+            <div className="rounded-2xl border border-border bg-card p-5"><p className="text-sm text-muted-foreground">Warning</p><p className="mt-2 text-3xl font-semibold text-foreground">{stats?.warning ?? 0}</p><p className="mt-2 text-xs text-muted-foreground">Repeat observation or monitor closely.</p></div>
+            <div className="rounded-2xl border border-border bg-card p-5"><p className="text-sm text-muted-foreground">Stable</p><p className="mt-2 text-3xl font-semibold text-foreground">{stats?.normal ?? 0}</p><p className="mt-2 text-xs text-muted-foreground">Within expected bedside thresholds.</p></div>
+          </>
+        )}
+      </div>
+
+      <SectionCard title="Vitals Worklist" description="Filter patient observations by clinical status or bedside location.">
+        <div className="mb-5 flex flex-col gap-4 lg:flex-row">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search patient or room" className="pl-10" />
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className="w-full lg:w-48"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="all">All statuses</SelectItem>
               <SelectItem value="critical">Critical</SelectItem>
               <SelectItem value="warning">Warning</SelectItem>
               <SelectItem value="normal">Normal</SelectItem>
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={() => setShowRecordModal(true)} className="flex items-center gap-2">
-          <Plus className="h-4 w-4" />
-          Record Vitals
-        </Button>
-      </div>
 
-      {/* Vital Readings Grid */}
-      <SectionCard>
-        {isLoading ? (
+        {vitalsQuery.isLoading ? (
+          <div className="space-y-4">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-44 w-full" />)}</div>
+        ) : data.length ? (
           <div className="space-y-4">
-            {[...Array(5)].map((_, i) => (
-              <Skeleton key={i} className="h-32 w-full" />
+            {data.map((reading: any) => (
+              <div key={reading.id} className="rounded-2xl border border-border bg-background p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-semibold text-foreground">{reading.patientName}</h3>
+                      <Badge variant={reading.status === "critical" ? "destructive" : "outline"}>{reading.status}</Badge>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">Room {reading.patientRoom || "-"} | Recorded {new Date(reading.recordedAt).toLocaleString()}</p>
+                  </div>
+                  <Button variant="outline" onClick={() => setSelectedReading(reading)}>Review Reading</Button>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  <VitalMetric label="Heart Rate" value={`${reading.heartRate || "-"} bpm`} />
+                  <VitalMetric label="Blood Pressure" value={reading.bloodPressure || "-"} />
+                  <VitalMetric label="Temperature" value={`${reading.temperature || "-"} C`} />
+                  <VitalMetric label="Respiratory Rate" value={`${reading.respiratoryRate || "-"} /min`} />
+                  <VitalMetric label="SpO2" value={`${reading.oxygenSaturation || "-"}%`} />
+                </div>
+              </div>
             ))}
           </div>
-        ) : (
-          <div className="space-y-4">
-            {filteredVitals.length === 0 ? (
-              <div className="text-center py-12">
-                <HeartPulse className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No vital readings found</h3>
-                <p className="text-gray-500">Record vital signs to get started.</p>
-              </div>
-            ) : (
-              filteredVitals.map((vital: VitalReading) => (
-                <div
-                  key={vital.id}
-                  className={`p-6 rounded-lg border ${getStatusColor(vital.status)}`}
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">{vital.patientName}</h3>
-                      <p className="text-sm text-gray-600">Room {vital.patientRoom} • Recorded {format(new Date(vital.recordedAt), "h:mm a")}</p>
-                    </div>
-                    <Badge className={getStatusColor(vital.status)}>
-                      {vital.status}
-                    </Badge>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1 mb-1">
-                        <Zap className="h-4 w-4" />
-                        <span className="text-xs text-gray-600">HR</span>
-                      </div>
-                      <p className="text-xl font-bold text-gray-900">{vital.heartRate}</p>
-                      <p className="text-xs text-gray-600">bpm</p>
-                    </div>
-
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1 mb-1">
-                        <HeartPulse className="h-4 w-4" />
-                        <span className="text-xs text-gray-600">BP</span>
-                      </div>
-                      <p className="text-xl font-bold text-gray-900">{vital.bloodPressure}</p>
-                      <p className="text-xs text-gray-600">mmHg</p>
-                    </div>
-
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1 mb-1">
-                        <Thermometer className="h-4 w-4" />
-                        <span className="text-xs text-gray-600">Temp</span>
-                      </div>
-                      <p className="text-xl font-bold text-gray-900">{vital.temperature}°C</p>
-                      <p className="text-xs text-gray-600">Celsius</p>
-                    </div>
-
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1 mb-1">
-                        <Wind className="h-4 w-4" />
-                        <span className="text-xs text-gray-600">RR</span>
-                      </div>
-                      <p className="text-xl font-bold text-gray-900">{vital.respiratoryRate}</p>
-                      <p className="text-xs text-gray-600">/min</p>
-                    </div>
-
-                    <div className="text-center">
-                      <div className="flex items-center justify-center gap-1 mb-1">
-                        <CheckCircle className="h-4 w-4" />
-                        <span className="text-xs text-gray-600">O2</span>
-                      </div>
-                      <p className="text-xl font-bold text-gray-900">{vital.oxygenSaturation}%</p>
-                      <p className="text-xs text-gray-600">SpO2</p>
-                    </div>
-                  </div>
-
-                  {vital.notes && (
-                    <div className="mb-4 p-3 bg-white/50 rounded-lg">
-                      <p className="text-sm text-gray-700">{vital.notes}</p>
-                    </div>
-                  )}
-
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedReading(vital);
-                        setShowReadingModal(true);
-                      }}
-                    >
-                      <Eye className="h-4 w-4 mr-2" />
-                      View Details
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <Clock className="h-4 w-4 mr-2" />
-                      Trend
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
+        ) : <p className="text-sm text-muted-foreground">No readings matched the current filter set.</p>}
       </SectionCard>
 
-      {/* Record Vitals Modal */}
-      <Dialog open={showRecordModal} onOpenChange={setShowRecordModal}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Record Vital Signs</DialogTitle>
-          </DialogHeader>
-          <RecordVitalsForm
-            onSubmit={(data) => recordVitalMutation.mutate(data)}
-            isLoading={recordVitalMutation.isPending}
-            onClose={() => setShowRecordModal(false)}
-          />
+      <Dialog open={showRecordDialog} onOpenChange={setShowRecordDialog}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader><DialogTitle>Record Vital Signs</DialogTitle></DialogHeader>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium text-foreground">Patient</label>
+              <Select value={form.patientId} onValueChange={(value) => setForm((current) => ({ ...current, patientId: value }))}>
+                <SelectTrigger><SelectValue placeholder="Select patient" /></SelectTrigger>
+                <SelectContent>
+                  {patients.map((patient: any) => (
+                    <SelectItem key={patient.id} value={patient.id}>{patient.fullName || `${patient.firstName || ""} ${patient.lastName || ""}`.trim()} | Room {patient.room || "-"}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <FormField label="Heart Rate (bpm)"><Input type="number" value={form.heartRate} onChange={(event) => setForm((current) => ({ ...current, heartRate: event.target.value }))} /></FormField>
+            <FormField label="Temperature (C)"><Input type="number" step="0.1" value={form.temperature} onChange={(event) => setForm((current) => ({ ...current, temperature: event.target.value }))} /></FormField>
+            <FormField label="Systolic"><Input type="number" value={form.systolic} onChange={(event) => setForm((current) => ({ ...current, systolic: event.target.value }))} /></FormField>
+            <FormField label="Diastolic"><Input type="number" value={form.diastolic} onChange={(event) => setForm((current) => ({ ...current, diastolic: event.target.value }))} /></FormField>
+            <FormField label="Respiratory Rate (/min)"><Input type="number" value={form.respiratoryRate} onChange={(event) => setForm((current) => ({ ...current, respiratoryRate: event.target.value }))} /></FormField>
+            <FormField label="Oxygen Saturation (%)"><Input type="number" value={form.oxygenSaturation} onChange={(event) => setForm((current) => ({ ...current, oxygenSaturation: event.target.value }))} /></FormField>
+            <FormField label="Pain Score (0-10)" className="md:col-span-2"><Input type="number" max={10} value={form.painScore} onChange={(event) => setForm((current) => ({ ...current, painScore: event.target.value }))} /></FormField>
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium text-foreground">Observation Notes</label>
+              <Textarea rows={4} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Document additional observations, patient complaints, or escalation context." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowRecordDialog(false)}>Cancel</Button>
+            <Button onClick={() => recordMutation.mutate()} disabled={recordMutation.isPending || !form.patientId}>{recordMutation.isPending ? "Saving..." : "Save Reading"}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Vital Reading Details Modal */}
-      <Dialog open={showReadingModal} onOpenChange={setShowReadingModal}>
+      <Dialog open={!!selectedReading} onOpenChange={(open) => { if (!open) setSelectedReading(null); }}>
         <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Vital Reading Details</DialogTitle>
-          </DialogHeader>
-          {selectedReading && (
+          <DialogHeader><DialogTitle>Observation Review</DialogTitle></DialogHeader>
+          {selectedReading ? (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Patient Name</label>
-                  <p className="text-sm text-gray-900">{selectedReading.patientName}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Room Number</label>
-                  <p className="text-sm text-gray-900">{selectedReading.patientRoom}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Recorded By</label>
-                  <p className="text-sm text-gray-900">{selectedReading.recordedBy}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Recorded At</label>
-                  <p className="text-sm text-gray-900">{format(new Date(selectedReading.recordedAt), "PPp")}</p>
-                </div>
+              <div className="rounded-2xl border border-border bg-background p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><Stethoscope className="h-4 w-4 text-blue-500" />{selectedReading.patientName}</div>
+                <p className="mt-2 text-sm text-muted-foreground">Recorded by {selectedReading.recordedBy || "Nurse"} on {new Date(selectedReading.recordedAt).toLocaleString()}</p>
               </div>
-
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowReadingModal(false)}>
-                  Close
-                </Button>
-              </DialogFooter>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <VitalMetric label="Heart Rate" value={`${selectedReading.heartRate || "-"} bpm`} />
+                <VitalMetric label="Blood Pressure" value={selectedReading.bloodPressure || "-"} />
+                <VitalMetric label="Temperature" value={`${selectedReading.temperature || "-"} C`} />
+                <VitalMetric label="Respiratory Rate" value={`${selectedReading.respiratoryRate || "-"} /min`} />
+                <VitalMetric label="SpO2" value={`${selectedReading.oxygenSaturation || "-"}%`} />
+                <VitalMetric label="Pain Score" value={selectedReading.painScore != null ? String(selectedReading.painScore) : "-"} />
+              </div>
+              {selectedReading.notes ? <div className="rounded-2xl border border-border bg-background p-4 text-sm text-muted-foreground">{selectedReading.notes}</div> : null}
             </div>
-          )}
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function RecordVitalsForm({
-  onSubmit,
-  isLoading,
-  onClose
-}: {
-  onSubmit: (data: any) => void;
-  isLoading: boolean;
-  onClose: () => void;
-}) {
-  const [formData, setFormData] = useState({
-    patientId: "",
-    heartRate: "",
-    systolic: "",
-    diastolic: "",
-    temperature: "",
-    respiratoryRate: "",
-    oxygenSaturation: "",
-    notes: "",
-  });
+function VitalMetric({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-xl border border-border bg-card p-4"><p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-2 text-lg font-semibold text-foreground">{value}</p></div>;
+}
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit({
-      patientId: formData.patientId,
-      heartRate: parseInt(formData.heartRate),
-      bloodPressure: `${formData.systolic}/${formData.diastolic}`,
-      temperature: parseFloat(formData.temperature),
-      respiratoryRate: parseInt(formData.respiratoryRate),
-      oxygenSaturation: parseInt(formData.oxygenSaturation),
-      notes: formData.notes,
-    });
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Patient</label>
-        <Input
-          type="text"
-          value={formData.patientId}
-          onChange={(e) => setFormData({ ...formData, patientId: e.target.value })}
-          placeholder="Select patient"
-          required
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Heart Rate (bpm)</label>
-          <Input
-            type="number"
-            value={formData.heartRate}
-            onChange={(e) => setFormData({ ...formData, heartRate: e.target.value })}
-            placeholder="60-100"
-            min="0"
-            max="300"
-            required
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Temperature (°C)</label>
-          <Input
-            type="number"
-            value={formData.temperature}
-            onChange={(e) => setFormData({ ...formData, temperature: e.target.value })}
-            placeholder="36.5-37.5"
-            step="0.1"
-            required
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Systolic (mmHg)</label>
-          <Input
-            type="number"
-            value={formData.systolic}
-            onChange={(e) => setFormData({ ...formData, systolic: e.target.value })}
-            placeholder="120"
-            min="0"
-            required
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Diastolic (mmHg)</label>
-          <Input
-            type="number"
-            value={formData.diastolic}
-            onChange={(e) => setFormData({ ...formData, diastolic: e.target.value })}
-            placeholder="80"
-            min="0"
-            required
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Respiratory Rate (/min)</label>
-          <Input
-            type="number"
-            value={formData.respiratoryRate}
-            onChange={(e) => setFormData({ ...formData, respiratoryRate: e.target.value })}
-            placeholder="12-20"
-            min="0"
-            required
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Oxygen Saturation (%)</label>
-          <Input
-            type="number"
-            value={formData.oxygenSaturation}
-            onChange={(e) => setFormData({ ...formData, oxygenSaturation: e.target.value })}
-            placeholder="95-100"
-            min="0"
-            max="100"
-            required
-          />
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-        <Input
-          value={formData.notes}
-          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-          placeholder="Additional observations..."
-        />
-      </div>
-
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button type="submit" disabled={isLoading}>
-          {isLoading ? "Recording..." : "Record Vitals"}
-        </Button>
-      </DialogFooter>
-    </form>
-  );
+function FormField({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string }) {
+  return <div className={`space-y-2 ${className}`}><label className="text-sm font-medium text-foreground">{label}</label>{children}</div>;
 }

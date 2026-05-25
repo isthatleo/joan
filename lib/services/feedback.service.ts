@@ -11,6 +11,7 @@ type FeedbackRecord = {
   status: string;
   priority: string;
   createdAt: Date | string | null;
+  updatedAt: Date | string | null;
   tenantId: string | null;
   userId: string | null;
   userName: string | null;
@@ -34,6 +35,7 @@ function mapFeedback(record: FeedbackRecord) {
     status: record.status,
     priority: record.priority,
     createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
     user: {
       id: record.userId,
       fullName: record.userName,
@@ -153,6 +155,7 @@ export class FeedbackService {
         status: feedbacks.status,
         priority: feedbacks.priority,
         createdAt: feedbacks.createdAt,
+        updatedAt: feedbacks.updatedAt,
         tenantId: feedbacks.tenantId,
         userId: feedbacks.userId,
         patientFeedback: feedbacks.patientFeedback,
@@ -174,6 +177,54 @@ export class FeedbackService {
     return records.map((record) => mapFeedback(record as FeedbackRecord));
   }
 
+  async getFeedbackById(feedbackId: string) {
+    const [record] = await db
+      .select({
+        id: feedbacks.id,
+        scope: feedbacks.scope,
+        type: feedbacks.type,
+        title: feedbacks.title,
+        description: feedbacks.description,
+        status: feedbacks.status,
+        priority: feedbacks.priority,
+        createdAt: feedbacks.createdAt,
+        updatedAt: feedbacks.updatedAt,
+        tenantId: feedbacks.tenantId,
+        userId: feedbacks.userId,
+        userName: sql<string | null>`coalesce(${users.fullName}, ${feedbacks.userName})`,
+        userEmail: sql<string | null>`coalesce(${users.email}, ${feedbacks.userEmail})`,
+        tenantName: tenants.name,
+        assignedToId: feedbacks.assignedTo,
+        assignedToName: sql<string | null>`null`,
+        assignedToEmail: sql<string | null>`null`,
+        resolvedAt: feedbacks.resolvedAt,
+        resolution: feedbacks.resolution,
+      })
+      .from(feedbacks)
+      .leftJoin(users, eq(users.id, feedbacks.userId))
+      .leftJoin(tenants, eq(tenants.id, feedbacks.tenantId))
+      .where(and(eq(feedbacks.id, feedbackId), isNull(feedbacks.deletedAt)))
+      .limit(1);
+
+    return record ? mapFeedback(record as FeedbackRecord) : null;
+  }
+
+  async getFeedbackAccess(feedbackId: string) {
+    const [record] = await db
+      .select({
+        id: feedbacks.id,
+        tenantId: feedbacks.tenantId,
+        userId: feedbacks.userId,
+        assignedTo: feedbacks.assignedTo,
+        scope: feedbacks.scope,
+      })
+      .from(feedbacks)
+      .where(and(eq(feedbacks.id, feedbackId), isNull(feedbacks.deletedAt)))
+      .limit(1);
+
+    return record ?? null;
+  }
+
   async updateFeedbackStatus(feedbackId: string, status?: string, assignedTo?: string, resolution?: string) {
     const updateData: Record<string, unknown> = {};
     if (status) updateData.status = status;
@@ -190,6 +241,19 @@ export class FeedbackService {
       .returning();
 
     return updated;
+  }
+
+  async deleteFeedback(feedbackId: string) {
+    const [deleted] = await db
+      .update(feedbacks)
+      .set({
+        deletedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(feedbacks.id, feedbackId), isNull(feedbacks.deletedAt)))
+      .returning({ id: feedbacks.id });
+
+    return deleted ?? null;
   }
 
   async getPatientFeedbacksByTenant(tenantId: string, filters?: { status?: string; type?: string }) {
@@ -212,6 +276,7 @@ export class FeedbackService {
         status: feedbacks.status,
         priority: feedbacks.priority,
         createdAt: feedbacks.createdAt,
+        updatedAt: feedbacks.updatedAt,
         tenantId: feedbacks.tenantId,
         userId: feedbacks.userId,
         userName: sql<string | null>`coalesce(${users.fullName}, ${feedbacks.userName})`,

@@ -1,5 +1,6 @@
 "use client";
 
+import { DashboardGreeting } from "@/components/DashboardGreeting";
 import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -87,6 +88,7 @@ export default function DoctorDashboardPage() {
 
   return (
     <div className="space-y-6">
+      <DashboardGreeting roleLabel="Doctor" />
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-semibold text-foreground">Doctor Dashboard</h1>
