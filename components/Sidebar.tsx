@@ -97,8 +97,9 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
      { label: "Inventory", path: "/lab/lab-inventory", icon: Boxes, category: "Lab" },
      { label: "Quality Control", path: "/lab/lab-qc", icon: ShieldCheck, category: "Lab" },
      { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
+     { label: "Feedback", path: "/lab/feedback", icon: MessageSquare, category: "Communication" },
      { label: "Analytics", path: "/lab/lab-analytics", icon: BarChart3, category: "Reports" },
-     { label: "Performance", path: "/analytics/lab-performance", icon: TrendingUp, category: "Reports" },
+     { label: "Performance", path: "/lab/performance", icon: TrendingUp, category: "Reports" },
      { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
    ],
   pharmacist: [

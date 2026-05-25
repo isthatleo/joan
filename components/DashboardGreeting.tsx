@@ -3,6 +3,7 @@
 import { format } from "date-fns";
 import { useEffect, useMemo, useState } from "react";
 import { useAuthStore } from "@/stores/auth";
+import { formatTimeForUser } from "@/lib/time-format";
 
 function getGreeting(date: Date) {
   const hour = date.getHours();
@@ -29,7 +30,7 @@ export function DashboardGreeting({ roleLabel }: { roleLabel: string }) {
         {getGreeting(now)}, {displayName} {icon}
       </p>
       <p className="mt-1 text-sm text-muted-foreground">
-        Today is {format(now, "EEEE, MMMM do, yyyy")} - {format(now, "h:mm a")}
+        Today is {format(now, "EEEE, MMMM do, yyyy")} - {formatTimeForUser(now)}
       </p>
     </div>
   );

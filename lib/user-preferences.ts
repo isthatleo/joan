@@ -1,6 +1,7 @@
 export const USER_THEME_STORAGE_KEY = "joan-theme";
 export const USER_LANGUAGE_STORAGE_KEY = "joan-language";
 export const USER_TIMEZONE_STORAGE_KEY = "joan-timezone";
+export const USER_TIME_FORMAT_STORAGE_KEY = "joan-time-format";
 export const USER_FONT_SCALE_STORAGE_KEY = "joan-font-scale";
 export const USER_DENSITY_STORAGE_KEY = "joan-density";
 export const USER_CALENDAR_START_STORAGE_KEY = "joan-calendar-start";
@@ -20,6 +21,7 @@ export type UserPreferenceSettings = {
     theme?: ThemePreference;
     language?: string;
     timezone?: string;
+    timeFormat?: string;
     density?: string;
     calendarStart?: string;
     reduceMotion?: boolean;
@@ -72,6 +74,7 @@ export function applyUserPreferences(settings: UserPreferenceSettings | null | u
   const theme = (appearance.theme as ThemePreference | undefined) || "system";
   const language = appearance.language || "en";
   const timezone = appearance.timezone || "UTC";
+  const timeFormat = appearance.timeFormat || "12h";
   const density = appearance.density || "comfortable";
   const calendarStart = appearance.calendarStart || "monday";
   const fontScale = appearance.fontScale || "default";
@@ -87,6 +90,7 @@ export function applyUserPreferences(settings: UserPreferenceSettings | null | u
   applyThemePreference(theme);
   document.documentElement.lang = language;
   document.documentElement.dataset.timezone = timezone;
+  document.documentElement.dataset.timeFormat = timeFormat;
   document.documentElement.dataset.density = density;
   document.documentElement.dataset.calendarStart = calendarStart;
   document.documentElement.dataset.fontScale = fontScale;
@@ -100,6 +104,7 @@ export function applyUserPreferences(settings: UserPreferenceSettings | null | u
 
   window.localStorage.setItem(USER_LANGUAGE_STORAGE_KEY, language);
   window.localStorage.setItem(USER_TIMEZONE_STORAGE_KEY, timezone);
+  window.localStorage.setItem(USER_TIME_FORMAT_STORAGE_KEY, timeFormat);
   window.localStorage.setItem(USER_FONT_SCALE_STORAGE_KEY, fontScale);
   window.localStorage.setItem(USER_DENSITY_STORAGE_KEY, density);
   window.localStorage.setItem(USER_CALENDAR_START_STORAGE_KEY, calendarStart);

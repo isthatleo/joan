@@ -1,351 +1,69 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
 import Link from "next/link";
-import {
-  Microscope, Search, Plus, CheckCircle, AlertCircle,
-  Loader2, Edit, Trash2, Eye, Download, RefreshCw,
-  ArrowLeft, Upload, Zap, File, MoreVertical
-} from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-
-const orange = "#F97316";
-
-interface LabResult {
-  id: string;
-  labOrderId: string;
-  patientName: string;
-  testType: string;
-  resultData: Record<string, any>;
-  fileUrl?: string;
-  status: "pending" | "reviewed" | "approved";
-  createdAt: string;
-  approvedBy?: string;
-  notes?: string;
-}
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
+import { withTenantPrefix } from "@/lib/tenant-routing";
+import { ArrowLeft, Download, Loader2, Microscope, RefreshCw, Search, Upload } from "lucide-react";
 
 export default function LabResultsPage() {
   const params = useParams();
   const slug = params?.slug as string;
-
-  const [results, setResults] = useState<LabResult[]>([]);
+  const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+  const path = (value: string) => withTenantPrefix(value, slug, hostname);
+  const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [selectedResult, setSelectedResult] = useState<LabResult | null>(null);
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const queryClient = useQueryClient();
 
-  const fetchResults = async () => {
-    setLoading(true);
+  const load = async (soft = false) => {
+    soft ? setRefreshing(true) : setLoading(true);
     try {
-      const res = await fetch(`/api/lab/results?limit=100`);
-      if (res.ok) {
-        const data = await res.json();
-        setResults(data.results || []);
-      }
-    } catch (error) {
-      console.error("Failed to fetch results:", error);
+      const res = await fetch(`/api/lab/results?slug=${slug}&limit=200`, { cache: "no-store" });
+      const payload = res.ok ? await res.json() : { results: [] };
+      setResults(Array.isArray(payload?.results) ? payload.results : []);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    fetchResults();
-  }, []);
+  useEffect(() => { load(); }, [slug]);
 
-  useEffect(() => {
-    const interval = setInterval(fetchResults, 60000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const uploadResultMutation = useMutation({
-    mutationFn: async (data: FormData) => {
-      const res = await fetch("/api/lab/results", {
-        method: "POST",
-        body: data,
-      });
-      if (!res.ok) throw new Error("Failed to upload result");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["lab-results"] });
-      fetchResults();
-      setShowUploadModal(false);
-    },
-  });
-
-  const filteredResults = results.filter(result => {
-    const matchesSearch = result.patientName.toLowerCase().includes(search.toLowerCase()) ||
-                         result.testType.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === "all" || result.status === statusFilter;
+  const filtered = useMemo(() => results.filter((result) => {
+    const q = search.toLowerCase();
+    const matchesSearch = String(result.patientName || "").toLowerCase().includes(q) || String(result.testType || "").toLowerCase().includes(q);
+    const matchesStatus = statusFilter === "all" || String(result.status || "") === statusFilter;
     return matchesSearch && matchesStatus;
-  });
+  }), [results, search, statusFilter]);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "pending": return "bg-yellow-50 text-yellow-700 border-yellow-100";
-      case "reviewed": return "bg-blue-50 text-blue-700 border-blue-100";
-      case "approved": return "bg-green-50 text-green-700 border-green-100";
-      default: return "bg-muted text-muted-foreground border-border";
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "pending": return <AlertCircle className="size-3" />;
-      case "reviewed": return <Eye className="size-3" />;
-      case "approved": return <CheckCircle className="size-3" />;
-      default: return null;
-    }
+  const stats = {
+    total: results.length,
+    pending: results.filter((result) => result.status === "pending").length,
+    reviewed: results.filter((result) => result.status === "reviewed" || result.status === "pending_review").length,
+    approved: results.filter((result) => result.status === "approved" || result.status === "accepted").length,
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <Link href={`/tenant/${slug}/lab`} className="flex items-center gap-2 text-sm text-orange-600 hover:text-orange-700 mb-3">
-            <ArrowLeft className="size-4" />
-            Back to Dashboard
-          </Link>
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Lab Results Management</p>
-          <h1 className="text-3xl font-bold text-foreground mt-1">Lab Results</h1>
-          <p className="text-sm text-muted-foreground mt-1">Upload, review, and manage lab test results.</p>
+          <Link href={path("/lab")} className="mb-3 inline-flex items-center gap-2 text-sm text-primary hover:underline"><ArrowLeft className="h-4 w-4" />Back to dashboard</Link>
+          <h1 className="text-3xl font-bold text-foreground">Results</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Publish findings, inspect payloads, and route clinicians into completed work.</p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={fetchResults}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
-          >
-            <RefreshCw className="size-4" />
-            Refresh
-          </button>
-          <button
-            onClick={() => setShowUploadModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-sm hover:opacity-90"
-            style={{ backgroundColor: orange }}
-          >
-            <Upload className="size-4" />
-            Upload Result
-          </button>
+          <button onClick={() => load(true)} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted"><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button>
+          <Link href={path("/lab/lab-results/upload")} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"><Upload className="h-4 w-4" />Upload Result</Link>
         </div>
       </div>
 
-      {/* Stats Overview */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        {[
-          { label: "Total Results", count: results.length, color: "bg-blue-50 text-blue-600" },
-          { label: "Pending Review", count: results.filter(r => r.status === "pending").length, color: "bg-yellow-50 text-yellow-600" },
-          { label: "Reviewed", count: results.filter(r => r.status === "reviewed").length, color: "bg-purple-50 text-purple-600" },
-          { label: "Approved", count: results.filter(r => r.status === "approved").length, color: "bg-green-50 text-green-600" },
-        ].map((stat, idx) => (
-          <div key={idx} className={`${stat.color} rounded-lg p-4`}>
-            <p className="text-xs font-semibold uppercase tracking-wide">{stat.label}</p>
-            <p className="text-2xl font-bold mt-1">{stat.count}</p>
-          </div>
-        ))}
-      </div>
+      <div className="grid gap-4 md:grid-cols-4">{[["Total", stats.total], ["Pending", stats.pending], ["Reviewed", stats.reviewed], ["Approved", stats.approved]].map(([label, value]) => <div key={String(label)} className="rounded-xl border border-border bg-card p-4"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-semibold text-foreground">{value}</p></div>)}</div>
 
-      {/* Search and Filters */}
-      <div className="bg-card border border-border rounded-xl p-4">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search by patient name or test type..."
-              className="w-full h-10 pl-10 pr-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
-            />
-          </div>
-          <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            className="h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300"
-          >
-            <option value="all">All Status</option>
-            <option value="pending">Pending Review</option>
-            <option value="reviewed">Reviewed</option>
-            <option value="approved">Approved</option>
-          </select>
-        </div>
-      </div>
+      <div className="rounded-2xl border border-border bg-card p-4"><div className="flex flex-col gap-3 md:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search patient or test" className="h-10 w-full rounded-lg border border-border bg-background pl-10 pr-3 text-sm" /></div><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-10 rounded-lg border border-border bg-background px-3 text-sm"><option value="all">All status</option><option value="pending">Pending</option><option value="pending_review">Pending review</option><option value="reviewed">Reviewed</option><option value="approved">Approved</option></select></div></div>
 
-      {/* Results Table */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 border-b border-border">
-              <tr className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
-                <th className="text-left px-5 py-3">Test Type</th>
-                <th className="text-left px-5 py-3">Patient</th>
-                <th className="text-left px-5 py-3">Status</th>
-                <th className="text-left px-5 py-3">Uploaded</th>
-                <th className="text-left px-5 py-3">Results</th>
-                <th className="text-left px-5 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {loading ? (
-                <tr><td colSpan={6} className="py-16 text-center"><Loader2 className="size-6 text-orange-500 animate-spin mx-auto" /></td></tr>
-              ) : filteredResults.length === 0 ? (
-                <tr><td colSpan={6} className="py-16 text-center">
-                  <Microscope className="size-10 text-muted mx-auto mb-2" />
-                  <p className="text-muted-foreground font-medium">No results found</p>
-                </td></tr>
-              ) : (
-                filteredResults.map(result => (
-                  <tr key={result.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-5 py-3 whitespace-nowrap">
-                      <p className="font-semibold text-foreground">{result.testType}</p>
-                    </td>
-                    <td className="px-5 py-3 whitespace-nowrap">
-                      <p className="text-sm text-foreground">{result.patientName}</p>
-                    </td>
-                    <td className="px-5 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${getStatusColor(result.status)}`}>
-                        {getStatusIcon(result.status)}
-                        {result.status.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 whitespace-nowrap text-sm text-foreground">
-                      {new Date(result.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        {result.fileUrl && (
-                          <a href={result.fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-semibold">
-                            <File className="size-3" />
-                            PDF
-                          </a>
-                        )}
-                        {Object.keys(result.resultData || {}).length > 0 && (
-                          <span className="text-xs text-muted-foreground">
-                            {Object.keys(result.resultData).length} fields
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => setSelectedResult(result)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-muted-foreground hover:text-blue-600 hover:bg-blue-50 font-semibold text-xs transition-colors"
-                        >
-                          <Eye className="size-3" />
-                        </button>
-                        {result.fileUrl && (
-                          <a
-                            href={result.fileUrl}
-                            download
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-muted-foreground hover:text-green-600 hover:bg-green-50 font-semibold text-xs transition-colors"
-                          >
-                            <Download className="size-3" />
-                          </a>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Result Details Modal */}
-      {selectedResult && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card rounded-lg p-6 max-w-2xl w-full max-h-96 overflow-y-auto">
-            <h2 className="text-xl font-bold mb-4">{selectedResult.testType} Results</h2>
-            <div className="space-y-4 mb-6">
-              <div>
-                <p className="text-xs text-muted-foreground">Patient</p>
-                <p className="font-semibold">{selectedResult.patientName}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Status</p>
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${getStatusColor(selectedResult.status)}`}>
-                  {getStatusIcon(selectedResult.status)}
-                  {selectedResult.status.toUpperCase()}
-                </span>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Test Results</p>
-                <div className="mt-2 space-y-2">
-                  {Object.entries(selectedResult.resultData || {}).map(([key, value]) => (
-                    <div key={key} className="flex justify-between text-sm p-2 bg-muted/30 rounded">
-                      <span className="font-semibold">{key}:</span>
-                      <span>{String(value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              {selectedResult.notes && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Notes</p>
-                  <p className="text-sm">{selectedResult.notes}</p>
-                </div>
-              )}
-            </div>
-            <button
-              onClick={() => setSelectedResult(null)}
-              className="w-full px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-muted"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Upload Modal */}
-      {showUploadModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card rounded-lg p-6 max-w-md w-full">
-            <h2 className="text-xl font-bold mb-4">Upload Lab Result</h2>
-            <div className="space-y-4 mb-6">
-              <input
-                type="text"
-                placeholder="Patient Name"
-                className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300"
-              />
-              <input
-                type="text"
-                placeholder="Test Type"
-                className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300"
-              />
-              <div className="border-2 border-dashed border-border rounded-lg p-6 text-center cursor-pointer hover:bg-muted/30 transition-colors">
-                <Upload className="size-8 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">Click to upload result file</p>
-                <p className="text-xs text-muted-foreground">PDF, CSV, or TXT</p>
-                <input
-                  type="file"
-                  className="hidden"
-                  accept=".pdf,.csv,.txt"
-                />
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowUploadModal(false)}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-muted"
-              >
-                Cancel
-              </button>
-              <button
-                className="flex-1 px-4 py-2 rounded-lg text-white text-sm font-semibold"
-                style={{ backgroundColor: orange }}
-              >
-                Upload
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <div className="overflow-hidden rounded-2xl border border-border bg-card"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-muted/40 text-left text-xs uppercase tracking-[0.2em] text-muted-foreground"><tr><th className="px-4 py-3">Test</th><th className="px-4 py-3">Patient</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Uploaded</th><th className="px-4 py-3">Actions</th></tr></thead><tbody>{loading ? <tr><td colSpan={5} className="px-4 py-10 text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" /></td></tr> : filtered.length === 0 ? <tr><td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">No lab results found.</td></tr> : filtered.map((result) => <tr key={result.id} className="border-t border-border"><td className="px-4 py-3"><p className="font-medium text-foreground">{result.testType}</p></td><td className="px-4 py-3"><p className="font-medium text-foreground">{result.patientName}</p></td><td className="px-4 py-3"><span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{String(result.status || "pending").replace(/_/g, " ")}</span></td><td className="px-4 py-3 text-foreground">{new Date(result.createdAt).toLocaleString()}</td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><Link href={path(`/lab/lab-results/${result.id}`)} className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted">View</Link>{result.fileUrl && <a href={result.fileUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"><Download className="h-3.5 w-3.5" />File</a>}</div></td></tr>)}</tbody></table></div></div>
     </div>
   );
 }
-

@@ -1,347 +1,62 @@
-"use client";
+﻿"use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
 import Link from "next/link";
-import {
-  ShieldCheck, Search, Plus, CheckCircle, AlertCircle,
-  Loader2, Trash2, Eye, RefreshCw, ArrowLeft, TrendingUp,
-  BarChart3, Calendar
-} from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-
-const orange = "#F97316";
-
-interface QCRecord {
-  id: string;
-  testName: string;
-  date: string;
-  result: string;
-  status: "pass" | "fail" | "review";
-  recordedBy: string;
-  notes?: string;
-}
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
+import { withTenantPrefix } from "@/lib/tenant-routing";
+import { ArrowLeft, Eye, Loader2, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from "lucide-react";
 
 export default function LabQCPage() {
   const params = useParams();
   const slug = params?.slug as string;
-
-  const [records, setRecords] = useState<QCRecord[]>([]);
+  const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+  const path = (value: string) => withTenantPrefix(value, slug, hostname);
+  const [records, setRecords] = useState<any[]>([]);
+  const [stats, setStats] = useState<any>({ total: 0, pass: 0, fail: 0, review: 0 });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [selectedRecord, setSelectedRecord] = useState<QCRecord | null>(null);
-  const [showNewModal, setShowNewModal] = useState(false);
-  const [formData, setFormData] = useState({
-    testName: "",
-    result: "",
-    notes: "",
-  });
-  const queryClient = useQueryClient();
+  const [selected, setSelected] = useState<any>(null);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ testName: "", result: "", status: "pass", instrument: "", lotNumber: "", notes: "" });
 
-  const fetchQCRecords = async () => {
-    setLoading(true);
+  const load = async (soft = false) => {
+    soft ? setRefreshing(true) : setLoading(true);
     try {
-      const res = await fetch("/api/lab/qc");
-      if (res.ok) {
-        const data = await res.json();
-        setRecords(data || []);
-      }
-    } catch (error) {
-      console.error("Failed to fetch QC records:", error);
+      const res = await fetch(`/api/lab/qc?slug=${slug}`, { cache: "no-store" });
+      const payload = res.ok ? await res.json() : { records: [], stats: {} };
+      setRecords(Array.isArray(payload?.records) ? payload.records : []);
+      setStats(payload?.stats || {});
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  useEffect(() => {
-    fetchQCRecords();
-  }, []);
+  useEffect(() => { load(); }, [slug]);
 
-  useEffect(() => {
-    const interval = setInterval(fetchQCRecords, 300000); // 5 minutes
-    return () => clearInterval(interval);
-  }, []);
-
-  const createQCRecordMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await fetch("/api/lab/qc", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error("Failed to create QC record");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["qc-records"] });
-      fetchQCRecords();
-      setShowNewModal(false);
-      setFormData({ testName: "", result: "", notes: "" });
-    },
-  });
-
-  const filteredRecords = records.filter(record => {
-    const matchesSearch = record.testName.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === "all" || record.status === statusFilter;
+  const filtered = useMemo(() => records.filter((record) => {
+    const q = search.toLowerCase();
+    const matchesSearch = String(record.testName || "").toLowerCase().includes(q) || String(record.instrument || "").toLowerCase().includes(q);
+    const matchesStatus = statusFilter === "all" || String(record.status || "") === statusFilter;
     return matchesSearch && matchesStatus;
-  });
+  }), [records, search, statusFilter]);
 
-  const passRate = records.length > 0
-    ? (records.filter(r => r.status === "pass").length / records.length * 100).toFixed(1)
-    : 0;
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "pass": return "bg-green-50 text-green-700 border-green-100";
-      case "fail": return "bg-red-50 text-red-700 border-red-100";
-      case "review": return "bg-yellow-50 text-yellow-700 border-yellow-100";
-      default: return "bg-muted text-muted-foreground border-border";
-    }
+  const saveRecord = async () => {
+    const res = await fetch(`/api/lab/qc`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, slug }) });
+    if (res.ok) { setOpen(false); setForm({ testName: "", result: "", status: "pass", instrument: "", lotNumber: "", notes: "" }); await load(true); }
   };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "pass": return <CheckCircle className="size-3" />;
-      case "fail": return <AlertCircle className="size-3" />;
-      case "review": return <AlertCircle className="size-3" />;
-      default: return null;
-    }
-  };
+  const deleteRecord = async (id: string) => { const res = await fetch(`/api/lab/qc/${id}?slug=${slug}`, { method: "DELETE" }); if (res.ok) await load(true); };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <Link href={`/tenant/${slug}/lab`} className="flex items-center gap-2 text-sm text-orange-600 hover:text-orange-700 mb-3">
-            <ArrowLeft className="size-4" />
-            Back to Dashboard
-          </Link>
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Quality Control Management</p>
-          <h1 className="text-3xl font-bold text-foreground mt-1">Quality Control</h1>
-          <p className="text-sm text-muted-foreground mt-1">Monitor QC tests, track results, and maintain compliance.</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={fetchQCRecords}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
-          >
-            <RefreshCw className="size-4" />
-            Refresh
-          </button>
-          <button
-            onClick={() => setShowNewModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-sm hover:opacity-90"
-            style={{ backgroundColor: orange }}
-          >
-            <Plus className="size-4" />
-            New QC Test
-          </button>
-        </div>
-      </div>
-
-      {/* QC Metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="bg-blue-50 text-blue-600 rounded-lg p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide">Total Tests</p>
-          <p className="text-2xl font-bold mt-1">{records.length}</p>
-        </div>
-        <div className="bg-green-50 text-green-600 rounded-lg p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide">Pass Rate</p>
-          <p className="text-2xl font-bold mt-1">{passRate}%</p>
-        </div>
-        <div className="bg-red-50 text-red-600 rounded-lg p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide">Failed Tests</p>
-          <p className="text-2xl font-bold mt-1">{records.filter(r => r.status === "fail").length}</p>
-        </div>
-        <div className="bg-yellow-50 text-yellow-600 rounded-lg p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide">Under Review</p>
-          <p className="text-2xl font-bold mt-1">{records.filter(r => r.status === "review").length}</p>
-        </div>
-      </div>
-
-      {/* Search and Filters */}
-      <div className="bg-card border border-border rounded-xl p-4">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search by test name..."
-              className="w-full h-10 pl-10 pr-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
-            />
-          </div>
-          <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
-            className="h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300"
-          >
-            <option value="all">All Status</option>
-            <option value="pass">Passed</option>
-            <option value="fail">Failed</option>
-            <option value="review">Under Review</option>
-          </select>
-        </div>
-      </div>
-
-      {/* QC Records Table */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 border-b border-border">
-              <tr className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
-                <th className="text-left px-5 py-3">Test Name</th>
-                <th className="text-left px-5 py-3">Date</th>
-                <th className="text-left px-5 py-3">Result</th>
-                <th className="text-left px-5 py-3">Status</th>
-                <th className="text-left px-5 py-3">Recorded By</th>
-                <th className="text-left px-5 py-3">Notes</th>
-                <th className="text-left px-5 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {loading ? (
-                <tr><td colSpan={7} className="py-16 text-center"><Loader2 className="size-6 text-orange-500 animate-spin mx-auto" /></td></tr>
-              ) : filteredRecords.length === 0 ? (
-                <tr><td colSpan={7} className="py-16 text-center">
-                  <ShieldCheck className="size-10 text-muted mx-auto mb-2" />
-                  <p className="text-muted-foreground font-medium">No QC records found</p>
-                </td></tr>
-              ) : (
-                filteredRecords.map(record => (
-                  <tr key={record.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-5 py-3 whitespace-nowrap">
-                      <p className="font-semibold text-foreground">{record.testName}</p>
-                    </td>
-                    <td className="px-5 py-3 whitespace-nowrap text-sm text-foreground">
-                      {new Date(record.date).toLocaleDateString()}
-                    </td>
-                    <td className="px-5 py-3 whitespace-nowrap">
-                      <p className="font-mono text-sm">{record.result}</p>
-                    </td>
-                    <td className="px-5 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${getStatusColor(record.status)}`}>
-                        {getStatusIcon(record.status)}
-                        {record.status.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 whitespace-nowrap text-sm text-foreground">
-                      {record.recordedBy}
-                    </td>
-                    <td className="px-5 py-3">
-                      <p className="text-xs text-muted-foreground truncate max-w-xs">{record.notes || "-"}</p>
-                    </td>
-                    <td className="px-5 py-3 whitespace-nowrap">
-                      <button
-                        onClick={() => setSelectedRecord(record)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-muted-foreground hover:text-blue-600 hover:bg-blue-50 font-semibold text-xs transition-colors"
-                      >
-                        <Eye className="size-3" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Record Details Modal */}
-      {selectedRecord && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card rounded-lg p-6 max-w-md w-full">
-            <h2 className="text-xl font-bold mb-4">QC Record Details</h2>
-            <div className="space-y-3 mb-6">
-              <div>
-                <p className="text-xs text-muted-foreground">Test Name</p>
-                <p className="font-semibold">{selectedRecord.testName}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Date</p>
-                <p className="font-semibold">{new Date(selectedRecord.date).toLocaleDateString()}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Result</p>
-                <p className="font-mono">{selectedRecord.result}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Status</p>
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${getStatusColor(selectedRecord.status)}`}>
-                  {getStatusIcon(selectedRecord.status)}
-                  {selectedRecord.status.toUpperCase()}
-                </span>
-              </div>
-              {selectedRecord.notes && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Notes</p>
-                  <p className="text-sm">{selectedRecord.notes}</p>
-                </div>
-              )}
-            </div>
-            <button
-              onClick={() => setSelectedRecord(null)}
-              className="w-full px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-muted"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* New QC Test Modal */}
-      {showNewModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-card rounded-lg p-6 max-w-md w-full">
-            <h2 className="text-xl font-bold mb-4">Create QC Test Record</h2>
-            <div className="space-y-4 mb-6">
-              <input
-                type="text"
-                placeholder="Test Name"
-                value={formData.testName}
-                onChange={e => setFormData({ ...formData, testName: e.target.value })}
-                className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:border-orange-300"
-              />
-              <input
-                type="text"
-                placeholder="Result Value"
-                value={formData.result}
-                onChange={e => setFormData({ ...formData, result: e.target.value })}
-                className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm focus:outline-none focus:border-orange-300"
-              />
-              <textarea
-                placeholder="Additional Notes"
-                value={formData.notes}
-                onChange={e => setFormData({ ...formData, notes: e.target.value })}
-                className="w-full h-20 px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:border-orange-300 resize-none"
-              />
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowNewModal(false)}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm font-semibold hover:bg-muted"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => createQCRecordMutation.mutate({
-                  ...formData,
-                  status: "pass",
-                  date: new Date().toISOString(),
-                  recordedBy: "Current User"
-                })}
-                className="flex-1 px-4 py-2 rounded-lg text-white text-sm font-semibold"
-                style={{ backgroundColor: orange }}
-              >
-                Create Record
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <div className="flex flex-wrap items-start justify-between gap-4"><div><Link href={path("/lab")} className="mb-3 inline-flex items-center gap-2 text-sm text-primary hover:underline"><ArrowLeft className="h-4 w-4" />Back to dashboard</Link><h1 className="text-3xl font-bold text-foreground">Quality Control</h1><p className="mt-1 text-sm text-muted-foreground">QC register, review visibility, and audit-ready record handling.</p></div><div className="flex gap-2"><button onClick={() => load(true)} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted"><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button><button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"><Plus className="h-4 w-4" />New QC Test</button></div></div>
+      <div className="grid gap-4 md:grid-cols-4">{[["Total", stats.total], ["Pass", stats.pass], ["Fail", stats.fail], ["Review", stats.review]].map(([label, value]) => <div key={String(label)} className="rounded-xl border border-border bg-card p-4"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-semibold text-foreground">{value || 0}</p></div>)}</div>
+      <div className="rounded-2xl border border-border bg-card p-4"><div className="flex flex-col gap-3 md:flex-row"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search QC tests" className="h-10 w-full rounded-lg border border-border bg-background pl-10 pr-3 text-sm" /></div><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-10 rounded-lg border border-border bg-background px-3 text-sm"><option value="all">All status</option><option value="pass">Pass</option><option value="fail">Fail</option><option value="review">Review</option></select></div></div>
+      <div className="overflow-hidden rounded-2xl border border-border bg-card"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-muted/40 text-left text-xs uppercase tracking-[0.2em] text-muted-foreground"><tr><th className="px-4 py-3">Test</th><th className="px-4 py-3">Instrument</th><th className="px-4 py-3">Result</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Recorded by</th><th className="px-4 py-3">Actions</th></tr></thead><tbody>{loading ? <tr><td colSpan={6} className="px-4 py-10 text-center"><Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" /></td></tr> : filtered.length === 0 ? <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">No QC records found.</td></tr> : filtered.map((record) => <tr key={record.id} className="border-t border-border"><td className="px-4 py-3"><p className="font-medium text-foreground">{record.testName}</p><p className="text-xs text-muted-foreground">{new Date(record.date).toLocaleString()}</p></td><td className="px-4 py-3 text-foreground">{record.instrument || "General"}</td><td className="px-4 py-3 text-foreground">{record.result}</td><td className="px-4 py-3"><span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{record.status}</span></td><td className="px-4 py-3 text-foreground">{record.recordedBy}</td><td className="px-4 py-3"><div className="flex flex-wrap gap-2"><button onClick={() => setSelected(record)} className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"><Eye className="h-3.5 w-3.5" />View</button><button onClick={() => deleteRecord(record.id)} className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20"><Trash2 className="h-3.5 w-3.5" />Delete</button></div></td></tr>)}</tbody></table></div></div>
+      {selected && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6"><div className="mb-4 flex items-center gap-2 text-foreground"><ShieldCheck className="h-5 w-5 text-primary" /><h2 className="text-xl font-semibold">QC Details</h2></div><div className="space-y-3 text-sm"><p><span className="font-medium text-foreground">Test:</span> {selected.testName}</p><p><span className="font-medium text-foreground">Result:</span> {selected.result}</p><p><span className="font-medium text-foreground">Instrument:</span> {selected.instrument || "General"}</p><p><span className="font-medium text-foreground">Lot:</span> {selected.lotNumber || "-"}</p><p><span className="font-medium text-foreground">Notes:</span> {selected.notes || "-"}</p></div><div className="mt-6 flex justify-end"><button onClick={() => setSelected(null)} className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted">Close</button></div></div></div>}
+      {open && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div className="w-full max-w-xl rounded-2xl border border-border bg-card p-6"><h2 className="text-xl font-semibold text-foreground">Create QC record</h2><div className="mt-4 grid gap-4 md:grid-cols-2"><input value={form.testName} onChange={(e) => setForm({ ...form, testName: e.target.value })} placeholder="Test name" className="h-10 rounded-lg border border-border bg-background px-3 text-sm" /><input value={form.result} onChange={(e) => setForm({ ...form, result: e.target.value })} placeholder="Result value" className="h-10 rounded-lg border border-border bg-background px-3 text-sm" /><select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="h-10 rounded-lg border border-border bg-background px-3 text-sm"><option value="pass">Pass</option><option value="fail">Fail</option><option value="review">Review</option></select><input value={form.instrument} onChange={(e) => setForm({ ...form, instrument: e.target.value })} placeholder="Instrument" className="h-10 rounded-lg border border-border bg-background px-3 text-sm" /><input value={form.lotNumber} onChange={(e) => setForm({ ...form, lotNumber: e.target.value })} placeholder="Lot number" className="h-10 rounded-lg border border-border bg-background px-3 text-sm md:col-span-2" /><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" className="min-h-[100px] rounded-lg border border-border bg-background px-3 py-2 text-sm md:col-span-2" /></div><div className="mt-6 flex justify-end gap-3"><button onClick={() => setOpen(false)} className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted">Cancel</button><button onClick={saveRecord} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">Save</button></div></div></div>}
     </div>
   );
 }
-

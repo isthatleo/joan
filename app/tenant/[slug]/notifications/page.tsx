@@ -28,6 +28,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { NotificationDialog } from "@/components/NotificationDialog";
+import { formatDateTimeForUser } from "@/lib/time-format";
 
 interface Notification {
   id: string;
@@ -159,6 +160,17 @@ export default function NotificationsPage() {
       default:
         return "bg-slate-50/80 border-slate-200 dark:bg-slate-500/10 dark:border-slate-400/20";
     }
+  };
+
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+
+    if (diffInMinutes < 1) return "Just now";
+    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
+    return formatDateTimeForUser(date, { month: "short", day: "2-digit" });
   };
 
   return (

@@ -26,9 +26,9 @@ import {
   EyeOff,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { NotificationDialog } from "@/components/NotificationDialog";
+import { formatDateTimeForUser } from "@/lib/time-format";
 
 interface Notification {
   id: string;
@@ -171,7 +171,7 @@ export default function NotificationsPage() {
     if (diffInMinutes < 1) return "Just now";
     if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
     if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
-    return format(date, "MMM dd");
+    return formatDateTimeForUser(date, { month: "short", day: "2-digit" });
   };
 
   if (!user) {

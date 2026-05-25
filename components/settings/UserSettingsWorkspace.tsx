@@ -339,6 +339,15 @@ export function UserSettingsWorkspace({
                   options={timezones.map((timezone) => ({ value: timezone, label: timezone }))}
                 />
                 <SelectField
+                  label="Time Format"
+                  value={settings.appearance.timeFormat}
+                  onChange={(value) => updateSection("appearance", { timeFormat: value })}
+                  options={[
+                    { value: "12h", label: "12-hour format" },
+                    { value: "24h", label: "24-hour format" },
+                  ]}
+                />
+                <SelectField
                   label="Workspace Density"
                   value={settings.appearance.density}
                   onChange={(value) => updateSection("appearance", { density: value })}

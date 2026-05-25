@@ -24,9 +24,9 @@ import {
   User,
   ArrowRight,
 } from "lucide-react";
-import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth";
+import { formatDateTimeForUser } from "@/lib/time-format";
 
 interface Notification {
   id: string;
@@ -128,7 +128,13 @@ export function NotificationDialog({
     if (diffInMinutes < 1) return "Just now";
     if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
     if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
-    return format(date, "MMM dd, yyyy 'at' h:mm a");
+    return formatDateTimeForUser(date, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   const handleMarkAsRead = () => {
