@@ -42,6 +42,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { formatTimeForUser } from "@/lib/time-format";
 
 interface User {
   id: string;
@@ -974,7 +975,7 @@ export default function MessagesPage() {
     const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
 
     if (diffInHours < 24) {
-      return format(date, "HH:mm");
+      return formatTimeForUser(date);
     } else {
       return format(date, "MMM dd");
     }

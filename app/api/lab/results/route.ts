@@ -1,9 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { labOrders, labResults, notifications, patients, users } from "@/lib/db/schema";
+import { labOrders, labResults, notifications, patients, tenantSettings, users } from "@/lib/db/schema";
 import { parseLabResultData, serializeLabResultData } from "@/lib/doctor/lab-results";
+
+async function saveUploadedFile(file: File | null) {
+  if (!file || !file.size) return null;
+  const extension = path.extname(file.name || "").slice(0, 10);
+  const safeName = `${randomUUID()}${extension || ".bin"}`;
+  const uploadsDir = path.join(process.cwd(), "public", "uploads", "lab-results");
+  await mkdir(uploadsDir, { recursive: true });
+  const filePath = path.join(uploadsDir, safeName);
+  const buffer = Buffer.from(await file.arrayBuffer());
+  await writeFile(filePath, buffer);
+  return `/uploads/lab-results/${safeName}`;
+}
+
+async function markDeviceResultImported(tenantId: string, deviceResultId: string, labOrderId: string) {
+  const existing = await db.query.tenantSettings.findFirst({
+    where: and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, "lab_device_results_queue")),
+  });
+
+  if (!existing || !Array.isArray(existing.value)) return;
+  const nextQueue = existing.value.map((entry: any) =>
+    String(entry.id) === deviceResultId
+      ? {
+          ...entry,
+          status: "imported",
+          importedAt: new Date().toISOString(),
+          labOrderId,
+        }
+      : entry
+  );
+
+  await db
+    .update(tenantSettings)
+    .set({ value: nextQueue, updatedAt: new Date() })
+    .where(eq(tenantSettings.id, existing.id));
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -60,7 +98,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { labOrderId, resultData, fileUrl } = await request.json();
+    const contentType = request.headers.get("content-type") || "";
+    let labOrderId: string | null = null;
+    let resultData: any = null;
+    let fileUrl: string | null = null;
+    let deviceResultId: string | null = null;
+
+    if (contentType.includes("multipart/form-data")) {
+      const formData = await request.formData();
+      labOrderId = String(formData.get("labOrderId") || "").trim() || null;
+      deviceResultId = String(formData.get("deviceResultId") || "").trim() || null;
+      const rawResultData = formData.get("resultData");
+      resultData = rawResultData ? JSON.parse(String(rawResultData)) : null;
+      fileUrl = await saveUploadedFile(formData.get("file") as File | null);
+    } else {
+      const body = await request.json();
+      labOrderId = String(body.labOrderId || "").trim() || null;
+      resultData = body.resultData;
+      fileUrl = body.fileUrl || null;
+      deviceResultId = body.deviceResultId ? String(body.deviceResultId) : null;
+    }
 
     if (!labOrderId || !resultData) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -120,6 +177,10 @@ export async function POST(request: NextRequest) {
         },
         read: false,
       });
+    }
+
+    if (deviceResultId) {
+      await markDeviceResultImported(order[0].tenantId, deviceResultId, order[0].id);
     }
 
     return NextResponse.json(result, { status: 201 });

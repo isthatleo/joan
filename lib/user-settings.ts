@@ -23,6 +23,7 @@
     theme: "system",
     language: "en",
     timezone: "UTC",
+    timeFormat: "12h",
     density: "comfortable",
     calendarStart: "monday",
     reduceMotion: false,
@@ -65,6 +66,7 @@ export type UserSettingsShape = typeof defaultUserSettings;
 
 const allowedThemes = new Set(["light", "dark", "system"]);
 const allowedLanguages = new Set(["en", "fr", "es", "sw", "ar"]);
+const allowedTimeFormats = new Set(["12h", "24h"]);
 const allowedDensity = new Set(["compact", "comfortable", "spacious"]);
 const allowedCalendarStart = new Set(["monday", "sunday"]);
 const allowedFontScale = new Set(["small", "default", "large"]);
@@ -140,6 +142,7 @@ export function mergeUserSettings(settings: unknown): UserSettingsShape {
       theme: asAllowedString(appearance.theme, allowedThemes, defaultUserSettings.appearance.theme),
       language: asAllowedString(appearance.language, allowedLanguages, defaultUserSettings.appearance.language),
       timezone: asString(appearance.timezone, defaultUserSettings.appearance.timezone),
+      timeFormat: asAllowedString(appearance.timeFormat, allowedTimeFormats, defaultUserSettings.appearance.timeFormat),
       density: asAllowedString(appearance.density, allowedDensity, defaultUserSettings.appearance.density),
       calendarStart: asAllowedString(appearance.calendarStart, allowedCalendarStart, defaultUserSettings.appearance.calendarStart),
       reduceMotion: asBoolean(appearance.reduceMotion, defaultUserSettings.appearance.reduceMotion),
