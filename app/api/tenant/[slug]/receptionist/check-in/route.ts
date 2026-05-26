@@ -1,37 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkInReceptionPatient, getTenantBySlug } from "@/lib/receptionist/data";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
-    const { slug } = resolvedParams;
-    const { patientId, appointmentId } = await request.json();
+    const { slug } = await params;
+    const tenant = await getTenantBySlug(slug);
+    if (!tenant) {
+      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
 
-    // Mock check-in process - replace with actual database operations
-    console.log(`Checking in patient ${patientId} for appointment ${appointmentId}`);
+    const { patientId, appointmentId, paymentMethod, insuranceProvider, insurancePolicyNumber, saveAsDefault, recordedBy } = await request.json();
+    if (!patientId) {
+      return NextResponse.json({ error: "Patient ID is required" }, { status: 400 });
+    }
 
-    // Mock response data
-    const checkInData = {
-      patient: {
-        id: patientId,
-        firstName: "Sarah",
-        lastName: "Johnson",
-        medicalRecordNumber: "MRN001234"
-      },
-      appointment: {
-        id: appointmentId,
-        type: "General Checkup",
-        doctorName: "Dr. Sarah Smith"
-      },
-      checkInTime: new Date().toISOString(),
-      estimatedWaitTime: "15 minutes",
-      queuePosition: 3
-    };
-
-    return NextResponse.json(checkInData);
+    const result = await checkInReceptionPatient(tenant.id, patientId, appointmentId, {
+      paymentMethod: paymentMethod || null,
+      insuranceProvider: insuranceProvider || null,
+      insurancePolicyNumber: insurancePolicyNumber || null,
+      saveAsDefault: Boolean(saveAsDefault),
+      recordedBy: recordedBy || null,
+    });
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Failed to check in patient:", error);
-    return NextResponse.json(
-      { error: "Failed to check in patient" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to check in patient" }, { status: 500 });
   }
 }

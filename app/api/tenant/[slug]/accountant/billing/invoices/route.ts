@@ -5,6 +5,7 @@ import { getTenantIdBySlug } from "@/lib/accountant/server";
 import { parseJsonBody, validateFinancePayload } from "@/lib/accountant/finance-api";
 import { invoiceCreateSchema } from "@/lib/accountant/route-schemas";
 import { getTenantDefaultCurrency, syncTenantPatientCareLedgers } from "@/lib/billing/patient-ledger";
+import { getLatestVisitPaymentSelectionsByPatient } from "@/lib/receptionist/payment";
 
 export async function GET(
   request: NextRequest,
@@ -96,8 +97,21 @@ export async function GET(
 
     queryParams.push(limit, offset);
     const invoices = await db.$queryRaw(invoicesQuery, queryParams);
+    const paymentSelections = await getLatestVisitPaymentSelectionsByPatient(
+      tenantId,
+      invoices.map((invoice: any) => invoice.patient_id).filter(Boolean),
+    );
 
     const formattedInvoices = invoices.map((invoice: any) => ({
+      ...(paymentSelections.get(invoice.patient_id)
+        ? {
+            paymentPreference: {
+              method: paymentSelections.get(invoice.patient_id)?.paymentMethod || null,
+              insuranceProvider: paymentSelections.get(invoice.patient_id)?.insuranceProvider || null,
+              insurancePolicyNumber: paymentSelections.get(invoice.patient_id)?.insurancePolicyNumber || null,
+            },
+          }
+        : {}),
       id: invoice.id,
       invoiceNumber: invoice.invoice_number,
       patientName: invoice.patient_name || "Unknown Patient",

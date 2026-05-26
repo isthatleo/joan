@@ -1,568 +1,357 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import {
-  Calendar, Clock, User, MapPin, Video, Stethoscope, Search,
-  ChevronRight, ChevronLeft, CheckCircle2, AlertTriangle, RefreshCw,
-  Phone, MessageSquare, Info
-} from "lucide-react";
+import { Calendar, CheckCircle2, Clock3, Loader2, RefreshCw, Save, Search, UserRound } from "lucide-react";
+import { useTenantPath } from "@/hooks/useTenantPath";
 
-interface Provider {
+type BookingProvider = {
   id: string;
   name: string;
   specialty: string;
-  avatar?: string;
-  rating: number;
-  experience: number;
-  languages: string[];
-  bio: string;
-}
+  email?: string | null;
+  phone?: string | null;
+};
 
-interface TimeSlot {
-  time: string;
-  available: boolean;
-  type: "clinic" | "telehealth";
-}
-
-interface AvailableDate {
-  date: string;
-  dayName: string;
-  slots: TimeSlot[];
-}
-
-interface AppointmentType {
+type AppointmentType = {
   id: string;
   name: string;
   duration: number;
   description: string;
-  price?: number;
-}
+};
 
-interface BookingData {
-  appointmentType: string;
-  providerId: string;
-  date: string;
-  time: string;
-  type: "clinic" | "telehealth";
-  reason: string;
-  notes?: string;
-}
+type PatientResult = {
+  id: string;
+  fullName: string;
+  medicalRecordNumber: string;
+  phone: string;
+  email: string;
+};
 
-export default function BookAppointmentPage() {
+type ExistingAppointment = {
+  id: string;
+  patientId: string;
+  patientName: string;
+  doctorId?: string | null;
+  doctorName: string;
+  scheduledAt: string | null;
+  status: string;
+  type: string;
+  reason?: string | null;
+  notes?: string | null;
+};
+
+export default function ReceptionBookAppointmentPage() {
   const { slug } = useParams();
+  const tenantSlug = String(slug || "");
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rescheduleId = searchParams.get("reschedule");
+  const tenantPath = useTenantPath();
+  const appointmentId = searchParams.get("appointmentId");
+  const patientIdFromQuery = searchParams.get("patientId");
 
-  const [currentStep, setCurrentStep] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [patientSearch, setPatientSearch] = useState("");
+  const [patientResults, setPatientResults] = useState<PatientResult[]>([]);
+  const [selectedPatient, setSelectedPatient] = useState<PatientResult | null>(null);
+  const [providers, setProviders] = useState<BookingProvider[]>([]);
   const [appointmentTypes, setAppointmentTypes] = useState<AppointmentType[]>([]);
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [availableDates, setAvailableDates] = useState<AvailableDate[]>([]);
-  const [selectedAppointmentType, setSelectedAppointmentType] = useState<string>("");
-  const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
-  const [selectedDate, setSelectedDate] = useState<string>("");
-  const [selectedTime, setSelectedTime] = useState<string>("");
-  const [selectedType, setSelectedType] = useState<"clinic" | "telehealth">("clinic");
-  const [reason, setReason] = useState("");
-  const [notes, setNotes] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [booking, setBooking] = useState(false);
+  const [existingAppointment, setExistingAppointment] = useState<ExistingAppointment | null>(null);
+  const [form, setForm] = useState({
+    appointmentType: "consultation",
+    doctorId: "",
+    date: "",
+    time: "",
+    reason: "",
+    notes: "",
+  });
 
-  const steps = [
-    { id: 1, title: "Appointment Type", description: "Choose service type" },
-    { id: 2, title: "Select Provider", description: "Choose healthcare provider" },
-    { id: 3, title: "Choose Date & Time", description: "Pick available slot" },
-    { id: 4, title: "Confirm Details", description: "Review and book" },
-  ];
+  const isReschedule = Boolean(appointmentId);
 
-  // Fetch initial data
   useEffect(() => {
-    fetchAppointmentTypes();
-    fetchProviders();
-  }, []);
+    const load = async () => {
+      try {
+        setLoading(true);
+        const optionsRes = await fetch(`/api/tenant/${tenantSlug}/receptionist/appointments/options`, { cache: "no-store" });
+        const optionsPayload = await optionsRes.json().catch(() => null);
+        if (optionsRes.ok && optionsPayload) {
+          setProviders(Array.isArray(optionsPayload.providers) ? optionsPayload.providers : []);
+          setAppointmentTypes(Array.isArray(optionsPayload.appointmentTypes) ? optionsPayload.appointmentTypes : []);
+        }
 
-  // Fetch available dates when provider is selected
+        if (appointmentId) {
+          const appointmentsRes = await fetch(`/api/tenant/${tenantSlug}/receptionist/appointments`, { cache: "no-store" });
+          const appointmentsPayload = await appointmentsRes.json().catch(() => []);
+          const match = Array.isArray(appointmentsPayload)
+            ? appointmentsPayload.find((item: ExistingAppointment) => item.id === appointmentId)
+            : null;
+
+          if (match) {
+            setExistingAppointment(match);
+            setSelectedPatient({
+              id: match.patientId,
+              fullName: match.patientName,
+              medicalRecordNumber: "",
+              phone: "",
+              email: "",
+            });
+            const when = match.scheduledAt ? new Date(match.scheduledAt) : null;
+            setForm({
+              appointmentType: match.type || "consultation",
+              doctorId: match.doctorId || "",
+              date: when ? when.toISOString().slice(0, 10) : "",
+              time: when ? when.toTimeString().slice(0, 5) : "",
+              reason: match.reason || "",
+              notes: match.notes || "",
+            });
+          }
+        } else if (patientIdFromQuery) {
+          const profileRes = await fetch(`/api/tenant/${tenantSlug}/receptionist/appointments/patient/${patientIdFromQuery}`, { cache: "no-store" });
+          const profilePayload = await profileRes.json().catch(() => null);
+          if (profileRes.ok && profilePayload?.patient) {
+            setSelectedPatient({
+              id: profilePayload.patient.id,
+              fullName: profilePayload.patient.fullName,
+              medicalRecordNumber: profilePayload.patient.globalPatientId || profilePayload.patient.medicalRecordNumber || "",
+              phone: profilePayload.patient.phone || "",
+              email: profilePayload.patient.email || "",
+            });
+          }
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (tenantSlug) {
+      void load();
+    }
+  }, [tenantSlug, appointmentId, patientIdFromQuery]);
+
   useEffect(() => {
-    if (selectedProvider) {
-      fetchAvailableDates();
-    }
-  }, [selectedProvider]);
-
-  const fetchAppointmentTypes = async () => {
-    try {
-      const res = await fetch(`/api/tenant/${slug}/patient/appointments/types`);
-      if (res.ok) {
-        setAppointmentTypes(await res.json());
+    const timer = setTimeout(async () => {
+      if (!patientSearch.trim() || patientSearch.trim().length < 2 || isReschedule) {
+        setPatientResults([]);
+        return;
       }
-    } catch (error) {
-      console.error("Failed to fetch appointment types:", error);
-    }
-  };
+      const response = await fetch(`/api/tenant/${tenantSlug}/receptionist/patients/search?q=${encodeURIComponent(patientSearch.trim())}`, { cache: "no-store" });
+      const payload = await response.json().catch(() => []);
+      setPatientResults(Array.isArray(payload) ? payload : []);
+    }, 250);
 
-  const fetchProviders = async () => {
-    try {
-      const res = await fetch(`/api/tenant/${slug}/patient/providers`);
-      if (res.ok) {
-        setProviders(await res.json());
-      }
-    } catch (error) {
-      console.error("Failed to fetch providers:", error);
-    }
-  };
+    return () => clearTimeout(timer);
+  }, [patientSearch, tenantSlug, isReschedule]);
 
-  const fetchAvailableDates = async () => {
-    if (!selectedProvider) return;
+  const selectedProvider = useMemo(
+    () => providers.find((provider) => provider.id === form.doctorId) || null,
+    [providers, form.doctorId],
+  );
 
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/tenant/${slug}/patient/providers/${selectedProvider.id}/availability`);
-      if (res.ok) {
-        setAvailableDates(await res.json());
-      }
-    } catch (error) {
-      console.error("Failed to fetch availability:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleBooking = async () => {
-    if (!selectedAppointmentType || !selectedProvider || !selectedDate || !selectedTime || !reason) {
-      alert("Please fill in all required fields");
+  const submit = async () => {
+    if (!selectedPatient || !form.date || !form.time) {
+      window.alert("Patient, date, and time are required.");
       return;
     }
 
-    setBooking(true);
     try {
-      const bookingData: BookingData = {
-        appointmentType: selectedAppointmentType,
-        providerId: selectedProvider.id,
-        date: selectedDate,
-        time: selectedTime,
-        type: selectedType,
-        reason,
-        notes,
+      setSaving(true);
+      const scheduledAt = new Date(`${form.date}T${form.time}:00`);
+      const payload = {
+        patientId: selectedPatient.id,
+        doctorId: form.doctorId || null,
+        scheduledAt: scheduledAt.toISOString(),
+        appointmentType: form.appointmentType,
+        reason: form.reason,
+        notes: form.notes,
+        status: "scheduled",
       };
 
-      const res = await fetch(`/api/tenant/${slug}/patient/appointments/book`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(bookingData),
-      });
+      const response = await fetch(
+        isReschedule
+          ? `/api/tenant/${tenantSlug}/receptionist/appointments/${appointmentId}`
+          : `/api/tenant/${tenantSlug}/receptionist/appointments`,
+        {
+          method: isReschedule ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
 
-      if (res.ok) {
-        const result = await res.json();
-        router.push(`/appointments?booked=${result.appointmentId}`);
-      } else {
-        throw new Error("Failed to book appointment");
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.error || "Failed to save appointment");
       }
+
+      router.push(tenantPath("/appointments"));
     } catch (error) {
-      console.error("Booking failed:", error);
-      alert("Failed to book appointment. Please try again.");
+      window.alert(error instanceof Error ? error.message : "Failed to save appointment");
     } finally {
-      setBooking(false);
+      setSaving(false);
     }
   };
 
-  const canProceedToNext = () => {
-    switch (currentStep) {
-      case 1: return !!selectedAppointmentType;
-      case 2: return !!selectedProvider;
-      case 3: return !!selectedDate && !!selectedTime;
-      case 4: return !!reason.trim();
-      default: return false;
-    }
-  };
-
-  const renderStepContent = () => {
-    switch (currentStep) {
-      case 1:
-        return (
-          <div className="space-y-6">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Choose Appointment Type</h2>
-              <p className="text-gray-600">Select the type of healthcare service you need</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {appointmentTypes.map((type) => (
-                <div
-                  key={type.id}
-                  onClick={() => setSelectedAppointmentType(type.id)}
-                  className={`p-6 rounded-2xl border-2 cursor-pointer transition-all ${
-                    selectedAppointmentType === type.id
-                      ? "border-orange-300 bg-orange-50"
-                      : "border-gray-200 bg-white hover:border-orange-300"
-                  }`}
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="p-2 rounded-lg bg-orange-100 text-orange-600">
-                      <Stethoscope className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{type.name}</h3>
-                      <p className="text-sm text-gray-500">{type.duration} minutes</p>
-                    </div>
-                  </div>
-                  <p className="text-sm text-gray-600 mb-3">{type.description}</p>
-                  {type.price && (
-                    <p className="text-sm font-semibold text-orange-600">${type.price}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-
-      case 2:
-        return (
-          <div className="space-y-6">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Select Healthcare Provider</h2>
-              <p className="text-gray-600">Choose your preferred doctor or specialist</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {providers.map((provider) => (
-                <div
-                  key={provider.id}
-                  onClick={() => setSelectedProvider(provider)}
-                  className={`p-6 rounded-2xl border-2 cursor-pointer transition-all ${
-                    selectedProvider?.id === provider.id
-                      ? "border-orange-300 bg-orange-50"
-                      : "border-gray-200 bg-white hover:border-orange-300"
-                  }`}
-                >
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="h-16 w-16 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-semibold text-xl">
-                      {provider.name.split(" ").map(n => n[0]).join("")}
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">{provider.name}</h3>
-                      <p className="text-sm text-gray-600">{provider.specialty}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-gray-500">★</span>
-                          <span className="text-xs text-gray-600">{provider.rating}</span>
-                        </div>
-                        <span className="text-xs text-gray-400">•</span>
-                        <span className="text-xs text-gray-600">{provider.experience} years exp.</span>
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-sm text-gray-600 mb-3">{provider.bio}</p>
-                  <div className="flex flex-wrap gap-1">
-                    {provider.languages.map((lang) => (
-                      <span key={lang} className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded">
-                        {lang}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-
-      case 3:
-        return (
-          <div className="space-y-6">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Choose Date & Time</h2>
-              <p className="text-gray-600">Select your preferred appointment slot</p>
-            </div>
-
-            {selectedProvider && (
-              <div className="p-4 rounded-lg bg-blue-50 border border-blue-200 mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-semibold">
-                    {selectedProvider.name.split(" ").map(n => n[0]).join("")}
-                  </div>
-                  <div>
-                    <p className="font-semibold text-blue-900">Selected: {selectedProvider.name}</p>
-                    <p className="text-sm text-blue-700">{selectedProvider.specialty}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {loading ? (
-              <div className="text-center py-12">
-                <RefreshCw className="h-8 w-8 animate-spin text-orange-500 mx-auto mb-4" />
-                <p className="text-gray-600">Loading available times...</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Date Selection */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Date</h3>
-                  <div className="space-y-2">
-                    {availableDates.slice(0, 7).map((dateOption) => (
-                      <button
-                        key={dateOption.date}
-                        onClick={() => {
-                          setSelectedDate(dateOption.date);
-                          setSelectedTime("");
-                        }}
-                        className={`w-full p-3 rounded-lg border text-left transition-all ${
-                          selectedDate === dateOption.date
-                            ? "border-orange-300 bg-orange-50"
-                            : "border-gray-200 bg-white hover:border-orange-300"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-gray-900">{dateOption.dayName}</p>
-                            <p className="text-sm text-gray-600">{new Date(dateOption.date).toLocaleDateString()}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm text-gray-500">{dateOption.slots.filter(s => s.available).length} slots</p>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Time Selection */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Select Time</h3>
-                  {selectedDate ? (
-                    <div className="space-y-2">
-                      {availableDates
-                        .find(d => d.date === selectedDate)
-                        ?.slots.filter(slot => slot.available)
-                        .map((slot) => (
-                          <button
-                            key={slot.time}
-                            onClick={() => {
-                              setSelectedTime(slot.time);
-                              setSelectedType(slot.type);
-                            }}
-                            className={`w-full p-3 rounded-lg border text-left transition-all ${
-                              selectedTime === slot.time
-                                ? "border-orange-300 bg-orange-50"
-                                : "border-gray-200 bg-white hover:border-orange-300"
-                            }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <Clock className="h-4 w-4 text-gray-500" />
-                              <div>
-                                <p className="font-medium text-gray-900">{slot.time}</p>
-                                <p className="text-sm text-gray-600 capitalize">{slot.type}</p>
-                              </div>
-                              {slot.type === "telehealth" && (
-                                <Video className="h-4 w-4 text-blue-500 ml-auto" />
-                              )}
-                            </div>
-                          </button>
-                        ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-12 text-gray-500">
-                      <Calendar className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                      <p>Select a date to view available times</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        );
-
-      case 4:
-        return (
-          <div className="space-y-6">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">Confirm Appointment Details</h2>
-              <p className="text-gray-600">Review your appointment information before booking</p>
-            </div>
-
-            {/* Appointment Summary */}
-            <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Appointment Summary</h3>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Appointment Type</p>
-                    <p className="text-gray-900">
-                      {appointmentTypes.find(t => t.id === selectedAppointmentType)?.name}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Healthcare Provider</p>
-                    <div className="flex items-center gap-3 mt-1">
-                      <div className="h-8 w-8 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-semibold text-sm">
-                        {selectedProvider?.name.split(" ").map(n => n[0]).join("")}
-                      </div>
-                      <div>
-                        <p className="text-gray-900">{selectedProvider?.name}</p>
-                        <p className="text-sm text-gray-600">{selectedProvider?.specialty}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Date & Time</p>
-                    <p className="text-gray-900">
-                      {selectedDate ? new Date(selectedDate).toLocaleDateString() : ""} at {selectedTime}
-                    </p>
-                    <p className="text-sm text-gray-600 capitalize">{selectedType} appointment</p>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Reason for Visit *
-                    </label>
-                    <textarea
-                      value={reason}
-                      onChange={(e) => setReason(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 transition-all"
-                      rows={3}
-                      placeholder="Please describe the reason for your appointment..."
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Additional Notes (Optional)
-                    </label>
-                    <textarea
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 transition-all"
-                      rows={2}
-                      placeholder="Any additional information..."
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Important Information */}
-            <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
-              <div className="flex items-start gap-3">
-                <Info className="h-5 w-5 text-blue-600 mt-0.5" />
-                <div>
-                  <p className="text-blue-900 font-medium">Important Information</p>
-                  <ul className="text-blue-700 text-sm mt-1 space-y-1">
-                    <li>• Please arrive 15 minutes early for check-in</li>
-                    <li>• Bring your insurance card and ID</li>
-                    <li>• For telehealth appointments, ensure you have a stable internet connection</li>
-                    <li>• You can reschedule or cancel up to 24 hours before the appointment</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
+  if (loading) {
+    return (
+      <div className="flex justify-center py-20">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
-            Book Appointment
-          </p>
-          <h1 className="text-3xl font-bold text-foreground mt-1">
-            Schedule Healthcare Visit
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Book appointments with healthcare providers
-          </p>
+          <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Front Desk Scheduling</p>
+          <h1 className="mt-1 text-3xl font-semibold text-foreground">{isReschedule ? "Reschedule Appointment" : "Schedule Appointment"}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Create or update a patient booking using the tenant receptionist workflow.</p>
         </div>
-        <button
-          onClick={() => router.back()}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-all"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          Back
-        </button>
+        <div className="flex gap-2">
+          <Link href={tenantPath("/appointments")} className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground">
+            Back to Appointments
+          </Link>
+          <button onClick={() => window.location.reload()} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground">
+            <RefreshCw className="h-4 w-4" />
+            Reload
+          </button>
+        </div>
       </div>
 
-      {/* Progress Steps */}
-      <div className="flex items-center justify-center">
-        <div className="flex items-center space-x-4">
-          {steps.map((step, index) => (
-            <div key={step.id} className="flex items-center">
-              <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
-                currentStep > step.id
-                  ? "border-green-500 bg-green-500 text-white"
-                  : currentStep === step.id
-                  ? "border-orange-500 bg-orange-50 text-orange-600"
-                  : "border-gray-300 text-gray-400"
-              }`}>
-                {currentStep > step.id ? <CheckCircle2 className="h-5 w-5" /> : step.id}
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <section className="space-y-6 rounded-2xl border border-border bg-card p-6 shadow-sm">
+          {!isReschedule ? (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Patient</h2>
+                <p className="text-sm text-muted-foreground">Search for the patient before scheduling the appointment.</p>
               </div>
-              <div className={`ml-3 ${currentStep === step.id ? "text-gray-900" : "text-gray-500"}`}>
-                <p className="text-sm font-medium">{step.title}</p>
-                <p className="text-xs">{step.description}</p>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={patientSearch}
+                  onChange={(event) => setPatientSearch(event.target.value)}
+                  placeholder="Search by patient name, MRN, or phone"
+                  className="h-11 w-full rounded-lg border border-border bg-background pl-10 pr-3 text-sm text-foreground"
+                />
               </div>
-              {index < steps.length - 1 && (
-                <div className={`w-12 h-0.5 mx-4 ${
-                  currentStep > step.id ? "bg-green-500" : "bg-gray-300"
-                }`} />
-              )}
+              <div className="space-y-2">
+                {selectedPatient ? (
+                  <div className="rounded-xl border border-primary/30 bg-primary/10 px-4 py-3">
+                    <p className="font-medium text-foreground">{selectedPatient.fullName}</p>
+                    <p className="text-xs text-muted-foreground">{selectedPatient.medicalRecordNumber || selectedPatient.phone || selectedPatient.email || "No contact details"}</p>
+                  </div>
+                ) : null}
+                {patientResults.map((patient) => (
+                  <button key={patient.id} onClick={() => { setSelectedPatient(patient); setPatientResults([]); setPatientSearch(patient.fullName); }} className="w-full rounded-xl border border-border bg-background/70 px-4 py-3 text-left hover:bg-muted/40">
+                    <p className="font-medium text-foreground">{patient.fullName}</p>
+                    <p className="text-xs text-muted-foreground">{patient.medicalRecordNumber || patient.phone || patient.email || "No contact details"}</p>
+                  </button>
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
-      </div>
+          ) : (
+            <div className="rounded-xl border border-primary/30 bg-primary/10 px-4 py-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Existing booking</p>
+              <p className="mt-1 font-medium text-foreground">{selectedPatient?.fullName || existingAppointment?.patientName}</p>
+            </div>
+          )}
 
-      {/* Form Content */}
-      <div className="bg-white p-8 rounded-2xl border border-gray-200">
-        {renderStepContent()}
-      </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Appointment Type</label>
+              <select value={form.appointmentType} onChange={(event) => setForm((current) => ({ ...current, appointmentType: event.target.value }))} className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground">
+                {appointmentTypes.map((type) => (
+                  <option key={type.id} value={type.name}>{type.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Doctor</label>
+              <select value={form.doctorId} onChange={(event) => setForm((current) => ({ ...current, doctorId: event.target.value }))} className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground">
+                <option value="">Unassigned / front desk hold</option>
+                {providers.map((provider) => (
+                  <option key={provider.id} value={provider.id}>{provider.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Date</label>
+              <input type="date" value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">Time</label>
+              <input type="time" value={form.time} onChange={(event) => setForm((current) => ({ ...current, time: event.target.value }))} className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm font-medium text-foreground">Reason</label>
+              <input value={form.reason} onChange={(event) => setForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Reason for this appointment" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-2 block text-sm font-medium text-foreground">Notes</label>
+              <textarea value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Optional front desk notes" className="min-h-28 w-full rounded-xl border border-border bg-background px-3 py-3 text-sm text-foreground" />
+            </div>
+          </div>
 
-      {/* Navigation */}
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}
-          disabled={currentStep === 1}
-          className="flex items-center gap-2 px-6 py-3 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          Previous
-        </button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={submit} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {isReschedule ? "Save Reschedule" : "Schedule Appointment"}
+            </button>
+            {selectedPatient ? (
+              <Link href={tenantPath(`/patients/${selectedPatient.id}`)} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">
+                <UserRound className="h-4 w-4" />
+                Open Patient
+              </Link>
+            ) : null}
+          </div>
+        </section>
 
-        {currentStep < 4 ? (
-          <button
-            onClick={() => setCurrentStep(prev => Math.min(4, prev + 1))}
-            disabled={!canProceedToNext()}
-            className="flex items-center gap-2 px-6 py-3 rounded-lg bg-orange-500 text-white font-semibold hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-          >
-            Next
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        ) : (
-          <button
-            onClick={handleBooking}
-            disabled={booking || !canProceedToNext()}
-            className="px-6 py-3 rounded-lg bg-green-500 text-white font-semibold hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
-          >
-            {booking ? (
-              <>
-                <RefreshCw className="h-4 w-4 animate-spin" />
-                Booking...
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="h-4 w-4" />
-                Confirm Booking
-              </>
-            )}
-          </button>
-        )}
+        <aside className="space-y-4">
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <h2 className="text-base font-semibold text-foreground">Booking Summary</h2>
+            <div className="mt-4 space-y-3 text-sm">
+              <div className="rounded-xl border border-border bg-background/70 px-4 py-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Patient</p>
+                <p className="mt-1 font-medium text-foreground">{selectedPatient?.fullName || "Select patient"}</p>
+              </div>
+              <div className="rounded-xl border border-border bg-background/70 px-4 py-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Doctor</p>
+                <p className="mt-1 font-medium text-foreground">{selectedProvider?.name || "Unassigned"}</p>
+              </div>
+              <div className="rounded-xl border border-border bg-background/70 px-4 py-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Schedule</p>
+                <p className="mt-1 font-medium text-foreground">{form.date && form.time ? `${form.date} at ${form.time}` : "Pick a date and time"}</p>
+              </div>
+              <div className="rounded-xl border border-border bg-background/70 px-4 py-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Type</p>
+                <p className="mt-1 font-medium text-foreground">{form.appointmentType || "Select type"}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <h2 className="text-base font-semibold text-foreground">Workflow Notes</h2>
+            <div className="mt-4 space-y-3 text-sm text-muted-foreground">
+              <p className="rounded-lg border border-border bg-background/70 px-4 py-3">Use this page for both new bookings and reschedules from the receptionist worklist.</p>
+              <p className="rounded-lg border border-border bg-background/70 px-4 py-3">If a doctor is not chosen yet, save the booking as unassigned and route it later.</p>
+              <p className="rounded-lg border border-border bg-background/70 px-4 py-3">Reason and notes are preserved for front-desk review and downstream handoff.</p>
+            </div>
+          </div>
+
+          {isReschedule && existingAppointment ? (
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 shadow-sm">
+              <div className="flex items-start gap-3">
+                <CheckCircle2 className="mt-0.5 h-5 w-5 text-amber-600" />
+                <div className="text-sm text-foreground">
+                  <p className="font-medium">Rescheduling existing booking</p>
+                  <p className="mt-1 text-muted-foreground">Current status: {existingAppointment.status}</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </aside>
       </div>
     </div>
   );

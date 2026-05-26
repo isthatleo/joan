@@ -1,44 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getReceptionAppointments, getReceptionPatientProfile, getTenantBySlug } from "@/lib/receptionist/data";
+import { getPatientPaymentWorkspace } from "@/lib/receptionist/payment";
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string; patientId: string }> }) {
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ slug: string; patientId: string }> },
+) {
   try {
-    const { slug, patientId } = resolvedParams;
+    const { slug, patientId } = await params;
+    const tenant = await getTenantBySlug(slug);
+    if (!tenant) {
+      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
 
-    // Mock data - replace with actual database queries
-    const mockAppointments = [
-      {
-        id: "1",
-        patientId: "1",
-        doctorId: "doc1",
-        doctorName: "Dr. Sarah Smith",
-        department: "General Medicine",
-        scheduledAt: new Date(Date.now() + 1000 * 60 * 30).toISOString(), // 30 minutes from now
-        type: "General Checkup",
-        status: "scheduled",
-        notes: "Annual physical examination"
-      },
-      {
-        id: "2",
-        patientId: "1",
-        doctorId: "doc2",
-        doctorName: "Dr. Michael Davis",
-        department: "Cardiology",
-        scheduledAt: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(), // Tomorrow
-        type: "Follow-up",
-        status: "scheduled",
-        notes: "Post-treatment check"
-      }
-    ];
+    const [appointmentsResult, profileResult, paymentResult] = await Promise.allSettled([
+      getReceptionAppointments(tenant.id, { patientId }),
+      getReceptionPatientProfile(tenant.id, patientId),
+      getPatientPaymentWorkspace(tenant.id, patientId),
+    ]);
 
-    // Filter appointments for the specific patient
-    const patientAppointments = mockAppointments.filter(apt => apt.patientId === patientId);
+    const appointments = appointmentsResult.status === "fulfilled" ? appointmentsResult.value : [];
+    const patientProfile = profileResult.status === "fulfilled" ? profileResult.value : null;
+    const paymentWorkspace = paymentResult.status === "fulfilled" ? paymentResult.value : null;
 
-    return NextResponse.json(patientAppointments);
+    if (!patientProfile) {
+      return NextResponse.json({
+        error: "Patient profile not found",
+        appointments,
+        patient: null,
+        paymentWorkspace,
+      }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      appointments,
+      patient: patientProfile,
+      paymentWorkspace,
+    });
   } catch (error) {
     console.error("Failed to fetch patient appointments:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch patient appointments" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch patient appointments" }, { status: 500 });
   }
 }

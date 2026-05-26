@@ -1,25 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getTenantBySlug, getWaitingRoomStats } from "@/lib/receptionist/data";
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
-    const { slug } = resolvedParams;
+    const { slug } = await params;
+    const tenant = await getTenantBySlug(slug);
+    if (!tenant) {
+      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
 
-    // Mock data - replace with actual database queries
-    const waitingRoomStats = {
-      totalPatients: 8,
-      averageWaitTime: "12 min",
-      longestWait: "28 min",
-      roomsOccupied: 3,
-      roomsAvailable: 12,
-      nextPatientCall: "Sarah Johnson"
-    };
-
-    return NextResponse.json(waitingRoomStats);
+    const stats = await getWaitingRoomStats(tenant.id);
+    return NextResponse.json(stats);
   } catch (error) {
     console.error("Failed to fetch waiting room stats:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch waiting room stats" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch waiting room stats" }, { status: 500 });
   }
 }

@@ -59,6 +59,7 @@
     autoSaveDrafts: true,
     preferredExportFormat: "pdf",
     compactTables: false,
+    receptionEmergencyTutorialSeen: false,
   },
 } as const;
 
@@ -178,6 +179,7 @@ export function mergeUserSettings(settings: unknown): UserSettingsShape {
       autoSaveDrafts: asBoolean(workflow.autoSaveDrafts, defaultUserSettings.workflow.autoSaveDrafts),
       preferredExportFormat: asAllowedString(workflow.preferredExportFormat, allowedExportFormats, defaultUserSettings.workflow.preferredExportFormat),
       compactTables: asBoolean(workflow.compactTables, defaultUserSettings.workflow.compactTables),
+      receptionEmergencyTutorialSeen: asBoolean(workflow.receptionEmergencyTutorialSeen, defaultUserSettings.workflow.receptionEmergencyTutorialSeen),
     },
   };
 }

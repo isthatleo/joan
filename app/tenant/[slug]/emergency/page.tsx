@@ -1,594 +1,401 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useParams, useSearchParams } from "next/navigation";
 import {
-  AlertOctagon, AlertTriangle, Phone, MessageSquare, Clock, MapPin,
-  User, Heart, Activity, Thermometer, Stethoscope, Ambulance,
-  CheckCircle2, XCircle, RefreshCw, Volume2, VolumeX, Zap,
-  Shield, Users, Timer, Bell, FileText
+  AlertOctagon,
+  Ambulance,
+  BellRing,
+  CheckCircle2,
+  Phone,
+  RefreshCw,
+  Shield,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
+import { KPICard } from "@/components/KPICard";
+import { mergeUserSettings } from "@/lib/user-settings";
+import { useTenantPath } from "@/hooks/useTenantPath";
 
-interface EmergencyAlert {
+type EmergencyAlert = {
   id: string;
-  patientId: string;
+  patientId: string | null;
   patientName: string;
-  type: "medical" | "trauma" | "cardiac" | "respiratory" | "neurological" | "other";
-  severity: "critical" | "urgent" | "moderate" | "minor";
+  type: string;
+  severity: string;
   location: string;
   description: string;
   reportedBy: string;
   reportedAt: string;
-  status: "active" | "responding" | "resolved" | "cancelled";
+  status: string;
   assignedTeam?: string;
   eta?: string;
-  vitalSigns?: {
-    heartRate?: number;
-    bloodPressure?: string;
-    oxygenSaturation?: number;
-    temperature?: number;
-    respiratoryRate?: number;
-  };
-}
+};
 
-interface EmergencyTeam {
+type EmergencyTeam = {
   id: string;
   name: string;
   role: string;
-  status: "available" | "responding" | "busy" | "off-duty";
+  status: string;
   location: string;
   lastActive: string;
-}
+};
 
-interface EmergencyProtocol {
+type EmergencyProtocol = {
   id: string;
   name: string;
   type: string;
   steps: string[];
   estimatedTime: string;
   requiredPersonnel: string[];
+};
+
+function severityTone(value: string) {
+  if (value === "critical") return "bg-rose-500/10 text-rose-700 dark:text-rose-300";
+  if (value === "urgent") return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  return "bg-muted text-muted-foreground";
+}
+
+function statusTone(value: string) {
+  if (value === "resolved") return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (value === "responding") return "bg-sky-500/10 text-sky-700 dark:text-sky-300";
+  if (value === "cancelled") return "bg-muted text-muted-foreground";
+  return "bg-rose-500/10 text-rose-700 dark:text-rose-300";
 }
 
 export default function EmergencyPage() {
   const { slug } = useParams();
+  const searchParams = useSearchParams();
+  const tenantSlug = String(slug || "");
+  const tenantPath = useTenantPath();
   const [alerts, setAlerts] = useState<EmergencyAlert[]>([]);
   const [teams, setTeams] = useState<EmergencyTeam[]>([]);
   const [protocols, setProtocols] = useState<EmergencyProtocol[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [selectedAlert, setSelectedAlert] = useState<EmergencyAlert | null>(null);
-  const [showProtocol, setShowProtocol] = useState(false);
+  const [selectedAlertId, setSelectedAlertId] = useState<string>("");
+  const [form, setForm] = useState({
+    patientName: "",
+    type: "medical",
+    severity: "urgent",
+    location: "Reception",
+    description: "",
+    reportedBy: "Reception Desk",
+  });
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
-  // Fetch emergency data
   const fetchEmergencyData = async () => {
     try {
       setRefreshing(true);
       const [alertsRes, teamsRes, protocolsRes] = await Promise.all([
-        fetch(`/api/tenant/${slug}/receptionist/emergency/alerts`),
-        fetch(`/api/tenant/${slug}/receptionist/emergency/teams`),
-        fetch(`/api/tenant/${slug}/receptionist/emergency/protocols`),
+        fetch(`/api/tenant/${tenantSlug}/receptionist/emergency/alerts`, { cache: "no-store" }),
+        fetch(`/api/tenant/${tenantSlug}/receptionist/emergency/teams`, { cache: "no-store" }),
+        fetch(`/api/tenant/${tenantSlug}/receptionist/emergency/protocols`, { cache: "no-store" }),
       ]);
-
       if (alertsRes.ok) setAlerts(await alertsRes.json());
       if (teamsRes.ok) setTeams(await teamsRes.json());
       if (protocolsRes.ok) setProtocols(await protocolsRes.json());
-
-      setLoading(false);
     } catch (error) {
       console.error("Failed to fetch emergency data:", error);
     } finally {
+      setLoading(false);
       setRefreshing(false);
     }
   };
 
   useEffect(() => {
     fetchEmergencyData();
-    const interval = setInterval(fetchEmergencyData, 15000); // Refresh every 15 seconds for emergencies
-    return () => clearInterval(interval);
-  }, []);
+  }, [tenantSlug]);
 
-  // Create emergency alert
-  const createEmergencyAlert = async (alertData: Omit<EmergencyAlert, "id" | "reportedAt" | "status">) => {
-    try {
-      const res = await fetch(`/api/tenant/${slug}/receptionist/emergency/alerts`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(alertData),
-      });
-
-      if (res.ok) {
-        fetchEmergencyData();
-        if (soundEnabled) {
-          // Play emergency alert sound
-          const audio = new Audio("/sounds/emergency-alert.mp3");
-          audio.play().catch(() => {});
+  useEffect(() => {
+    fetch("/api/users/settings", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload) => {
+        const settings = mergeUserSettings(payload);
+        const forcedTutorial = searchParams.get("tutorial") === "1";
+        if (forcedTutorial || !settings.workflow.receptionEmergencyTutorialSeen) {
+          setTutorialOpen(true);
         }
-      }
-    } catch (error) {
-      console.error("Failed to create emergency alert:", error);
+      })
+      .catch(() => {
+        if (searchParams.get("tutorial") === "1") {
+          setTutorialOpen(true);
+        }
+      })
+      .finally(() => setSettingsLoaded(true));
+  }, [searchParams]);
+
+  const activeAlerts = useMemo(() => alerts.filter((item) => ["active", "responding"].includes(item.status)), [alerts]);
+  const selectedAlert = useMemo(() => alerts.find((item) => item.id === selectedAlertId) || activeAlerts[0] || null, [alerts, activeAlerts, selectedAlertId]);
+  const selectedProtocol = useMemo(() => protocols.find((item) => item.type === selectedAlert?.type) || protocols[0] || null, [protocols, selectedAlert]);
+
+  const createAlert = async () => {
+    if (!form.description.trim()) return;
+    await fetch(`/api/tenant/${tenantSlug}/receptionist/emergency/alerts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+    if (soundEnabled) {
+      const audio = new Audio("/sounds/emergency-alert.mp3");
+      audio.play().catch(() => null);
     }
+    setForm((current) => ({ ...current, patientName: "", description: "" }));
+    fetchEmergencyData();
   };
 
-  // Update alert status
-  const updateAlertStatus = async (alertId: string, status: EmergencyAlert["status"], assignedTeam?: string) => {
+  const updateAlert = async (alertId: string, patch: Record<string, unknown>) => {
+    await fetch(`/api/tenant/${tenantSlug}/receptionist/emergency/alerts/${alertId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    fetchEmergencyData();
+  };
+
+  const dispatchTeam = async (teamId: string, alertId: string) => {
+    await fetch(`/api/tenant/${tenantSlug}/receptionist/emergency/teams/${teamId}/call`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alertId }),
+    });
+    fetchEmergencyData();
+  };
+
+  const dismissTutorial = async () => {
     try {
-      const res = await fetch(`/api/tenant/${slug}/receptionist/emergency/alerts/${alertId}`, {
-        method: "PATCH",
+      const response = await fetch("/api/users/settings", { cache: "no-store" });
+      const payload = await response.json().catch(() => ({}));
+      const settings = mergeUserSettings(payload);
+      settings.workflow.receptionEmergencyTutorialSeen = true;
+      await fetch("/api/users/settings", {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, assignedTeam }),
+        body: JSON.stringify(settings),
       });
-
-      if (res.ok) {
-        fetchEmergencyData();
-      }
-    } catch (error) {
-      console.error("Failed to update alert status:", error);
-    }
-  };
-
-  // Call emergency team
-  const callEmergencyTeam = async (teamId: string, alertId: string) => {
-    try {
-      const res = await fetch(`/api/tenant/${slug}/receptionist/emergency/teams/${teamId}/call`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ alertId }),
-      });
-
-      if (res.ok) {
-        updateAlertStatus(alertId, "responding", teamId);
-      }
-    } catch (error) {
-      console.error("Failed to call emergency team:", error);
-    }
-  };
-
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case "critical": return "text-red-600 bg-red-50 border-red-300";
-      case "urgent": return "text-orange-600 bg-orange-50 border-orange-300";
-      case "moderate": return "text-yellow-600 bg-yellow-50 border-yellow-300";
-      case "minor": return "text-blue-600 bg-blue-50 border-blue-300";
-      default: return "text-gray-600 bg-gray-50 border-gray-300";
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "active": return "text-red-600 bg-red-50";
-      case "responding": return "text-blue-600 bg-blue-50";
-      case "resolved": return "text-green-600 bg-green-50";
-      case "cancelled": return "text-gray-600 bg-gray-50";
-      default: return "text-gray-600 bg-gray-50";
-    }
-  };
-
-  const getTeamStatusColor = (status: string) => {
-    switch (status) {
-      case "available": return "text-green-600 bg-green-50";
-      case "responding": return "text-blue-600 bg-blue-50";
-      case "busy": return "text-yellow-600 bg-yellow-50";
-      case "off-duty": return "text-gray-600 bg-gray-50";
-      default: return "text-gray-600 bg-gray-50";
+    } catch {
+      // keep the tutorial dismissible even if persistence fails
+    } finally {
+      setTutorialOpen(false);
     }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex h-full items-center justify-center">
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-          Loading emergency response system...
+          <div className="h-2 w-2 animate-pulse rounded-full bg-destructive" />
+          Loading emergency workspace...
         </div>
       </div>
     );
   }
 
-  const activeAlerts = alerts.filter(a => a.status === "active" || a.status === "responding");
-  const criticalAlerts = alerts.filter(a => a.severity === "critical" && (a.status === "active" || a.status === "responding"));
-
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {tutorialOpen && settingsLoaded ? (
+        <div className="rounded-2xl border border-primary/30 bg-primary/10 p-5 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Quick Tutorial</p>
+              <h2 className="mt-1 text-xl font-semibold text-foreground">How to run emergency response from reception</h2>
+              <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-foreground">
+                <li>Raise an alert with the patient or incident label, severity, location, and a concise description.</li>
+                <li>Select the active incident from the board and dispatch the right team immediately.</li>
+                <li>Use the protocol card to follow the required steps and keep the incident status current.</li>
+                <li>Mark the incident as responding once a team has accepted it, then resolve or cancel it when the situation is closed.</li>
+              </ol>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link href={tenantPath("/reception/settings")} className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground">
+                Reception settings
+              </Link>
+              <button onClick={dismissTutorial} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
-            Emergency Response System
-          </p>
-          <h1 className="text-3xl font-bold text-foreground mt-1">
-            Emergency Management
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Critical incident response and emergency coordination
+          <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Emergency Operations</p>
+          <h1 className="mt-1 text-3xl font-semibold text-foreground">Emergency Management</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Create incident alerts, coordinate responder teams, and follow the correct response protocol from the front desk.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className={`p-2 rounded-lg border ${soundEnabled ? 'bg-red-50 border-red-300 text-red-600' : 'bg-gray-50 border-gray-300 text-gray-600'} transition-all`}
-          >
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setSoundEnabled((value) => !value)} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground">
             {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            {soundEnabled ? "Sound On" : "Sound Off"}
           </button>
-          <button
-            onClick={fetchEmergencyData}
-            disabled={refreshing}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 disabled:opacity-50 transition-all"
-          >
+          <button onClick={fetchEmergencyData} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground">
             <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
           </button>
         </div>
       </div>
 
-      {/* Critical Alerts Banner */}
-      {criticalAlerts.length > 0 && (
-        <div className="p-4 rounded-xl border border-red-300 bg-red-50">
+      {activeAlerts.length > 0 ? (
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-5 shadow-sm">
           <div className="flex items-center gap-3">
-            <AlertOctagon className="h-6 w-6 text-red-600 animate-pulse" />
-            <div className="flex-1">
-              <p className="text-red-900 font-semibold">
-                CRITICAL EMERGENCY - {criticalAlerts.length} Active
-              </p>
-              <p className="text-red-700 text-sm">
-                Immediate response required. Emergency teams have been alerted.
-              </p>
-            </div>
-            <button className="px-4 py-2 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 transition-all">
-              View Details
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Emergency Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 rounded-2xl border border-gray-200 bg-white">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-red-50 text-red-600">
-              <AlertOctagon className="h-5 w-5" />
-            </div>
+            <AlertOctagon className="h-6 w-6 text-destructive" />
             <div>
-              <p className="text-sm font-medium text-gray-600">Active Emergencies</p>
-              <p className="text-xl font-bold text-gray-900">{activeAlerts.length}</p>
+              <p className="font-semibold text-foreground">Active emergencies: {activeAlerts.length}</p>
+              <p className="text-sm text-muted-foreground">Immediate response is required until all active alerts are resolved or cancelled.</p>
             </div>
           </div>
         </div>
+      ) : null}
 
-        <div className="p-4 rounded-2xl border border-gray-200 bg-white">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
-              <Users className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-600">Teams Available</p>
-              <p className="text-xl font-bold text-gray-900">{teams.filter(t => t.status === "available").length}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 rounded-2xl border border-gray-200 bg-white">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-green-50 text-green-600">
-              <CheckCircle2 className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-600">Resolved Today</p>
-              <p className="text-xl font-bold text-gray-900">{alerts.filter(a => a.status === "resolved").length}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 rounded-2xl border border-gray-200 bg-white">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-orange-50 text-orange-600">
-              <Timer className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-600">Avg Response</p>
-              <p className="text-xl font-bold text-gray-900">4.2 min</p>
-            </div>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <KPICard title="Active Alerts" value={activeAlerts.length} subtitle="Open incidents" tone="danger" icon={AlertOctagon} />
+        <KPICard title="Available Teams" value={teams.filter((item) => item.status === "available").length} subtitle={`${teams.length} total responders`} tone="info" icon={Shield} />
+        <KPICard title="Critical Alerts" value={alerts.filter((item) => item.severity === "critical" && item.status !== "resolved").length} subtitle="Requires highest priority" tone="warning" icon={BellRing} />
+        <KPICard title="Resolved Today" value={alerts.filter((item) => item.status === "resolved").length} subtitle="Closed emergency incidents" tone="success" icon={CheckCircle2} />
       </div>
 
-      {/* Active Emergency Alerts */}
-      <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-red-500" />
-            Active Emergency Alerts
-          </h2>
-          <button
-            onClick={() => createEmergencyAlert({
-              patientId: "",
-              patientName: "Unknown Patient",
-              type: "medical",
-              severity: "urgent",
-              location: "Emergency Department",
-              description: "Medical emergency - details to be confirmed",
-              reportedBy: "Reception Staff"
-            })}
-            className="px-4 py-2 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 transition-all"
-          >
-            Report Emergency
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          {activeAlerts.map((alert) => (
-            <div
-              key={alert.id}
-              className="p-4 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 transition-all cursor-pointer"
-              onClick={() => setSelectedAlert(alert)}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${getSeverityColor(alert.severity)}`}>
-                    <AlertOctagon className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-gray-900">{alert.patientName}</p>
-                    <p className="text-sm text-gray-600">{alert.type.toUpperCase()} • {alert.location}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className={`text-xs px-2 py-1 rounded font-semibold ${getStatusColor(alert.status)}`}>
-                    {alert.status.toUpperCase()}
-                  </span>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {new Date(alert.reportedAt).toLocaleTimeString()}
-                  </p>
-                </div>
+      <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
+        <section className="space-y-4">
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <h2 className="text-base font-semibold text-foreground">Raise Emergency Alert</h2>
+            <div className="mt-4 space-y-3">
+              <input
+                value={form.patientName}
+                onChange={(event) => setForm((current) => ({ ...current, patientName: event.target.value }))}
+                placeholder="Patient name or incident label"
+                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+              />
+              <div className="grid gap-3 md:grid-cols-2">
+                <select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))} className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground">
+                  <option value="medical">Medical</option>
+                  <option value="trauma">Trauma</option>
+                  <option value="cardiac">Cardiac</option>
+                  <option value="respiratory">Respiratory</option>
+                  <option value="neurological">Neurological</option>
+                  <option value="other">Other</option>
+                </select>
+                <select value={form.severity} onChange={(event) => setForm((current) => ({ ...current, severity: event.target.value }))} className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground">
+                  <option value="critical">Critical</option>
+                  <option value="urgent">Urgent</option>
+                  <option value="moderate">Moderate</option>
+                  <option value="minor">Minor</option>
+                </select>
               </div>
-
-              <p className="text-sm text-gray-700 mb-3">{alert.description}</p>
-
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4 text-sm text-gray-600">
-                  <span>Reported by: {alert.reportedBy}</span>
-                  {alert.assignedTeam && <span>Team: {alert.assignedTeam}</span>}
-                  {alert.eta && <span>ETA: {alert.eta}</span>}
-                </div>
-
-                <div className="flex gap-2">
-                  {alert.status === "active" && (
-                    <>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          updateAlertStatus(alert.id, "responding");
-                        }}
-                        className="px-3 py-1 rounded text-sm font-semibold bg-blue-500 text-white hover:bg-blue-600 transition-all"
-                      >
-                        Start Response
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          updateAlertStatus(alert.id, "resolved");
-                        }}
-                        className="px-3 py-1 rounded text-sm font-semibold bg-green-500 text-white hover:bg-green-600 transition-all"
-                      >
-                        Resolve
-                      </button>
-                    </>
-                  )}
-                  {alert.status === "responding" && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        updateAlertStatus(alert.id, "resolved");
-                      }}
-                      className="px-3 py-1 rounded text-sm font-semibold bg-green-500 text-white hover:bg-green-600 transition-all"
-                    >
-                      Mark Resolved
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Vital Signs */}
-              {alert.vitalSigns && (
-                <div className="mt-3 pt-3 border-t border-red-200">
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
-                    {alert.vitalSigns.heartRate && (
-                      <div className="flex items-center gap-2">
-                        <Heart className="h-4 w-4 text-red-500" />
-                        <span className="font-medium">{alert.vitalSigns.heartRate} BPM</span>
-                      </div>
-                    )}
-                    {alert.vitalSigns.bloodPressure && (
-                      <div className="flex items-center gap-2">
-                        <Activity className="h-4 w-4 text-blue-500" />
-                        <span className="font-medium">{alert.vitalSigns.bloodPressure}</span>
-                      </div>
-                    )}
-                    {alert.vitalSigns.oxygenSaturation && (
-                      <div className="flex items-center gap-2">
-                        <Zap className="h-4 w-4 text-green-500" />
-                        <span className="font-medium">{alert.vitalSigns.oxygenSaturation}% O2</span>
-                      </div>
-                    )}
-                    {alert.vitalSigns.temperature && (
-                      <div className="flex items-center gap-2">
-                        <Thermometer className="h-4 w-4 text-orange-500" />
-                        <span className="font-medium">{alert.vitalSigns.temperature}°F</span>
-                      </div>
-                    )}
-                    {alert.vitalSigns.respiratoryRate && (
-                      <div className="flex items-center gap-2">
-                        <Stethoscope className="h-4 w-4 text-purple-500" />
-                        <span className="font-medium">{alert.vitalSigns.respiratoryRate} RR</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+              <input
+                value={form.location}
+                onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))}
+                placeholder="Location"
+                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+              />
+              <textarea
+                value={form.description}
+                onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                placeholder="Describe the incident, symptoms, or immediate safety issue."
+                className="min-h-28 w-full rounded-xl border border-border bg-background px-3 py-3 text-sm text-foreground"
+              />
+              <button onClick={createAlert} className="inline-flex items-center gap-2 rounded-lg bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground">
+                <Ambulance className="h-4 w-4" />
+                Trigger Emergency Alert
+              </button>
             </div>
-          ))}
+          </div>
 
-          {activeAlerts.length === 0 && (
-            <div className="text-center py-12">
-              <CheckCircle2 className="h-12 w-12 text-green-300 mx-auto mb-4" />
-              <p className="text-gray-500">No active emergency alerts</p>
-              <p className="text-sm text-gray-400 mt-1">
-                Emergency alerts will appear here when reported
-              </p>
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <h2 className="text-base font-semibold text-foreground">Response Teams</h2>
+            <div className="mt-4 space-y-3">
+              {teams.map((team) => (
+                <div key={team.id} className="rounded-xl border border-border bg-background/70 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-foreground">{team.name}</p>
+                      <p className="text-xs text-muted-foreground">{team.role} - {team.location}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium capitalize text-muted-foreground">{team.status}</span>
+                      {selectedAlert ? (
+                        <button onClick={() => dispatchTeam(team.id, selectedAlert.id)} className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground">
+                          Call
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-          )}
-        </div>
-      </div>
+          </div>
+        </section>
 
-      {/* Emergency Teams */}
-      <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          <Shield className="h-5 w-5 text-blue-500" />
-          Emergency Response Teams
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {teams.map((team) => (
-            <div
-              key={team.id}
-              className="p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-sm transition-all"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-semibold">
-                    {team.name.split(" ").map(n => n[0]).join("")}
-                  </div>
-                  <div>
-                    <p className="font-semibold text-gray-900">{team.name}</p>
-                    <p className="text-sm text-gray-500">{team.role}</p>
-                  </div>
-                </div>
-                <span className={`text-xs px-2 py-1 rounded font-semibold ${getTeamStatusColor(team.status)}`}>
-                  {team.status.replace("-", " ").toUpperCase()}
-                </span>
-              </div>
-
-              <div className="space-y-2 text-sm text-gray-600">
-                <div className="flex items-center gap-2">
-                  <MapPin className="h-3 w-3" />
-                  <span>{team.location}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="h-3 w-3" />
-                  <span>Last active: {new Date(team.lastActive).toLocaleTimeString()}</span>
-                </div>
-              </div>
-
-              {team.status === "available" && selectedAlert && (
+        <section className="space-y-4">
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold text-foreground">Incident Board</h2>
+              <span className="text-sm text-muted-foreground">{alerts.length} total alerts</span>
+            </div>
+            <div className="mt-4 space-y-3">
+              {alerts.map((alert) => (
                 <button
-                  onClick={() => callEmergencyTeam(team.id, selectedAlert.id)}
-                  className="w-full mt-3 px-3 py-2 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 transition-all flex items-center justify-center gap-2"
+                  key={alert.id}
+                  onClick={() => setSelectedAlertId(alert.id)}
+                  className="w-full rounded-xl border border-border bg-background/70 px-4 py-4 text-left transition-colors hover:bg-muted/40"
                 >
-                  <Phone className="h-4 w-4" />
-                  Call Team
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-foreground">{alert.patientName || "Emergency Incident"}</p>
+                      <p className="text-sm text-muted-foreground">{alert.description}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{alert.location} - {new Date(alert.reportedAt).toLocaleString()}</p>
+                    </div>
+                    <div className="space-y-2 text-right">
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize ${severityTone(alert.severity)}`}>{alert.severity}</span>
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize ${statusTone(alert.status)}`}>{alert.status}</span>
+                    </div>
+                  </div>
                 </button>
-              )}
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
 
-      {/* Emergency Protocols */}
-      <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <FileText className="h-5 w-5 text-purple-500" />
-            Emergency Protocols
-          </h2>
-          <button
-            onClick={() => setShowProtocol(!showProtocol)}
-            className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-all"
-          >
-            {showProtocol ? "Hide" : "Show"} Protocols
-          </button>
-        </div>
-
-        {showProtocol && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {protocols.map((protocol) => (
-              <div
-                key={protocol.id}
-                className="p-4 rounded-lg border border-gray-200 hover:border-purple-300 hover:shadow-sm transition-all"
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="p-2 rounded-lg bg-purple-50 text-purple-600">
-                    <Shield className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-gray-900">{protocol.name}</p>
-                    <p className="text-sm text-gray-500">{protocol.type} • {protocol.estimatedTime}</p>
-                  </div>
+          {selectedAlert ? (
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Selected Alert</p>
+                  <h3 className="mt-1 text-lg font-semibold text-foreground">{selectedAlert.patientName || "Emergency Incident"}</h3>
+                  <p className="text-sm text-muted-foreground">{selectedAlert.location} - {selectedAlert.description}</p>
                 </div>
-
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-gray-700">Required Personnel:</p>
-                  <div className="flex flex-wrap gap-1">
-                    {protocol.requiredPersonnel.map((personnel, index) => (
-                      <span
-                        key={index}
-                        className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-600"
-                      >
-                        {personnel}
-                      </span>
-                    ))}
-                  </div>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => updateAlert(selectedAlert.id, { status: "responding" })} className="rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground">
+                    Responding
+                  </button>
+                  <button onClick={() => updateAlert(selectedAlert.id, { status: "resolved" })} className="rounded-lg border border-emerald-500/30 px-3 py-2 text-sm font-medium text-emerald-600">
+                    Resolve
+                  </button>
+                  <button onClick={() => updateAlert(selectedAlert.id, { status: "cancelled" })} className="rounded-lg border border-destructive/30 px-3 py-2 text-sm font-medium text-destructive">
+                    Cancel
+                  </button>
                 </div>
-
-                <button className="w-full mt-3 px-3 py-2 rounded-lg border border-purple-300 text-purple-600 hover:bg-purple-50 transition-all text-sm font-semibold">
-                  View Full Protocol
-                </button>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <button className="p-4 rounded-2xl border border-gray-200 bg-white hover:border-red-300 hover:shadow-sm transition-all text-left">
-          <div className="flex items-center gap-3">
-            <Ambulance className="h-5 w-5 text-red-600" />
-            <div>
-              <p className="font-semibold text-gray-900">Call Ambulance</p>
-              <p className="text-sm text-gray-500">Emergency medical services</p>
+              {selectedProtocol ? (
+                <div className="mt-5 rounded-xl border border-border bg-background/70 p-4">
+                  <h4 className="font-semibold text-foreground">{selectedProtocol.name}</h4>
+                  <p className="text-sm text-muted-foreground">Estimated time: {selectedProtocol.estimatedTime}</p>
+                  <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-foreground">
+                    {selectedProtocol.steps.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </ol>
+                  <p className="mt-3 text-sm text-muted-foreground">Required personnel: {selectedProtocol.requiredPersonnel.join(", ")}</p>
+                </div>
+              ) : null}
             </div>
-          </div>
-        </button>
-
-        <button className="p-4 rounded-2xl border border-gray-200 bg-white hover:border-blue-300 hover:shadow-sm transition-all text-left">
-          <div className="flex items-center gap-3">
-            <Phone className="h-5 w-5 text-blue-600" />
-            <div>
-              <p className="font-semibold text-gray-900">Emergency Line</p>
-              <p className="text-sm text-gray-500">Internal emergency response</p>
-            </div>
-          </div>
-        </button>
-
-        <button className="p-4 rounded-2xl border border-gray-200 bg-white hover:border-green-300 hover:shadow-sm transition-all text-left">
-          <div className="flex items-center gap-3">
-            <Bell className="h-5 w-5 text-green-600" />
-            <div>
-              <p className="font-semibold text-gray-900">Alert All Staff</p>
-              <p className="text-sm text-gray-500">Broadcast emergency alert</p>
-            </div>
-          </div>
-        </button>
-
-        <button className="p-4 rounded-2xl border border-gray-200 bg-white hover:border-orange-300 hover:shadow-sm transition-all text-left">
-          <div className="flex items-center gap-3">
-            <Activity className="h-5 w-5 text-orange-600" />
-            <div>
-              <p className="font-semibold text-gray-900">Monitor Vitals</p>
-              <p className="text-sm text-gray-500">Real-time patient monitoring</p>
-            </div>
-          </div>
-        </button>
+          ) : null}
+        </section>
       </div>
     </div>
   );

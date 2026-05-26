@@ -6,6 +6,7 @@ import { randomUUID } from "crypto";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
+import { headers as nextHeaders } from "next/headers";
 
 interface ErrorResponse {
   error: string;
@@ -22,7 +23,17 @@ function createErrorResponse(status: number, error: string, details?: string) {
 }
 
 async function resolveCurrentUser(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers }).catch(() => null as any);
+  const requestHeaders = new Headers(request.headers);
+
+  if (!requestHeaders.get("cookie")) {
+    const fallbackHeaders = await nextHeaders().catch(() => null as any);
+    const cookieHeader = fallbackHeaders?.get?.("cookie");
+    if (cookieHeader) {
+      requestHeaders.set("cookie", cookieHeader);
+    }
+  }
+
+  const session = await auth.api.getSession({ headers: requestHeaders }).catch(() => null as any);
   if (!session?.user?.email) {
     return { session, appUser: null };
   }

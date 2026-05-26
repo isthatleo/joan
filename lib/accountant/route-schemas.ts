@@ -258,6 +258,9 @@ export const claimBulkActionSchema = z.object({
 
 export const markInvoicePaidSchema = z.object({
   paidAt: timestampField("paidAt", { optional: true }),
+  method: optionalString,
+  notes: optionalString,
+  transactionId: optionalString,
 });
 
 export const refundSchema = z.object({

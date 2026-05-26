@@ -1,9 +1,7 @@
 import { Resend } from "resend";
-import { renderToStaticMarkup } from "react-dom/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { emailSendLog } from "@/lib/db/schema";
-import { EmailTemplate, EmailTemplateProps } from "@/components/email-template";
 import { getIntegrationCredentials, getTenantCommunicationSettings } from "@/lib/integrations/server";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
 import { eq } from "drizzle-orm";
@@ -89,12 +87,101 @@ type ResolvedProvider = {
   fromAddress: string;
 };
 
+type EmailTemplatePayload = NonNullable<SendEmailPayload["template"]>;
+
 function toRecipientList(value: string | string[]) {
   return Array.isArray(value) ? value : [value];
 }
 
 function stripHtml(value: string) {
   return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function nl2br(value: string) {
+  return escapeHtml(value).replace(/\n/g, "<br />");
+}
+
+function renderTemplateHtml(template: EmailTemplatePayload) {
+  const brandName = template.brandName || "Joan Healthcare";
+  const brandColor = template.brandColor || "#0F766E";
+  const heading = template.heading || `Hello ${template.recipientName || template.firstName || "there"},`;
+  const body = template.bodyHtml?.trim()
+    ? template.bodyHtml
+    : `<p style="margin:0;line-height:1.7;color:#334155;">${nl2br(template.body || "We have an update for you. Review the details below and take action if needed.")}</p>`;
+  const summary = (template.summary || [])
+    .map((item) => `
+      <div style="border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;background:#f8fafc;">
+        <p style="margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#64748b;">${escapeHtml(item.label)}</p>
+        <p style="margin:0;font-size:14px;font-weight:600;color:#0f172a;">${escapeHtml(item.value)}</p>
+      </div>
+    `)
+    .join("");
+  const items = (template.items || [])
+    .map((item, index, arr) => `
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;${index < arr.length - 1 ? "border-bottom:1px solid #e2e8f0;" : ""}">
+        <p style="margin:0;color:#475569;">${escapeHtml(item.label)}</p>
+        <p style="margin:0;font-weight:600;color:#0f172a;">${escapeHtml(item.value)}</p>
+      </div>
+    `)
+    .join("");
+  const sections = (template.sections || [])
+    .map((section) => `
+      <div style="border:1px solid #e2e8f0;border-radius:14px;padding:18px;margin-top:16px;background:#ffffff;">
+        <h2 style="margin:0 0 10px;font-size:18px;color:#0f172a;">${escapeHtml(section.title)}</h2>
+        ${section.bodyHtml?.trim() ? section.bodyHtml : `<p style="margin:0;line-height:1.7;color:#334155;">${nl2br(section.body || "")}</p>`}
+      </div>
+    `)
+    .join("");
+  const ctas = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:20px;">
+      ${template.ctaLabel && template.ctaUrl ? `<a href="${escapeHtml(template.ctaUrl)}" style="display:inline-block;background:${brandColor};color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">${escapeHtml(template.ctaLabel)}</a>` : ""}
+      ${template.secondaryCtaLabel && template.secondaryCtaUrl ? `<a href="${escapeHtml(template.secondaryCtaUrl)}" style="display:inline-block;border:1px solid #cbd5e1;color:#0f172a;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:600;">${escapeHtml(template.secondaryCtaLabel)}</a>` : ""}
+    </div>
+  `;
+
+  return `<!DOCTYPE html>
+  <html>
+    <head>
+      <meta charSet="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>${escapeHtml(heading)}</title>
+    </head>
+    <body style="background:#e2e8f0;font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px 12px;">
+      <div style="max-width:680px;margin:0 auto;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 18px 40px rgba(15,23,42,.12);">
+        <div style="padding:28px 28px 24px;color:#ffffff;background:linear-gradient(135deg, ${brandColor}, #0f172a);">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px;">
+            <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.84;font-weight:700;">${escapeHtml(template.previewLabel || "Transactional update")}</span>
+            ${template.statusLabel ? `<span style="border-radius:999px;padding:6px 10px;font-size:11px;font-weight:700;background:#e2e8f0;color:#0f172a;">${escapeHtml(template.statusLabel)}</span>` : ""}
+          </div>
+          ${template.brandLogoUrl ? `<img src="${escapeHtml(template.brandLogoUrl)}" alt="${escapeHtml(brandName)}" height="36" style="margin-bottom:18px;" />` : `<p style="color:#ffffff;font-size:20px;font-weight:700;margin:0 0 18px;">${escapeHtml(brandName)}</p>`}
+          <h1 style="font-size:28px;line-height:1.2;margin:0 0 10px;">${escapeHtml(heading)}</h1>
+          <p style="font-size:15px;line-height:1.7;margin:0;color:rgba(255,255,255,.88);">${escapeHtml(template.body || "We have an update for you. Review the details below and take action if needed.")}</p>
+        </div>
+        <div style="padding:28px;">
+          ${summary ? `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px;">${summary}</div>` : ""}
+          ${body}
+          ${items ? `<div style="border:1px solid #e2e8f0;border-radius:14px;padding:0 16px;margin-top:16px;background:#ffffff;">${items}</div>` : ""}
+          ${sections}
+          ${ctas}
+          ${template.footerNote ? `<p style="margin-top:18px;color:#64748b;font-size:13px;">${escapeHtml(template.footerNote)}</p>` : ""}
+        </div>
+        <div style="height:1px;background:#e2e8f0;"></div>
+        <div style="padding:18px 28px 24px;">
+          <p style="margin:0 0 8px;font-size:12px;color:#64748b;">Need help? Contact <a href="mailto:${escapeHtml(template.supportEmail || "support@joan.health")}" style="color:${brandColor};">${escapeHtml(template.supportEmail || "support@joan.health")}</a></p>
+          <p style="margin:0;font-size:12px;color:#64748b;">&copy; ${new Date().getFullYear()} ${escapeHtml(brandName)}. All rights reserved.</p>
+        </div>
+      </div>
+    </body>
+  </html>`;
 }
 
 function buildTextBody(payload: SendEmailPayload) {
@@ -107,7 +194,7 @@ function buildTextBody(payload: SendEmailPayload) {
 
 function buildHtmlBody(payload: SendEmailPayload) {
   if (payload.template) {
-    return "<!DOCTYPE html>" + renderToStaticMarkup(EmailTemplate(payload.template as EmailTemplateProps));
+    return renderTemplateHtml(payload.template);
   }
   if (payload.html?.trim()) return payload.html;
   if (payload.text?.trim()) {
