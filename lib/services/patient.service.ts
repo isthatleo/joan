@@ -1,6 +1,7 @@
-import { db } from "@/lib/db";
+﻿import { db } from "@/lib/db";
 import { patients, patientAllergies, patientConditions } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
+import { getEligiblePatientIdsForTenant } from "@/lib/patient-access";
 
 export class PatientRepo {
   async findById(id: string) {
@@ -10,7 +11,9 @@ export class PatientRepo {
   }
 
   async findByTenantId(tenantId: string) {
-    return db.select().from(patients).where(eq(patients.tenantId, tenantId));
+    const patientIds = await getEligiblePatientIdsForTenant(tenantId);
+    if (!patientIds.length) return [];
+    return db.select().from(patients).where(and(eq(patients.tenantId, tenantId), inArray(patients.id, patientIds), isNull(patients.deletedAt)));
   }
 
   async create(data: any) {

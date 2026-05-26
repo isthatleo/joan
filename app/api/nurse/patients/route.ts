@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq, ilike, inArray, isNull, sql } from "drizzle-orm";
 import { bedAssignments, patientAllergies, patientConditions, patients, users, visits } from "@/lib/db/schema";
 import { db } from "@/lib/db";
 import { resolveNurseContext } from "@/lib/nurse/server";
+import { getEligiblePatientIdsForTenant } from "@/lib/patient-access";
 import { patientNameSql } from "@/lib/nurse/utils";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,12 @@ export async function GET(request: NextRequest) {
   const { nurse } = context;
 
   try {
-    const conditions = [eq(patients.tenantId, nurse.tenantId), isNull(patients.deletedAt)];
+    const eligiblePatientIds = await getEligiblePatientIdsForTenant(nurse.tenantId);
+    if (!eligiblePatientIds.length) {
+      return NextResponse.json({ patients: [], stats: { total: 0, critical: 0, occupiedBeds: 0, pendingReview: 0 } });
+    }
+
+    const conditions = [eq(patients.tenantId, nurse.tenantId), isNull(patients.deletedAt), inArray(patients.id, eligiblePatientIds)];
     if (status && status !== "all") conditions.push(eq(patients.status, status));
     if (search) {
       conditions.push(
@@ -117,3 +123,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Failed to load nurse patients" }, { status: 500 });
   }
 }
+
+

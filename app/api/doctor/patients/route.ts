@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { and, asc, eq, ilike, isNull, or, sql } from "drizzle-orm";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { and, asc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { patients } from "@/lib/db/schema";
 import { db } from "@/lib/db";
 import { resolveDoctorContext } from "@/lib/doctor/server";
+import { getEligiblePatientIdsForTenant } from "@/lib/patient-access";
 
 export async function GET(request: NextRequest) {
   const context = await resolveDoctorContext(request.headers);
@@ -20,7 +21,12 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get("search")?.trim() || "";
     const status = searchParams.get("status") || "all";
 
-    const conditions = [eq(patients.tenantId, doctor.tenantId), isNull(patients.deletedAt)];
+    const eligiblePatientIds = await getEligiblePatientIdsForTenant(doctor.tenantId);
+    if (!eligiblePatientIds.length) {
+      return NextResponse.json({ patients: [], stats: { total: 0, active: 0, inactive: 0, newThisMonth: 0 } });
+    }
+
+    const conditions = [eq(patients.tenantId, doctor.tenantId), isNull(patients.deletedAt), inArray(patients.id, eligiblePatientIds)];
     if (status !== "all") {
       conditions.push(eq(patients.status, status));
     }
@@ -123,3 +129,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to create patient" }, { status: 500 });
   }
 }
+
+

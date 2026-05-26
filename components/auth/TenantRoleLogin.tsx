@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Baby,
   Building2,
@@ -15,7 +16,7 @@ import {
   Users,
 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { getTenantDashboardPath } from "@/lib/tenant-routing";
+import { getTenantDashboardPath, withTenantPrefix } from "@/lib/tenant-routing";
 import { type AppRole } from "@/lib/rbac";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -93,7 +94,7 @@ const ROLES = [
     color: "text-indigo-600",
     bg: "bg-indigo-50 group-hover:bg-indigo-100",
   },
-];
+] as const;
 
 type TenantRoleLoginProps = {
   slug: string;
@@ -116,11 +117,23 @@ export function TenantRoleLogin({
   tenantName,
   backHref = "/login",
 }: TenantRoleLoginProps) {
+  const searchParams = useSearchParams();
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const accessAudience = searchParams.get("audience") === "patient-access";
+  const requestedRole = searchParams.get("role");
+
+  const visibleRoles = useMemo(() => {
+    if (!accessAudience) {
+      return ROLES;
+    }
+
+    return ROLES.filter((role) => role.key === "patient" || role.key === "guardian");
+  }, [accessAudience]);
 
   useEffect(() => {
     try {
@@ -134,9 +147,22 @@ export function TenantRoleLogin({
     } catch {}
   }, [slug, tenantId, tenantName]);
 
+  useEffect(() => {
+    if (!requestedRole) {
+      return;
+    }
+
+    const matchingRole = visibleRoles.find((role) => role.key === requestedRole);
+    if (!matchingRole) {
+      return;
+    }
+
+    setSelectedRole((current) => current ?? matchingRole.key);
+  }, [requestedRole, visibleRoles]);
+
   const roleConfig = useMemo(
-    () => ROLES.find((role) => role.key === selectedRole) ?? null,
-    [selectedRole],
+    () => visibleRoles.find((role) => role.key === selectedRole) ?? null,
+    [selectedRole, visibleRoles],
   );
 
   const handleLogin = async (event: React.FormEvent) => {
@@ -174,7 +200,27 @@ export function TenantRoleLogin({
       }
 
       const resolvedRole = (role as AppRole | null) ?? (selectedRole as AppRole);
-      window.location.assign(getTenantDashboardPath(slug, resolvedRole, window.location.hostname));
+      const dashboardPath = getTenantDashboardPath(slug, resolvedRole, window.location.hostname);
+
+      const settingsResponse = await fetch("/api/users/settings", {
+        cache: "no-store",
+        credentials: "include",
+      });
+
+      if (settingsResponse.ok) {
+        const settings = await settingsResponse.json().catch(() => null);
+        if (settings?.security?.forcePasswordChange) {
+          const activationPath = withTenantPrefix("/complete-access", slug, window.location.hostname);
+          const params = new URLSearchParams({
+            redirect: dashboardPath,
+            role: resolvedRole,
+          });
+          window.location.assign(`${activationPath}?${params.toString()}`);
+          return;
+        }
+      }
+
+      window.location.assign(dashboardPath);
     } catch (loginError: any) {
       setError(loginError?.message || "Sign-in failed");
     } finally {
@@ -194,7 +240,7 @@ export function TenantRoleLogin({
         </div>
 
         <div className="grid w-full max-w-5xl grid-cols-2 gap-3 md:grid-cols-3">
-          {ROLES.map(({ key, label, icon: Icon, description, color, bg }) => (
+          {visibleRoles.map(({ key, label, icon: Icon, description, color, bg }) => (
             <Card
               key={key}
               className="group cursor-pointer border-2 transition-all duration-200 hover:border-primary/40 hover:shadow-lg"
@@ -216,11 +262,13 @@ export function TenantRoleLogin({
           ))}
         </div>
 
-        <div className="mt-8 flex flex-col items-center gap-3 text-sm">
-          <Link href={backHref} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
-            Back to Main Login
-          </Link>
-        </div>
+        {!accessAudience ? (
+          <div className="mt-8 flex flex-col items-center gap-3 text-sm">
+            <Link href={backHref} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
+              Back to Main Login
+            </Link>
+          </div>
+        ) : null}
       </div>
     );
   }

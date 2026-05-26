@@ -1,8 +1,9 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
-import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { appointments, labOrders, patients, prescriptions, visits } from "@/lib/db/schema";
 import { db } from "@/lib/db";
 import { resolveDoctorContext } from "@/lib/doctor/server";
+import { getEligiblePatientIdsForTenant } from "@/lib/patient-access";
 
 export async function GET(request: NextRequest) {
   const context = await resolveDoctorContext(request.headers);
@@ -20,7 +21,12 @@ export async function GET(request: NextRequest) {
     const status = request.nextUrl.searchParams.get("status")?.trim() || "all";
     const risk = request.nextUrl.searchParams.get("risk")?.trim() || "all";
 
-    const conditions = [eq(patients.tenantId, doctor.tenantId), isNull(patients.deletedAt)];
+    const eligiblePatientIds = await getEligiblePatientIdsForTenant(doctor.tenantId);
+    if (!eligiblePatientIds.length) {
+      return NextResponse.json({ patients: [], stats: { totalPatients: 0, withVisits: 0, activePrescriptions: 0, pendingLabOrders: 0, needsAttention: 0 } });
+    }
+
+    const conditions = [eq(patients.tenantId, doctor.tenantId), isNull(patients.deletedAt), inArray(patients.id, eligiblePatientIds)];
     if (status !== "all") {
       conditions.push(eq(patients.status, status));
     }
@@ -128,3 +134,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Failed to load patient history roster" }, { status: 500 });
   }
 }
+
+
