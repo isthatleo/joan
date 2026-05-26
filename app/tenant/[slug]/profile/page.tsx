@@ -93,6 +93,7 @@ export default function ProfilePage() {
       console.log("Updating profile with data:", data);
       const response = await fetch(`/api/users/profile`, {
         method: "PATCH",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
@@ -136,6 +137,7 @@ export default function ProfilePage() {
 
       const response = await fetch(`/api/users/avatar`, {
         method: "POST",
+        credentials: "include",
         body: formData,
       });
 

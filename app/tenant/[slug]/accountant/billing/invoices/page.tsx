@@ -36,6 +36,11 @@ interface Invoice {
   }>;
   notes?: string;
   paymentTerms: string;
+  paymentPreference?: {
+    method: string | null;
+    insuranceProvider: string | null;
+    insurancePolicyNumber: string | null;
+  };
 }
 
 interface InvoiceStats {
@@ -191,10 +196,17 @@ export default function AccountantInvoicesPage() {
     }
   };
 
-  const markAsPaid = async (invoiceId: string) => {
+  const markAsPaid = async (invoice: Invoice) => {
     try {
-      const res = await fetch(`/api/tenant/${slug}/accountant/billing/invoices/${invoiceId}/mark-paid`, {
-        method: 'POST'
+      const defaultMethod = invoice.paymentPreference?.method || "cash";
+      const chosenMethod = window.prompt("Confirm payment method for this checkout:", defaultMethod) || defaultMethod;
+      const notes = invoice.paymentPreference?.insuranceProvider
+        ? `Visit payment preference: ${invoice.paymentPreference.insuranceProvider}${invoice.paymentPreference.insurancePolicyNumber ? ` (${invoice.paymentPreference.insurancePolicyNumber})` : ""}`
+        : undefined;
+      const res = await fetch(`/api/tenant/${slug}/accountant/billing/invoices/${invoice.id}/mark-paid`, {
+        method: 'POST',
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ method: chosenMethod, notes }),
       });
 
       if (res.ok) {
@@ -553,6 +565,12 @@ export default function AccountantInvoicesPage() {
                       <div>
                         <p className="font-semibold text-foreground">{invoice.patientName}</p>
                         <p className="text-xs text-muted-foreground">{invoice.patientEmail}</p>
+                        {invoice.paymentPreference?.method ? (
+                          <p className="text-xs text-blue-600">
+                            Checkout: {invoice.paymentPreference.method.replace(/_/g, " ")}
+                            {invoice.paymentPreference.insuranceProvider ? ` - ${invoice.paymentPreference.insuranceProvider}` : ""}
+                          </p>
+                        ) : null}
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -607,7 +625,7 @@ export default function AccountantInvoicesPage() {
                               Remind
                             </button>
                             <button
-                              onClick={() => markAsPaid(invoice.id)}
+                              onClick={() => markAsPaid(invoice)}
                               className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-muted-foreground hover:text-green-600 hover:bg-green-50 font-medium text-xs transition-colors"
                             >
                               <CheckCircle className="size-3" />

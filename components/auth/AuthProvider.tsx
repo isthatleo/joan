@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
-import { getResolvedTenantLoginPath, getTenantDashboardPath, isTenantLoginPath, resolveTenantSlug } from "@/lib/tenant-routing";
-import { useAuthStore } from "@/stores/auth";
-import { PUBLIC_ROUTES, ROLE_HOME, type AppRole } from "@/lib/rbac";
+import {
+  getResolvedTenantLoginPath,
+  getTenantDashboardPath,
+  isTenantLoginPath,
+  resolveTenantSlug,
+} from "@/lib/tenant-routing";
 import { applyUserPreferences } from "@/lib/user-preferences";
+import { PUBLIC_ROUTES, ROLE_HOME, type AppRole } from "@/lib/rbac";
+import { useAuthStore } from "@/stores/auth";
 
 type RoleLookup = {
   role: AppRole | null;
@@ -14,15 +19,37 @@ type RoleLookup = {
   userId: string | null;
 };
 
+type CachedBootstrap = {
+  email: string;
+  tenantSlug: string | null;
+  user: {
+    id: string;
+    email: string;
+    fullName: string;
+    role?: AppRole;
+    tenantId?: string;
+    hospitalId?: string;
+    avatar?: string | null;
+  };
+  settings: any | null;
+};
+
+const AUTH_BOOTSTRAP_CACHE_KEY = "auth_bootstrap_cache";
+
 async function fetchRole(email: string, userId: string, tenantSlug?: string | null): Promise<RoleLookup> {
   try {
-    const res = await fetch("/api/auth/role", {
+    const response = await fetch("/api/auth/role", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, userId, tenantSlug }),
     });
-    if (!res.ok) return { role: null, tenantId: null, userId: null };
-    const data = await res.json();
+
+    if (!response.ok) {
+      return { role: null, tenantId: null, userId: null };
+    }
+
+    const data = await response.json();
+
     return {
       role: (data.role as AppRole) || null,
       tenantId: (data.tenantId as string | null | undefined) ?? null,
@@ -35,9 +62,15 @@ async function fetchRole(email: string, userId: string, tenantSlug?: string | nu
 
 async function fetchUserProfile(userId: string) {
   try {
-    const res = await fetch(`/api/users/profile?userId=${userId}`);
-    if (!res.ok) return null;
-    return await res.json();
+    const response = await fetch(`/api/users/profile?userId=${userId}`, {
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.json();
   } catch {
     return null;
   }
@@ -45,9 +78,15 @@ async function fetchUserProfile(userId: string) {
 
 async function fetchUserSettings() {
   try {
-    const res = await fetch("/api/users/settings");
-    if (!res.ok) return null;
-    return await res.json();
+    const response = await fetch("/api/users/settings", {
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.json();
   } catch {
     return null;
   }
@@ -65,23 +104,119 @@ function shouldRedirectAuthenticatedUser(pathname: string, role: AppRole | null 
   return /^\/tenant\/[^/]+\/?$/.test(pathname);
 }
 
+function readBootstrapCache(email: string, tenantSlug: string | null) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = sessionStorage.getItem(AUTH_BOOTSTRAP_CACHE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const cached = JSON.parse(raw) as CachedBootstrap;
+    if (cached.email !== email || cached.tenantSlug !== tenantSlug) {
+      return null;
+    }
+
+    return cached;
+  } catch {
+    return null;
+  }
+}
+
+function writeBootstrapCache(value: CachedBootstrap) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    sessionStorage.setItem(AUTH_BOOTSTRAP_CACHE_KEY, JSON.stringify(value));
+  } catch {}
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { setUser, setLoading, logout } = useAuthStore();
+  const { user: currentUser, setUser, setLoading, logout } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
-  const isPublicAuthRoute = PUBLIC_ROUTES.includes(pathname) || isTenantLoginPath(pathname);
   const session = authClient.useSession();
+  const isPublicAuthRoute = PUBLIC_ROUTES.includes(pathname) || isTenantLoginPath(pathname);
+  const hydratedSessionKeyRef = useRef<string | null>(null);
 
   function getPostLoginPath(role: AppRole | null | undefined) {
-    if (!role) return "/";
+    if (!role) {
+      return "/";
+    }
+
     const hostname = typeof window !== "undefined" ? window.location.hostname : null;
     const storedSlug = typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null;
     const resolvedSlug = resolveTenantSlug(pathname, hostname, storedSlug);
+
     return resolvedSlug ? getTenantDashboardPath(resolvedSlug, role, hostname) : (ROLE_HOME[role] ?? "/");
   }
 
   useEffect(() => {
     let cancelled = false;
+
+    async function hydrateAuthenticatedUser(activeUser: any, tenantSlug: string | null) {
+      const cached = readBootstrapCache(activeUser.email, tenantSlug);
+
+      if (cached) {
+        applyUserPreferences(cached.settings);
+        setUser(cached.user);
+        setLoading(false);
+      }
+
+      const roleData = await fetchRole(activeUser.email, activeUser.id, tenantSlug);
+      if (cancelled) {
+        return;
+      }
+
+      const appUserId = roleData.userId || activeUser.id;
+      const basicUser = {
+        id: appUserId,
+        email: activeUser.email,
+        fullName: activeUser.name || cached?.user.fullName || activeUser.email,
+        role: (roleData.role || cached?.user.role || undefined) as any,
+        tenantId: roleData.tenantId || cached?.user.tenantId || undefined,
+        hospitalId: roleData.tenantId || cached?.user.hospitalId || undefined,
+        avatar: cached?.user.avatar || null,
+      };
+
+      setUser(basicUser);
+      setLoading(false);
+
+      const [profile, settings] = await Promise.all([fetchUserProfile(appUserId), fetchUserSettings()]);
+      if (cancelled) {
+        return;
+      }
+
+      applyUserPreferences(settings);
+
+      const enrichedUser = {
+        ...basicUser,
+        fullName: activeUser.name || profile?.fullName || basicUser.fullName,
+        avatar: profile?.avatar || basicUser.avatar || null,
+      };
+
+      setUser(enrichedUser);
+      writeBootstrapCache({
+        email: activeUser.email,
+        tenantSlug,
+        user: enrichedUser,
+        settings,
+      });
+
+      if (isPublicAuthRoute) {
+        router.replace(getPostLoginPath(roleData.role || basicUser.role));
+        return;
+      }
+
+      if (shouldRedirectAuthenticatedUser(pathname, roleData.role || basicUser.role)) {
+        router.replace(getPostLoginPath(roleData.role || basicUser.role));
+      }
+    }
 
     async function syncSession() {
       if (session.isPending) {
@@ -89,92 +224,76 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const sessionData: any = session.data;
-      const activeUser = sessionData?.user;
       const hostname = typeof window !== "undefined" ? window.location.hostname : null;
       const storedSlug = typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null;
       const tenantSlug = resolveTenantSlug(pathname, hostname, storedSlug);
+      const sessionData: any = session.data;
+      const activeUser = sessionData?.user;
+      const activeSessionKey = activeUser ? `${activeUser.email}:${tenantSlug || ""}` : null;
 
       if (activeUser) {
-        const roleData = await fetchRole(activeUser.email, activeUser.id, tenantSlug);
-        const appUserId = roleData.userId || activeUser.id;
-        const [profile, settings] = await Promise.all([
-          fetchUserProfile(appUserId),
-          fetchUserSettings(),
-        ]);
-        if (cancelled) return;
-        applyUserPreferences(settings);
-        setUser({
-          id: appUserId,
-          email: activeUser.email,
-          fullName: activeUser.name || profile?.fullName || activeUser.email,
-          role: (roleData.role || undefined) as any,
-          tenantId: roleData.tenantId || undefined,
-          hospitalId: roleData.tenantId || undefined,
-          avatar: profile?.avatar || null,
-        });
-        setLoading(false);
+        if (hydratedSessionKeyRef.current === activeSessionKey && currentUser?.email === activeUser.email) {
+          setLoading(false);
 
-        if (isPublicAuthRoute) {
-          router.replace(getPostLoginPath(roleData.role));
+          if (isPublicAuthRoute && currentUser?.role) {
+            router.replace(getPostLoginPath(currentUser.role));
+            return;
+          }
+
+          if (shouldRedirectAuthenticatedUser(pathname, currentUser?.role)) {
+            router.replace(getPostLoginPath(currentUser?.role));
+          }
+
           return;
         }
 
-        if (shouldRedirectAuthenticatedUser(pathname, roleData.role)) {
-          router.replace(getPostLoginPath(roleData.role));
-        }
+        await hydrateAuthenticatedUser(activeUser, tenantSlug);
+        hydratedSessionKeyRef.current = activeSessionKey;
         return;
       }
 
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
+
+      hydratedSessionKeyRef.current = null;
+
+      if (isPublicAuthRoute) {
+        logout();
+        return;
+      }
 
       try {
-        const res = await fetch("/api/auth/get-session", { credentials: "include" });
-        if (cancelled) return;
-        if (res.ok) {
-          const data = await res.json().catch(() => null);
-          if (data?.user) {
-            const roleData = await fetchRole(data.user.email, data.user.id, tenantSlug);
-            const appUserId = roleData.userId || data.user.id;
-            const [profile, settings] = await Promise.all([
-              fetchUserProfile(appUserId),
-              fetchUserSettings(),
-            ]);
-            if (cancelled) return;
-            applyUserPreferences(settings);
-            setUser({
-              id: appUserId,
-              email: data.user.email,
-              fullName: data.user.name || profile?.fullName || data.user.email,
-              role: (roleData.role || undefined) as any,
-              tenantId: roleData.tenantId || undefined,
-              hospitalId: roleData.tenantId || undefined,
-              avatar: profile?.avatar || null,
-            });
-            setLoading(false);
-            if (isPublicAuthRoute) {
-              router.replace(getPostLoginPath(roleData.role));
-              return;
-            }
-            if (shouldRedirectAuthenticatedUser(pathname, roleData.role)) {
-              router.replace(getPostLoginPath(roleData.role));
-            }
-            return;
-          }
+        const response = await fetch("/api/auth/get-session", {
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        if (cancelled || !response.ok) {
+          throw new Error("No active session");
+        }
+
+        const data = await response.json().catch(() => null);
+        if (data?.user) {
+          await hydrateAuthenticatedUser(data.user, tenantSlug);
+          hydratedSessionKeyRef.current = `${data.user.email}:${tenantSlug || ""}`;
+          return;
         }
       } catch {}
 
       logout();
-        if (!isPublicAuthRoute) {
+
+      if (!isPublicAuthRoute) {
         router.push(getResolvedTenantLoginPath(pathname, hostname, storedSlug));
       }
     }
 
     syncSession();
+
     return () => {
       cancelled = true;
     };
-  }, [session.data, session.isPending, pathname, isPublicAuthRoute, logout, router, setLoading, setUser]);
+  }, [currentUser?.email, currentUser?.role, isPublicAuthRoute, logout, pathname, router, session.data, session.isPending, setLoading, setUser]);
 
   return <>{children}</>;
 }

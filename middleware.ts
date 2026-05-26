@@ -22,7 +22,7 @@ export async function middleware(request: NextRequest) {
   const subdomain = getSubdomain(hostname);
 
   if (subdomain) {
-    const path = url.pathname === "/" ? "" : url.pathname;
+    const path = url.pathname === "/" ? "/login" : url.pathname;
     url.pathname = `/tenant/${subdomain}${path}`;
     return NextResponse.rewrite(url);
   }

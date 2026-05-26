@@ -1,24 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getReceptionQueueStats, getTenantBySlug } from "@/lib/receptionist/data";
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
-    const { slug } = resolvedParams;
+    const { slug } = await params;
+    const tenant = await getTenantBySlug(slug);
+    if (!tenant) {
+      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
 
-    // Mock data - replace with actual database queries
-    const queueStats = {
-      totalWaiting: 8,
-      averageWaitTime: "12 min",
-      longestWait: "28 min",
-      urgentCount: 2,
-      completedToday: 42
-    };
-
-    return NextResponse.json(queueStats);
+    const stats = await getReceptionQueueStats(tenant.id);
+    return NextResponse.json(stats);
   } catch (error) {
     console.error("Failed to fetch queue stats:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch queue stats" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch queue stats" }, { status: 500 });
   }
 }

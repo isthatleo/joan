@@ -1,35 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getReceptionAlerts, getTenantBySlug } from "@/lib/receptionist/data";
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
-    const { slug } = resolvedParams;
+    const { slug } = await params;
+    const tenant = await getTenantBySlug(slug);
+    if (!tenant) {
+      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
 
-    // Mock data - replace with actual database queries
-    const alerts = [
-      {
-        id: "1",
-        title: "High Patient Volume",
-        message: "Current patient volume is 25% above normal. Consider activating overflow protocols.",
-        type: "warning",
-        timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(), // 15 minutes ago
-        priority: "medium"
-      },
-      {
-        id: "2",
-        title: "Emergency Room Backup",
-        message: "Emergency department is experiencing delays. Triage patients accordingly.",
-        type: "error",
-        timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 minutes ago
-        priority: "high"
-      }
-    ];
-
+    const alerts = await getReceptionAlerts(tenant.id);
     return NextResponse.json(alerts);
   } catch (error) {
     console.error("Failed to fetch receptionist alerts:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch receptionist alerts" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch receptionist alerts" }, { status: 500 });
   }
 }

@@ -54,6 +54,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Departments", path: "/departments", icon: Layers, category: "Management" },
     { label: "Roles & Permissions", path: "/roles", icon: ShieldCheck, category: "Management" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
+    { label: "Feedback", path: "/feedback", icon: MessageSquare, category: "Communication" },
     { label: "Broadcasts", path: "/broadcasts", icon: Megaphone, category: "Communication" },
     { label: "Lab", path: "/lab", icon: FlaskConical, category: "Services" },
     { label: "Pharmacy", path: "/pharmacy", icon: Pill, category: "Services" },
@@ -127,6 +128,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Reports", path: "/accountant/reports", icon: FileText, category: "Reports" },
     { label: "Financial Analysis", path: "/accountant/analytics/financial", icon: BarChart3, category: "Reports" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
+    { label: "Feedback", path: "/feedback", icon: MessageSquare, category: "Communication" },
     { label: "Email Activity", path: "/accountant/messages", icon: Mail, category: "Communication" },
     { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
   ],
@@ -138,8 +140,9 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Patient Registration", path: "/patients/register", icon: Users, category: "Front Desk" },
     { label: "Waiting Room", path: "/reception/waiting", icon: BedDouble, category: "Front Desk" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
+    { label: "Feedback", path: "/reception/feedback", icon: MessageSquare, category: "Communication" },
     { label: "Emergency", path: "/emergency", icon: AlertOctagon, category: "Emergency" },
-    { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
+    { label: "User Settings", path: "/reception/settings", icon: Settings, category: "Account" },
   ],
   patient: [
     { label: "Dashboard", path: "/my-health", icon: LayoutDashboard, category: "Main" },
@@ -151,6 +154,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Lab Results", path: "/patient-portal/results", icon: Microscope, category: "Health" },
     { label: "Billing", path: "/billing", icon: Wallet, category: "Account" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Account" },
+    { label: "Feedback", path: "/feedback", icon: MessageSquare, category: "Account" },
     { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
   ],
   guardian: [
@@ -163,6 +167,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Vaccinations", path: "/guardian/vaccinations", icon: ShieldCheck, category: "Family" },
     { label: "Alerts & Reminders", path: "/guardian/alerts", icon: Bell, category: "Family" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
+    { label: "Feedback", path: "/feedback", icon: MessageSquare, category: "Communication" },
     { label: "User Settings", path: "/profile/settings", icon: Settings, category: "Account" },
   ],
 };

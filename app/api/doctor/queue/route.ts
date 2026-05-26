@@ -3,6 +3,7 @@ import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { patients, queues } from "@/lib/db/schema";
 import { resolveDoctorContext } from "@/lib/doctor/server";
+import { announceQueueDestination, resolveQueueAnnouncements } from "@/lib/receptionist/data";
 
 const ACTIVE_QUEUE_STATUSES = ["waiting", "called", "in-progress"] as const;
 const ALLOWED_QUEUE_STATUSES = ["waiting", "called", "in-progress", "completed", "no-show"] as const;
@@ -261,6 +262,18 @@ export async function PATCH(request: NextRequest) {
       .set(updateData)
       .where(and(eq(queues.id, id), eq(queues.tenantId, doctor.tenantId), eq(queues.assignedTo, doctor.id)))
       .returning();
+
+    if (status === "called") {
+      await announceQueueDestination(doctor.tenantId, id, "the doctor's office", doctor.id);
+    }
+    if (["in-progress", "completed", "no-show"].includes(status)) {
+      await resolveQueueAnnouncements(
+        doctor.tenantId,
+        id,
+        status === "no-show" ? "cancelled" : "completed",
+        doctor.id,
+      );
+    }
 
     return NextResponse.json(updated);
   } catch (error) {

@@ -1,10 +1,6 @@
-import { db } from "@/lib/db";
-import { tenants } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
 import { TenantDashboardShell } from "./shell";
 import { TenantNotFoundRedirect } from "./not-found-redirect";
-
-export const dynamic = "force-dynamic";
+import { getCachedTenantBySlug } from "@/lib/tenant-cache";
 
 interface TenantLayoutProps {
   children: React.ReactNode;
@@ -16,7 +12,7 @@ export default async function TenantLayout({ children, params }: TenantLayoutPro
 
   let tenant;
   try {
-    tenant = await db.query.tenants.findFirst({ where: eq(tenants.slug, slug) });
+    tenant = await getCachedTenantBySlug(slug);
   } catch (error) {
     console.error("Database query failed for tenant slug:", slug, error);
     // Treat database errors as if the tenant was not found

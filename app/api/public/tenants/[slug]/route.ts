@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { tenants } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { getCachedTenantBySlug } from "@/lib/tenant-cache";
 
 /**
  * Public endpoint to get tenant information by slug
@@ -19,9 +17,7 @@ export async function GET(
       return NextResponse.json({ error: "Slug is required" }, { status: 400 });
     }
 
-    const tenant = await db.query.tenants.findFirst({
-      where: eq(tenants.slug, slug.toLowerCase()),
-    });
+    const tenant = await getCachedTenantBySlug(slug);
 
     if (!tenant) {
       return NextResponse.json(
