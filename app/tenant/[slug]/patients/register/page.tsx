@@ -12,6 +12,7 @@ type PatientFormData = {
   lastName: string;
   dateOfBirth: string;
   gender: string;
+  isChildPatient: boolean;
   phone: string;
   email: string;
   address: {
@@ -24,6 +25,14 @@ type PatientFormData = {
     name: string;
     relationship: string;
     phone: string;
+  };
+  guardian: {
+    isParentGuardian: boolean;
+    isExistingPatient: boolean;
+    name: string;
+    relationship: string;
+    phone: string;
+    email: string;
   };
   insurance: {
     paymentMethod: string;
@@ -50,10 +59,12 @@ const defaultForm: PatientFormData = {
   lastName: "",
   dateOfBirth: "",
   gender: "",
+  isChildPatient: false,
   phone: "",
   email: "",
   address: { street: "", city: "", state: "", zipCode: "" },
   emergencyContact: { name: "", relationship: "", phone: "" },
+  guardian: { isParentGuardian: false, isExistingPatient: false, name: "", relationship: "parent", phone: "", email: "" },
   insurance: { paymentMethod: "cash", provider: "", policyNumber: "", groupNumber: "", primaryInsured: "", saveAsDefault: false },
   medicalHistory: { allergies: "", medications: "", conditions: "", surgeries: "" },
   preferences: { language: "English", communicationMethod: "phone" },
@@ -119,7 +130,15 @@ export default function PatientRegistrationPage() {
 
   const validateStep = (step: number) => {
     if (step === 1) return Boolean(formData.firstName && formData.lastName && formData.dateOfBirth && formData.gender);
-    if (step === 2) return Boolean(formData.phone && formData.email && formData.address.street && formData.address.city);
+    if (step === 2) {
+      const baseValid = Boolean(formData.phone && formData.email && formData.address.street && formData.address.city);
+      if (!baseValid) return false;
+      if (formData.isChildPatient && !formData.guardian.isParentGuardian) return false;
+      if (!formData.guardian.isParentGuardian) return true;
+      if (!formData.guardian.name || !formData.guardian.relationship) return false;
+      if (formData.guardian.isExistingPatient && !formData.guardian.phone && !formData.guardian.email) return false;
+      return true;
+    }
     if (step === 3) {
       if (!formData.insurance.paymentMethod) return false;
       if (formData.insurance.paymentMethod !== "insurance") return true;
@@ -132,7 +151,9 @@ export default function PatientRegistrationPage() {
     () => [
       { label: "Patient", value: `${formData.firstName} ${formData.lastName}`.trim() || "Not entered" },
       { label: "DOB", value: formData.dateOfBirth || "Not entered" },
+      { label: "Patient type", value: formData.isChildPatient ? "Child patient" : "Adult patient" },
       { label: "Phone", value: formData.phone || "Not entered" },
+      { label: "Parent/Guardian", value: formData.guardian.isParentGuardian ? `${formData.guardian.name || "Not entered"}${formData.guardian.isExistingPatient ? " (existing patient)" : ""}` : "No guardian captured" },
       { label: "Payment", value: formData.insurance.paymentMethod || "Not selected" },
       { label: "Insurance", value: formData.insurance.paymentMethod === "insurance" ? formData.insurance.provider || "Not entered" : "Not applicable" },
       { label: "Allergies", value: formData.medicalHistory.allergies || "None recorded" },
@@ -168,14 +189,19 @@ export default function PatientRegistrationPage() {
       if (!response.ok || !payload?.patientId) {
         throw new Error("Failed to register patient");
       }
-      if (payload?.access?.delivery) {
+      if (payload?.access) {
         const notice =
           payload.access.delivery === "email"
-            ? "Patient portal access was sent by email."
+            ? `Patient portal access was sent by email. Login URL: ${payload.access.loginUrl}`
             : payload.access.delivery === "sms"
-              ? "Patient portal access was sent by SMS."
-              : `Patient portal login created. Login ID: ${payload.access.loginIdentifier}`;
-        window.alert(notice);
+              ? `Patient portal access was sent by SMS. Login URL: ${payload.access.loginUrl}`
+              : payload.access.delivery === "deferred"
+                ? `Patient portal access is deferred until the patient reaches the configured adult age of ${payload.access.adultAge}. Eligible on: ${payload.access.eligibleOn ? new Date(payload.access.eligibleOn).toLocaleDateString() : "Not available"}.`
+              : `Patient portal login created. Login ID: ${payload.access.loginIdentifier}. Login URL: ${payload.access.loginUrl}`;
+        const guardianNotice = payload?.guardianLink?.linked
+          ? " The parent/guardian was also linked to this child profile."
+          : "";
+        window.alert(`${notice}${guardianNotice}`);
       }
       router.push(toTenantPath(`/patients/${payload.patientId}?registered=true`));
     } catch (error) {
@@ -242,6 +268,10 @@ export default function PatientRegistrationPage() {
                   <option value="other">Other</option>
                   <option value="prefer-not-to-say">Prefer not to say</option>
                 </select>
+                <label className="md:col-span-2 flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-3 text-sm text-foreground">
+                  <input type="checkbox" checked={formData.isChildPatient} onChange={(event) => setFormData((current) => ({ ...current, isChildPatient: event.target.checked }))} />
+                  This patient is a child and should be managed through a parent/guardian until they reach the legal adult age for this tenant.
+                </label>
               </div>
               <div className="rounded-2xl border border-dashed border-border bg-background/70 p-5 text-center">
                 {photoPreview ? <img src={photoPreview} alt="Patient preview" className="mx-auto h-24 w-24 rounded-full object-cover" /> : <Camera className="mx-auto h-10 w-10 text-muted-foreground" />}
@@ -278,6 +308,35 @@ export default function PatientRegistrationPage() {
                   <input value={formData.emergencyContact.relationship} onChange={(event) => setNestedField("emergencyContact", "relationship", event.target.value)} placeholder="Relationship" className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground" />
                   <PhoneNumberInput value={formData.emergencyContact.phone} onChange={(value) => setNestedField("emergencyContact", "phone", value || "")} placeholder="Emergency phone number" />
                 </div>
+              </div>
+              <div className="rounded-2xl border border-border bg-background/70 p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="font-semibold text-foreground">Parent or Guardian</h3>
+                    <p className="text-sm text-muted-foreground">If the accompanying adult is the child's parent or guardian, capture them here for guardian dashboard access and future scheduling.</p>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-foreground">
+                    <input type="checkbox" checked={formData.guardian.isParentGuardian} onChange={(event) => setNestedField("guardian", "isParentGuardian", event.target.checked)} />
+                    This patient is attending with a parent/guardian
+                  </label>
+                </div>
+                {formData.guardian.isParentGuardian ? (
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <input value={formData.guardian.name} onChange={(event) => setNestedField("guardian", "name", event.target.value)} placeholder="Parent/guardian name" className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground" />
+                    <input value={formData.guardian.relationship} onChange={(event) => setNestedField("guardian", "relationship", event.target.value)} placeholder="Relationship" className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground" />
+                    <PhoneNumberInput value={formData.guardian.phone} onChange={(value) => setNestedField("guardian", "phone", value || "")} placeholder="Parent/guardian phone" />
+                    <input value={formData.guardian.email} onChange={(event) => setNestedField("guardian", "email", event.target.value)} placeholder="Parent/guardian email" className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground" />
+                    <label className="md:col-span-2 flex items-center gap-2 text-sm text-foreground">
+                      <input type="checkbox" checked={formData.guardian.isExistingPatient} onChange={(event) => setNestedField("guardian", "isExistingPatient", event.target.checked)} />
+                      This parent/guardian is already a patient in this hospital
+                    </label>
+                    {formData.guardian.isExistingPatient ? (
+                      <div className="md:col-span-2 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+                        Reception will try to match this parent/guardian to an existing patient account using the phone number or email entered above and link them to the child profile automatically.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}

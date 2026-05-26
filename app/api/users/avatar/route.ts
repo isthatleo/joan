@@ -6,7 +6,6 @@ import { randomUUID } from "crypto";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
-import { headers as nextHeaders } from "next/headers";
 
 interface ErrorResponse {
   error: string;
@@ -23,17 +22,31 @@ function createErrorResponse(status: number, error: string, details?: string) {
 }
 
 async function resolveCurrentUser(request: NextRequest) {
-  const requestHeaders = new Headers(request.headers);
+  let session = await auth.api.getSession({ headers: request.headers }).catch(() => null as any);
 
-  if (!requestHeaders.get("cookie")) {
-    const fallbackHeaders = await nextHeaders().catch(() => null as any);
-    const cookieHeader = fallbackHeaders?.get?.("cookie");
-    if (cookieHeader) {
+  if (!session?.user?.email) {
+    const requestHeaders = new Headers(request.headers);
+    const cookieHeader = request.headers.get("cookie");
+    const hostHeader = request.headers.get("host");
+    const originHeader = request.headers.get("origin");
+    const refererHeader = request.headers.get("referer");
+
+    if (cookieHeader && !requestHeaders.get("cookie")) {
       requestHeaders.set("cookie", cookieHeader);
     }
+    if (hostHeader && !requestHeaders.get("host")) {
+      requestHeaders.set("host", hostHeader);
+    }
+    if (originHeader && !requestHeaders.get("origin")) {
+      requestHeaders.set("origin", originHeader);
+    }
+    if (refererHeader && !requestHeaders.get("referer")) {
+      requestHeaders.set("referer", refererHeader);
+    }
+
+    session = await auth.api.getSession({ headers: requestHeaders }).catch(() => null as any);
   }
 
-  const session = await auth.api.getSession({ headers: requestHeaders }).catch(() => null as any);
   if (!session?.user?.email) {
     return { session, appUser: null };
   }

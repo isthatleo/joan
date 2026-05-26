@@ -1,21 +1,31 @@
-import crypto from "node:crypto";
+﻿import crypto from "node:crypto";
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   appointments,
+  guardianPatients,
+  guardians,
   insurancePolicies,
   notifications,
   patientAllergies,
   patientConditions,
   patients,
   queues,
+  roles,
   systemAlerts,
   tenantSettings,
   tenants,
+  userRoles,
   users,
   visits,
 } from "@/lib/db/schema";
-import { provisionPatientPortalAccess } from "@/lib/receptionist/access";
+import {
+  canProvisionPatientPortalAccess,
+  deferPatientPortalAccess,
+  provisionPatientPortalAccess,
+  syncDeferredPatientPortalAccesses,
+} from "@/lib/receptionist/access";
+import { getEligiblePatientIdsForTenant } from "@/lib/patient-access";
 import {
   addVisitPaymentSelection,
   getLatestVisitPaymentSelectionsByPatient,
@@ -29,6 +39,106 @@ const EMERGENCY_PROTOCOLS_KEY = "reception_emergency_protocols";
 const APPOINTMENT_METADATA_KEY = "reception_appointment_metadata";
 
 type TenantRecord = typeof tenants.$inferSelect;
+
+async function ensureGuardianLinkForNewPatient(
+  tenantId: string,
+  patientId: string,
+  payload: any,
+) {
+  const guardianInput = payload?.guardian;
+  if (!guardianInput?.isParentGuardian || !guardianInput?.isExistingPatient) return null;
+
+  const email = String(guardianInput.email || "").trim();
+  const phone = String(guardianInput.phone || "").trim();
+  if (!email && !phone) return null;
+  const identityConditions = [
+    email ? ilike(users.email, email) : null,
+    phone ? eq(users.phone, phone) : null,
+  ].filter(Boolean) as any[];
+
+  const possibleUsers = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      phone: users.phone,
+      role: users.role,
+      linkedRole: roles.name,
+    })
+    .from(users)
+    .leftJoin(userRoles, eq(userRoles.userId, users.id))
+    .leftJoin(roles, eq(roles.id, userRoles.roleId))
+    .where(
+      and(
+        eq(users.tenantId, tenantId),
+        eq(users.isActive, true),
+        isNull(users.deletedAt),
+        or(...identityConditions),
+      ),
+    );
+
+  const matchingGuardian = possibleUsers.find((row) => {
+    const normalized = new Set([String(row.role || "").toLowerCase(), String(row.linkedRole || "").toLowerCase()].filter(Boolean));
+    return normalized.has("patient") || normalized.has("guardian");
+  });
+
+  if (!matchingGuardian?.id) return null;
+
+  const guardianRole = await db.query.roles.findFirst({
+    where: eq(roles.name, "guardian"),
+    columns: { id: true },
+  });
+
+  const hasGuardianRole = possibleUsers.some(
+    (row) => row.id === matchingGuardian.id && String(row.linkedRole || row.role || "").toLowerCase() === "guardian",
+  );
+
+  if (guardianRole?.id && !hasGuardianRole) {
+    const existingAssignment = await db.query.userRoles.findFirst({
+      where: and(eq(userRoles.userId, matchingGuardian.id), eq(userRoles.roleId, guardianRole.id)),
+    });
+    if (!existingAssignment) {
+      await db.insert(userRoles).values({ userId: matchingGuardian.id, roleId: guardianRole.id });
+    }
+  }
+
+  let guardianRecord = await db.query.guardians.findFirst({
+    where: and(eq(guardians.tenantId, tenantId), eq(guardians.userId, matchingGuardian.id)),
+  });
+
+  if (!guardianRecord?.id) {
+    const [createdGuardian] = await db
+      .insert(guardians)
+      .values({
+        tenantId,
+        userId: matchingGuardian.id,
+        relationship: guardianInput.relationship || "parent",
+      })
+      .returning();
+    guardianRecord = createdGuardian ?? null;
+  }
+
+  if (!guardianRecord?.id) return null;
+
+  const existingLink = await db.query.guardianPatients.findFirst({
+    where: and(eq(guardianPatients.guardianId, guardianRecord.id), eq(guardianPatients.patientId, patientId)),
+  });
+
+  if (!existingLink?.id) {
+    await db.insert(guardianPatients).values({
+      guardianId: guardianRecord.id,
+      patientId,
+      canViewRecords: true,
+      canSchedule: true,
+      emergencyContact: true,
+    });
+  }
+
+  return {
+    guardianUserId: matchingGuardian.id,
+    guardianId: guardianRecord.id,
+    linked: true,
+  };
+}
 
 const defaultEmergencyProtocols = [
   {
@@ -170,9 +280,9 @@ async function upsertAppointmentMetadata(tenantId: string, metadata: Appointment
 }
 
 export async function getTenantBySlug(slug: string): Promise<TenantRecord | null> {
-  return db.query.tenants.findFirst({
+  return (await db.query.tenants.findFirst({
     where: eq(tenants.slug, slug.toLowerCase()),
-  });
+  })) ?? null;
 }
 
 export async function getReceptionDashboardMetrics(tenantId: string) {
@@ -449,12 +559,17 @@ export async function rescheduleReceptionAppointment(
 }
 
 export async function searchReceptionPatients(tenantId: string, query: string) {
+  await syncDeferredPatientPortalAccesses(tenantId);
   const term = query.trim();
   if (!term || term.length < 2) return [];
+
+  const eligiblePatientIds = await getEligiblePatientIdsForTenant(tenantId);
+  if (!eligiblePatientIds.length) return [];
 
   const rows = await db.query.patients.findMany({
     where: and(
       eq(patients.tenantId, tenantId),
+      inArray(patients.id, eligiblePatientIds),
       or(
         ilike(patients.fullName, `%${term}%`),
         ilike(patients.firstName, `%${term}%`),
@@ -503,6 +618,7 @@ export async function searchReceptionPatients(tenantId: string, query: string) {
 }
 
 export async function getReceptionPatientProfile(tenantId: string, patientId: string) {
+  await syncDeferredPatientPortalAccesses(tenantId);
   const patient = await db.query.patients.findFirst({
     where: and(eq(patients.tenantId, tenantId), eq(patients.id, patientId)),
   });
@@ -542,6 +658,7 @@ export async function getReceptionPatientProfile(tenantId: string, patientId: st
 }
 
 export async function registerReceptionPatient(tenantId: string, payload: any) {
+  await syncDeferredPatientPortalAccesses(tenantId);
   const fullName = `${payload.firstName || ""} ${payload.lastName || ""}`.trim();
   const sequence = Date.now().toString().slice(-6);
   const [patient] = await db
@@ -607,18 +724,39 @@ export async function registerReceptionPatient(tenantId: string, payload: any) {
     columns: { slug: true },
   });
 
-  const access = await provisionPatientPortalAccess({
+  const accessPolicy = await canProvisionPatientPortalAccess({
     tenantId,
-    tenantSlug: tenant?.slug || "tenant",
-    patientId: patient.id,
-    fullName,
-    email: payload.email || null,
-    phone: payload.phone || null,
+    dateOfBirth: payload.dateOfBirth || null,
+    isChildPatient: payload.isChildPatient === true,
   });
+
+  const access = accessPolicy.allowed
+    ? await provisionPatientPortalAccess({
+        tenantId,
+        tenantSlug: tenant?.slug || "tenant",
+        patientId: patient.id,
+        fullName,
+        email: payload.email || null,
+        phone: payload.phone || null,
+      })
+    : await deferPatientPortalAccess({
+        tenantId,
+        tenantSlug: tenant?.slug || "tenant",
+        patientId: patient.id,
+        fullName,
+        email: payload.email || null,
+        phone: payload.phone || null,
+        dateOfBirth: payload.dateOfBirth || null,
+        adultAge: accessPolicy.adultAge,
+        eligibleOn: accessPolicy.eligibleOn || "",
+      });
+
+  const guardianLink = await ensureGuardianLinkForNewPatient(tenantId, patient.id, payload);
 
   return {
     patient,
     access,
+    guardianLink,
   };
 }
 
@@ -634,6 +772,7 @@ export async function checkInReceptionPatient(
     recordedBy?: string | null;
   },
 ) {
+  await syncDeferredPatientPortalAccesses(tenantId);
   let appointment = appointmentId
     ? await db.query.appointments.findFirst({
         where: and(eq(appointments.tenantId, tenantId), eq(appointments.id, appointmentId)),
@@ -1069,3 +1208,5 @@ export async function getReceptionAlerts(tenantId: string) {
 
   return alerts.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 }
+
+

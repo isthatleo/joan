@@ -1,4 +1,4 @@
-
+﻿
 import { db } from "@/lib/db";
 import {
   inventoryItems,
@@ -12,6 +12,7 @@ import {
 } from "@/lib/db/schema";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getPatientBillingStatus, syncPatientCareInvoice } from "@/lib/billing/patient-ledger";
+import { getEligiblePatientIdsForTenant } from "@/lib/patient-access";
 
 export type SupplierRecord = {
   id: string;
@@ -156,6 +157,9 @@ export async function saveReportRuns(tenantId: string, reportRuns: ReportRun[], 
 }
 
 export async function listPatientsForPharmacy(tenantId: string) {
+  const patientIds = await getEligiblePatientIdsForTenant(tenantId);
+  if (!patientIds.length) return [];
+
   const rows = await db
     .select({
       id: patients.id,
@@ -168,7 +172,7 @@ export async function listPatientsForPharmacy(tenantId: string) {
       mrn: patients.mrn,
     })
     .from(patients)
-    .where(and(eq(patients.tenantId, tenantId), isNull(patients.deletedAt)))
+    .where(and(eq(patients.tenantId, tenantId), inArray(patients.id, patientIds), isNull(patients.deletedAt)))
     .orderBy(asc(patients.firstName), asc(patients.lastName));
 
   return rows.map((row) => ({
@@ -308,6 +312,7 @@ export async function listPrescriptionRows(tenantId: string) {
 
   const itemsByPrescription = new Map<string, any[]>();
   for (const item of itemRows) {
+    if (!item.prescriptionId) continue;
     const list = itemsByPrescription.get(item.prescriptionId) || [];
     list.push(item);
     itemsByPrescription.set(item.prescriptionId, list);
@@ -524,6 +529,10 @@ export async function updatePrescriptionStatus(
   const record = await getPrescriptionById(tenantId, prescriptionId);
   if (!record) {
     throw new Error("Prescription not found");
+  }
+
+  if (!record.patientId) {
+    throw new Error("Prescription is not linked to a patient");
   }
 
   await syncPatientCareInvoice(tenantId, record.patientId);
@@ -826,3 +835,5 @@ export async function buildPharmacyReports(tenantId: string) {
     },
   };
 }
+
+

@@ -16,6 +16,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       success: true,
       patient: result.patient,
       access: result.access,
+      guardianLink: result.guardianLink,
       patientId: result.patient.id,
       message: "Patient registered successfully",
     });

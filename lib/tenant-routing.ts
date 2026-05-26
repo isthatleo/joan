@@ -14,7 +14,7 @@ export const TENANT_ROLE_HOME: Record<Exclude<AppRole, "super_admin">, string> =
   pharmacist: "pharmacy",
   accountant: "accountant",
   receptionist: "reception",
-  patient: "my-health",
+  patient: "patient",
   guardian: "guardian",
 };
 
@@ -31,7 +31,7 @@ export const TENANT_ROUTE_ALIASES: Record<string, string> = {
   "/accounts": "accountant",
   "/reception": "reception",
   "/receptionist": "reception",
-  "/patient": "",
+  "/patient": "patient",
   "/patient-portal": "",
   "/guardian": "guardian",
 };

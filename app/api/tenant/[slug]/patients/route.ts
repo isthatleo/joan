@@ -1,9 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
-import { and, asc, eq, isNull } from "drizzle-orm";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
 import { db } from "@/lib/db";
 import { patients } from "@/lib/db/schema";
+import { getEligiblePatientIdsForTenant } from "@/lib/patient-access";
 
 function formatPatient(patient: typeof patients.$inferSelect) {
   const fullName = [patient.firstName, patient.lastName].filter(Boolean).join(" ").trim();
@@ -43,10 +44,15 @@ export async function GET(
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
+    const eligiblePatientIds = await getEligiblePatientIdsForTenant(tenantId);
+    if (!eligiblePatientIds.length) {
+      return NextResponse.json([]);
+    }
+
     const rows = await db
       .select()
       .from(patients)
-      .where(and(eq(patients.tenantId, tenantId), isNull(patients.deletedAt)))
+      .where(and(eq(patients.tenantId, tenantId), inArray(patients.id, eligiblePatientIds), isNull(patients.deletedAt)))
       .orderBy(asc(patients.firstName), asc(patients.lastName))
       .limit(500);
 

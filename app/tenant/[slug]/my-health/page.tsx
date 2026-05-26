@@ -1,498 +1,197 @@
 "use client";
 
-import { DashboardGreeting } from "@/components/DashboardGreeting";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import {
-  HeartPulse, Activity, Thermometer, Weight, Ruler, Droplets,
-  TrendingUp, TrendingDown, Calendar, Clock, Target, Award,
-  AlertTriangle, CheckCircle2, RefreshCw, Download, Share,
-  BarChart3, LineChart, PieChart, Zap
-} from "lucide-react";
+import { Activity, Flag, HeartPulse, PlusCircle, RefreshCw, ShieldAlert, ThermometerSun } from "lucide-react";
 
-interface VitalSigns {
-  heartRate: number;
-  bloodPressure: {
-    systolic: number;
-    diastolic: number;
-  };
-  temperature: number;
-  weight: number;
-  height: number;
-  bmi: number;
-  oxygenSaturation: number;
-  respiratoryRate: number;
-  lastUpdated: string;
-}
-
-interface HealthMetric {
-  id: string;
-  name: string;
-  value: number | string;
-  unit: string;
-  status: "normal" | "high" | "low" | "critical";
-  trend: "up" | "down" | "stable";
-  trendValue: number;
-  date: string;
-}
-
-interface HealthGoal {
-  id: string;
-  title: string;
-  description: string;
-  target: number | string;
-  current: number | string;
-  unit: string;
-  deadline: string;
-  progress: number;
-  status: "active" | "completed" | "overdue";
-}
-
-interface SymptomLog {
-  id: string;
-  symptom: string;
-  severity: 1 | 2 | 3 | 4 | 5;
-  description: string;
-  date: string;
-  time: string;
-  notes?: string;
-}
+type HealthData = {
+  latestVitals: { temperature?: string | null; bloodPressure?: string | null; heartRate?: string | null; respiratoryRate?: string | null; oxygenSaturation?: string | null; painScore?: number | null; recordedAt?: string | null; notes?: string | null } | null;
+  vitalsHistory: Array<{ id: string; temperature?: string | null; bloodPressure?: string | null; heartRate?: string | null; oxygenSaturation?: string | null; recordedAt?: string | null }>;
+  metrics: Array<{ key: string; label: string; value: string; unit: string; status: string }>;
+  goals: Array<{ id: string; title: string; target: string; unit: string; current: string; deadline?: string | null; status: string }>;
+  symptoms: Array<{ id: string; symptom: string; severity: number; notes?: string | null; recordedAt: string }>;
+  allergies: string[];
+  conditions: string[];
+  currency: string;
+};
 
 export default function MyHealthPage() {
-  const { slug } = useParams();
-  const [vitalSigns, setVitalSigns] = useState<VitalSigns | null>(null);
-  const [healthMetrics, setHealthMetrics] = useState<HealthMetric[]>([]);
-  const [healthGoals, setHealthGoals] = useState<HealthGoal[]>([]);
-  const [symptomLogs, setSymptomLogs] = useState<SymptomLog[]>([]);
+  const params = useParams();
+  const slug = params?.slug as string;
+  const [data, setData] = useState<HealthData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"vitals" | "metrics" | "goals" | "symptoms">("vitals");
+  const [goalForm, setGoalForm] = useState({ title: "", target: "", unit: "", current: "0", deadline: "" });
+  const [symptomForm, setSymptomForm] = useState({ symptom: "", severity: 3, notes: "" });
 
-  // Fetch health data
-  const fetchHealthData = async () => {
+  async function loadData(showSpinner = true) {
+    if (showSpinner) setRefreshing(true);
     try {
-      setRefreshing(true);
-      const [vitalsRes, metricsRes, goalsRes, symptomsRes] = await Promise.all([
-        fetch(`/api/tenant/${slug}/patient/health/vitals`),
-        fetch(`/api/tenant/${slug}/patient/health/metrics`),
-        fetch(`/api/tenant/${slug}/patient/health/goals`),
-        fetch(`/api/tenant/${slug}/patient/health/symptoms`),
-      ]);
-
-      if (vitalsRes.ok) setVitalSigns(await vitalsRes.json());
-      if (metricsRes.ok) setHealthMetrics(await metricsRes.json());
-      if (goalsRes.ok) setHealthGoals(await goalsRes.json());
-      if (symptomsRes.ok) setSymptomLogs(await symptomsRes.json());
-
-      setLoading(false);
-    } catch (error) {
-      console.error("Failed to fetch health data:", error);
+      const response = await fetch(`/api/tenant/${slug}/patient/health`, { cache: "no-store", credentials: "include" });
+      if (!response.ok) throw new Error("Failed to load health data");
+      setData(await response.json());
     } finally {
+      setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    fetchHealthData();
-  }, []);
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "normal": return "text-green-600 bg-green-50";
-      case "high": return "text-red-600 bg-red-50";
-      case "low": return "text-blue-600 bg-blue-50";
-      case "critical": return "text-red-700 bg-red-100";
-      default: return "text-gray-600 bg-gray-50";
-    }
-  };
-
-  const getGoalStatusColor = (status: string) => {
-    switch (status) {
-      case "completed": return "text-green-600 bg-green-50 border-green-200";
-      case "active": return "text-blue-600 bg-blue-50 border-blue-200";
-      case "overdue": return "text-red-600 bg-red-50 border-red-200";
-      default: return "text-gray-600 bg-gray-50 border-gray-200";
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <div className="h-2 w-2 animate-pulse rounded-full bg-orange-500" />
-          Loading your health data...
-        </div>
-      </div>
-    );
   }
 
-  const tabs = [
-    { id: "vitals", label: "Vital Signs", icon: HeartPulse },
-    { id: "metrics", label: "Health Metrics", icon: BarChart3 },
-    { id: "goals", label: "Health Goals", icon: Target },
-    { id: "symptoms", label: "Symptom Log", icon: AlertTriangle },
-  ];
+  useEffect(() => {
+    loadData();
+    const timer = window.setInterval(() => loadData(false), 20000);
+    return () => window.clearInterval(timer);
+  }, [slug]);
+
+  async function addGoal() {
+    if (!goalForm.title || !goalForm.target || !goalForm.unit) return;
+    await fetch(`/api/tenant/${slug}/patient/health/goals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(goalForm),
+    });
+    setGoalForm({ title: "", target: "", unit: "", current: "0", deadline: "" });
+    await loadData(false);
+  }
+
+  async function addSymptom() {
+    if (!symptomForm.symptom) return;
+    await fetch(`/api/tenant/${slug}/patient/health/symptoms`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(symptomForm),
+    });
+    setSymptomForm({ symptom: "", severity: 3, notes: "" });
+    await loadData(false);
+  }
+
+  const latest = data?.latestVitals;
+  const cards = useMemo(() => [
+    { label: "Temperature", value: latest?.temperature || "--", icon: ThermometerSun },
+    { label: "Blood Pressure", value: latest?.bloodPressure || "--", icon: Activity },
+    { label: "Heart Rate", value: latest?.heartRate || "--", icon: HeartPulse },
+    { label: "Oxygen Saturation", value: latest?.oxygenSaturation || "--", icon: ShieldAlert },
+  ], [latest]);
+
+  if (loading || !data) {
+    return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading health workspace...</div>;
+  }
 
   return (
     <div className="space-y-6">
-      <DashboardGreeting roleLabel="Patient" />
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-4 rounded-3xl border border-border bg-card p-6 shadow-sm">
         <div>
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
-            Health Monitoring
-          </p>
-          <h1 className="text-3xl font-bold text-foreground mt-1">
-            My Health Overview
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Track your vital signs, health metrics, and wellness goals
-          </p>
+          <p className="text-xs font-mono uppercase tracking-[0.25em] text-muted-foreground">My Health</p>
+          <h1 className="mt-1 text-3xl font-semibold text-foreground">Vitals, goals, and symptom tracking</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Updates here are fed from nurse-recorded vitals and your own health tracking entries.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-all">
-            <Download className="h-4 w-4" />
-            Export Data
-          </button>
-          <button className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-all">
-            <Share className="h-4 w-4" />
-            Share with Doctor
-          </button>
-          <button
-            onClick={fetchHealthData}
-            disabled={refreshing}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 text-white font-semibold hover:bg-orange-600 disabled:opacity-50 transition-all"
-          >
-            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
-        </div>
+        <button onClick={() => loadData()} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90">
+          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-              activeTab === tab.id
-                ? "bg-white text-orange-600 shadow-sm"
-                : "text-gray-600 hover:text-gray-900"
-            }`}
-          >
-            <tab.icon className="h-4 w-4" />
-            {tab.label}
-          </button>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {cards.map((card) => (
+          <div key={card.label} className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">{card.label}</p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">{card.value}</p>
+              </div>
+              <div className="rounded-2xl bg-primary/10 p-3 text-primary"><card.icon className="h-5 w-5" /></div>
+            </div>
+          </div>
         ))}
       </div>
 
-      {/* Vital Signs Tab */}
-      {activeTab === "vitals" && (
+      <div className="grid gap-6 xl:grid-cols-[1.35fr_1fr]">
         <div className="space-y-6">
-          {/* Current Vital Signs */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-red-50 text-red-600">
-                  <HeartPulse className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Heart Rate</p>
-                  <p className="text-2xl font-bold text-gray-900">{vitalSigns?.heartRate || 72} BPM</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-gray-500">
-                <TrendingUp className="h-3 w-3 text-green-500" />
-                <span>+2 BPM from last reading</span>
-              </div>
-            </div>
-
-            <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
-                  <Activity className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Blood Pressure</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {vitalSigns?.bloodPressure.systolic || 120}/{vitalSigns?.bloodPressure.diastolic || 80}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-green-600">
-                <CheckCircle2 className="h-3 w-3" />
-                <span>Normal range</span>
-              </div>
-            </div>
-
-            <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-orange-50 text-orange-600">
-                  <Thermometer className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Temperature</p>
-                  <p className="text-2xl font-bold text-gray-900">{vitalSigns?.temperature || 98.6}°F</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-green-600">
-                <CheckCircle2 className="h-3 w-3" />
-                <span>Normal</span>
-              </div>
-            </div>
-
-            <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-purple-50 text-purple-600">
-                  <Droplets className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Oxygen Saturation</p>
-                  <p className="text-2xl font-bold text-gray-900">{vitalSigns?.oxygenSaturation || 98}%</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-green-600">
-                <CheckCircle2 className="h-3 w-3" />
-                <span>Excellent</span>
-              </div>
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-foreground">Vital sign history</h2>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-left text-muted-foreground"><tr><th className="py-2">Recorded</th><th>Temperature</th><th>Blood Pressure</th><th>Heart Rate</th><th>SpO2</th></tr></thead>
+                <tbody>
+                  {data.vitalsHistory.map((vital) => (
+                    <tr key={vital.id} className="border-t border-border">
+                      <td className="py-3 text-foreground">{vital.recordedAt ? new Date(vital.recordedAt).toLocaleString() : "-"}</td>
+                      <td>{vital.temperature || "-"}</td>
+                      <td>{vital.bloodPressure || "-"}</td>
+                      <td>{vital.heartRate || "-"}</td>
+                      <td>{vital.oxygenSaturation || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
 
-          {/* Additional Vitals */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-green-50 text-green-600">
-                  <Weight className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Weight</p>
-                  <p className="text-2xl font-bold text-gray-900">{vitalSigns?.weight || 165} lbs</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-gray-500">
-                <TrendingDown className="h-3 w-3 text-green-500" />
-                <span>-2 lbs this month</span>
-              </div>
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-foreground">Health goals</h2>
+              <Flag className="h-5 w-5 text-muted-foreground" />
             </div>
-
-            <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-cyan-50 text-cyan-600">
-                  <Ruler className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-600">BMI</p>
-                  <p className="text-2xl font-bold text-gray-900">{vitalSigns?.bmi || 24.5}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-green-600">
-                <CheckCircle2 className="h-3 w-3" />
-                <span>Healthy range</span>
-              </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <input value={goalForm.title} onChange={(e) => setGoalForm((current) => ({ ...current, title: e.target.value }))} placeholder="Goal title" className="rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground" />
+              <input value={goalForm.target} onChange={(e) => setGoalForm((current) => ({ ...current, target: e.target.value }))} placeholder="Target" className="rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground" />
+              <input value={goalForm.unit} onChange={(e) => setGoalForm((current) => ({ ...current, unit: e.target.value }))} placeholder="Unit" className="rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground" />
+              <input type="date" value={goalForm.deadline} onChange={(e) => setGoalForm((current) => ({ ...current, deadline: e.target.value }))} className="rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground" />
             </div>
+            <button onClick={addGoal} className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"><PlusCircle className="h-4 w-4" />Add goal</button>
+            <div className="mt-4 space-y-3">
+              {data.goals.length === 0 ? <p className="text-sm text-muted-foreground">No goals logged yet.</p> : data.goals.map((goal) => (
+                <div key={goal.id} className="rounded-2xl border border-border bg-background p-4">
+                  <p className="font-medium text-foreground">{goal.title}</p>
+                  <p className="text-sm text-muted-foreground">Target: {goal.target} {goal.unit}</p>
+                  <p className="mt-2 text-xs uppercase tracking-wide text-muted-foreground">{goal.status}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
 
-            <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
-                  <Activity className="h-5 w-5" />
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-foreground">Symptom log</h2>
+            <div className="mt-4 space-y-3">
+              <input value={symptomForm.symptom} onChange={(e) => setSymptomForm((current) => ({ ...current, symptom: e.target.value }))} placeholder="Symptom" className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground" />
+              <select value={symptomForm.severity} onChange={(e) => setSymptomForm((current) => ({ ...current, severity: Number(e.target.value) }))} className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground">
+                {[1,2,3,4,5].map((value) => <option key={value} value={value}>Severity {value}</option>)}
+              </select>
+              <textarea value={symptomForm.notes} onChange={(e) => setSymptomForm((current) => ({ ...current, notes: e.target.value }))} placeholder="Notes" className="min-h-24 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground" />
+              <button onClick={addSymptom} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90">Log symptom</button>
+            </div>
+            <div className="mt-4 space-y-3">
+              {data.symptoms.length === 0 ? <p className="text-sm text-muted-foreground">No symptoms logged.</p> : data.symptoms.map((symptom) => (
+                <div key={symptom.id} className="rounded-2xl border border-border bg-background p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-medium text-foreground">{symptom.symptom}</p>
+                    <span className="rounded-full bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300">Severity {symptom.severity}</span>
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">{symptom.notes || "No notes added"}</p>
+                  <p className="mt-2 text-xs text-muted-foreground">{new Date(symptom.recordedAt).toLocaleString()}</p>
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Respiratory Rate</p>
-                  <p className="text-2xl font-bold text-gray-900">{vitalSigns?.respiratoryRate || 16} breaths/min</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-green-600">
-                <CheckCircle2 className="h-3 w-3" />
-                <span>Normal</span>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* Last Updated */}
-          <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
-            <div className="flex items-center gap-3">
-              <Clock className="h-5 w-5 text-blue-600" />
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-foreground">Recorded risks</h2>
+            <div className="mt-4 space-y-4 text-sm">
               <div>
-                <p className="text-blue-900 font-medium">Last Updated</p>
-                <p className="text-blue-700 text-sm">
-                  {vitalSigns?.lastUpdated ? new Date(vitalSigns.lastUpdated).toLocaleString() : "Recently"}
-                </p>
+                <p className="font-medium text-foreground">Conditions</p>
+                <p className="text-muted-foreground">{data.conditions.join(", ") || "No conditions recorded"}</p>
+              </div>
+              <div>
+                <p className="font-medium text-foreground">Allergies</p>
+                <p className="text-muted-foreground">{data.allergies.join(", ") || "No allergies recorded"}</p>
               </div>
             </div>
           </div>
         </div>
-      )}
-
-      {/* Health Metrics Tab */}
-      {activeTab === "metrics" && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {healthMetrics.map((metric) => (
-              <div key={metric.id} className="p-6 rounded-2xl border border-gray-200 bg-white">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">{metric.name}</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {metric.value} {metric.unit}
-                    </p>
-                  </div>
-                  <div className={`px-2 py-1 rounded text-xs font-semibold ${getStatusColor(metric.status)}`}>
-                    {metric.status.toUpperCase()}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  {metric.trend === "up" ? (
-                    <TrendingUp className="h-3 w-3 text-green-500" />
-                  ) : metric.trend === "down" ? (
-                    <TrendingDown className="h-3 w-3 text-red-500" />
-                  ) : (
-                    <div className="h-3 w-3 rounded-full bg-gray-300" />
-                  )}
-                  <span>
-                    {metric.trendValue > 0 ? "+" : ""}{metric.trendValue} {metric.unit} from last reading
-                  </span>
-                </div>
-                <p className="text-xs text-gray-400 mt-2">
-                  {new Date(metric.date).toLocaleDateString()}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {/* Health Trends Chart Placeholder */}
-          <div className="p-6 rounded-2xl border border-gray-200 bg-white">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Health Trends</h3>
-            <div className="h-64 flex items-center justify-center bg-gray-50 rounded-lg">
-              <div className="text-center">
-                <LineChart className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">Interactive health trends chart</p>
-                <p className="text-sm text-gray-400">Coming soon - Advanced analytics</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Health Goals Tab */}
-      {activeTab === "goals" && (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-gray-900">Your Health Goals</h2>
-            <button className="px-4 py-2 rounded-lg bg-orange-500 text-white font-semibold hover:bg-orange-600 transition-all">
-              Add New Goal
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            {healthGoals.map((goal) => (
-              <div
-                key={goal.id}
-                className={`p-6 rounded-2xl border bg-white ${getGoalStatusColor(goal.status)}`}
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-lg font-bold text-gray-900">{goal.title}</h3>
-                    <p className="text-gray-600">{goal.description}</p>
-                  </div>
-                  <div className={`px-3 py-1 rounded text-sm font-semibold ${getGoalStatusColor(goal.status)}`}>
-                    {goal.status.toUpperCase()}
-                  </div>
-                </div>
-
-                <div className="mb-4">
-                  <div className="flex items-center justify-between text-sm mb-2">
-                    <span>Progress</span>
-                    <span>{goal.progress}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="bg-orange-500 h-2 rounded-full transition-all"
-                      style={{ width: `${goal.progress}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between text-sm text-gray-600">
-                  <span>Target: {goal.target} {goal.unit}</span>
-                  <span>Current: {goal.current} {goal.unit}</span>
-                  <span>Deadline: {new Date(goal.deadline).toLocaleDateString()}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {healthGoals.length === 0 && (
-            <div className="text-center py-12">
-              <Target className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500">No health goals set</p>
-              <p className="text-sm text-gray-400 mt-1">
-                Set goals to track your health progress
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Symptom Log Tab */}
-      {activeTab === "symptoms" && (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-gray-900">Symptom Log</h2>
-            <button className="px-4 py-2 rounded-lg bg-orange-500 text-white font-semibold hover:bg-orange-600 transition-all">
-              Log New Symptom
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            {symptomLogs.map((symptom) => (
-              <div key={symptom.id} className="p-6 rounded-2xl border border-gray-200 bg-white">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h3 className="text-lg font-bold text-gray-900">{symptom.symptom}</h3>
-                    <p className="text-gray-600">{symptom.description}</p>
-                  </div>
-                  <div className="text-right">
-                    <div className="flex items-center gap-1 mb-2">
-                      {[...Array(5)].map((_, i) => (
-                        <div
-                          key={i}
-                          className={`w-3 h-3 rounded-full ${
-                            i < symptom.severity ? "bg-red-500" : "bg-gray-200"
-                          }`}
-                        />
-                      ))}
-                      <span className="text-sm text-gray-600 ml-2">Severity: {symptom.severity}/5</span>
-                    </div>
-                    <p className="text-sm text-gray-500">
-                      {new Date(symptom.date).toLocaleDateString()} at {symptom.time}
-                    </p>
-                  </div>
-                </div>
-
-                {symptom.notes && (
-                  <div className="pt-4 border-t border-gray-100">
-                    <p className="text-sm text-gray-600">
-                      <strong>Notes:</strong> {symptom.notes}
-                    </p>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {symptomLogs.length === 0 && (
-            <div className="text-center py-12">
-              <AlertTriangle className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500">No symptoms logged</p>
-              <p className="text-sm text-gray-400 mt-1">
-                Track your symptoms to share with your healthcare provider
-              </p>
-            </div>
-          )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }

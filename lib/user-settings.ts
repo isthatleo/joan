@@ -37,6 +37,7 @@
     deviceTrust: true,
     passwordlessSignin: false,
     biometricPrompt: false,
+    forcePasswordChange: false,
   },
   communication: {
     messageSettings: {
@@ -60,6 +61,7 @@
     preferredExportFormat: "pdf",
     compactTables: false,
     receptionEmergencyTutorialSeen: false,
+    linkedPatientId: "",
   },
 } as const;
 
@@ -157,6 +159,7 @@ export function mergeUserSettings(settings: unknown): UserSettingsShape {
       deviceTrust: asBoolean(security.deviceTrust, defaultUserSettings.security.deviceTrust),
       passwordlessSignin: asBoolean(security.passwordlessSignin, defaultUserSettings.security.passwordlessSignin),
       biometricPrompt: asBoolean(security.biometricPrompt, defaultUserSettings.security.biometricPrompt),
+      forcePasswordChange: asBoolean(security.forcePasswordChange, defaultUserSettings.security.forcePasswordChange),
     },
     communication: {
       messageSettings: {
@@ -180,6 +183,7 @@ export function mergeUserSettings(settings: unknown): UserSettingsShape {
       preferredExportFormat: asAllowedString(workflow.preferredExportFormat, allowedExportFormats, defaultUserSettings.workflow.preferredExportFormat),
       compactTables: asBoolean(workflow.compactTables, defaultUserSettings.workflow.compactTables),
       receptionEmergencyTutorialSeen: asBoolean(workflow.receptionEmergencyTutorialSeen, defaultUserSettings.workflow.receptionEmergencyTutorialSeen),
+      linkedPatientId: asString(workflow.linkedPatientId, defaultUserSettings.workflow.linkedPatientId),
     },
   };
 }
