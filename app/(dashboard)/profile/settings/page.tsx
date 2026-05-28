@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter } from "next/navigation";
 import {
   Building2, Palette, Bell, Globe, Layers, ShieldAlert,
   Loader2, Save, Trash2, AlertTriangle, History, CheckCircle2, XCircle, Clock,
@@ -13,6 +13,9 @@ import {
 import { format, formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { CurrencySelect } from "@/components/forms/CurrencySelect";
+import { batchUpdateHospitalSettings } from "@/lib/hospital-settings-sync";
+import { useRef } from "react";
+import { resolveTenantSlug } from "@/lib/tenant-routing";
 
 const orange = "#F97316";
 
@@ -64,8 +67,14 @@ type TabKey = typeof TABS[number]["key"];
 
 export default function TenantSettingsPage() {
   const params = useParams();
+  const pathname = usePathname();
   const router = useRouter();
-  const slug = params?.slug as string;
+  const slug = useMemo(() => {
+    const paramSlug = params?.slug as string | undefined;
+    if (paramSlug) return paramSlug;
+    if (typeof window === "undefined") return undefined;
+    return resolveTenantSlug(pathname, window.location.hostname, sessionStorage.getItem("active_tenant_slug") || null) || undefined;
+  }, [params, pathname]);
 
   const [tab, setTab] = useState<TabKey>("general");
   const [tenant, setTenant] = useState<any>(null);
@@ -103,16 +112,26 @@ export default function TenantSettingsPage() {
   // System
   const [systemStats, setSystemStats] = useState<any>({});
   const [systemLoading, setSystemLoading] = useState(false);
+  const [showBrandPreview, setShowBrandPreview] = useState(false);
+  const brandPreviewRef = useRef<HTMLDivElement | null>(null);
+  const initialTenantNameRef = useRef<string>("");
 
   useEffect(() => {
+    if (!slug) return;
     (async () => {
       try {
         setLoading(true);
         const [tRes, sRes] = await Promise.all([
-          fetch(`/api/tenants/${slug}`),
-          fetch(`/api/tenants/${slug}/settings`),
+          fetch(`/api/tenants/${slug}`, { credentials: "include", cache: "no-store" }),
+          fetch(`/api/tenants/${slug}/settings`, { credentials: "include", cache: "no-store" }),
         ]);
-        if (tRes.ok) setTenant(await tRes.json());
+        if (tRes.ok) {
+          const tenantData = await tRes.json();
+          setTenant(tenantData);
+          if (tenantData?.name && !initialTenantNameRef.current) {
+            initialTenantNameRef.current = tenantData.name;
+          }
+        }
         if (sRes.ok) {
           const s = await sRes.json();
           setSettings(s);
@@ -124,6 +143,12 @@ export default function TenantSettingsPage() {
         setLoading(false);
       }
     })();
+  }, [slug]);
+
+  useEffect(() => {
+    if (slug && typeof window !== "undefined") {
+      sessionStorage.setItem("active_tenant_slug", slug);
+    }
   }, [slug]);
 
   useEffect(() => {
@@ -162,13 +187,71 @@ export default function TenantSettingsPage() {
     if (!settings) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/tenants/${slug}/settings`, {
+      const settingsRes = await fetch(`/api/tenants/${slug}/settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(settings),
       });
-      if (!res.ok) throw new Error(await res.text());
-      setOriginal(JSON.parse(JSON.stringify(settings)));
+      if (!settingsRes.ok) {
+        const errorData = await settingsRes.json().catch(() => ({}));
+        throw new Error(errorData?.error || (await settingsRes.text()) || "Failed to save settings");
+      }
+
+      const brandingPayload = {
+        hospitalName: settings.branding.hospitalName?.trim() || tenant?.name || slug,
+        logoUrl: settings.branding.logoUrl || "",
+        primaryColor: settings.branding.primaryColor || orange,
+        faviconUrl: settings.branding.favicon || "",
+      };
+
+      const brandingRes = await fetch(`/api/tenants/${slug}/branding`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(brandingPayload),
+      });
+
+      if (!brandingRes.ok) {
+        const errorData = await brandingRes.json().catch(() => ({}));
+        throw new Error(errorData?.error || "Failed to persist branding");
+      }
+
+      if (tenant?.id) {
+        const tenantBrandingRes = await fetch(`/api/hospital/${tenant.id}/branding`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            name: brandingPayload.hospitalName,
+            logoUrl: brandingPayload.logoUrl,
+          }),
+        });
+
+        if (!tenantBrandingRes.ok) {
+          const errorData = await tenantBrandingRes.json().catch(() => ({}));
+          throw new Error(errorData?.error || "Failed to sync tenant branding");
+        }
+      }
+
+      const [tenantRes, refreshedSettingsRes] = await Promise.all([
+        fetch(`/api/tenants/${slug}`, { credentials: "include", cache: "no-store" }),
+        fetch(`/api/tenants/${slug}/settings`, { credentials: "include", cache: "no-store" }),
+      ]);
+
+      const nextTenant = tenantRes.ok ? await tenantRes.json() : tenant;
+      const nextSettings = refreshedSettingsRes.ok ? await refreshedSettingsRes.json() : settings;
+
+      setTenant(nextTenant);
+      setSettings(nextSettings);
+      setOriginal(JSON.parse(JSON.stringify(nextSettings)));
+      if (tenant?.id) {
+        batchUpdateHospitalSettings(tenant.id, {
+          name: brandingPayload.hospitalName,
+          logoUrl: brandingPayload.logoUrl,
+          primaryColor: brandingPayload.primaryColor,
+        });
+      }
       toast.success("Settings saved");
     } catch (e: any) {
       toast.error(`Save failed: ${e?.message || "unknown"}`);
@@ -204,6 +287,15 @@ export default function TenantSettingsPage() {
     );
   }
 
+  if (!slug) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-6">
+        <p className="text-sm font-medium text-foreground">Tenant context not found.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Open this page from a tenant subdomain or tenant-scoped route.</p>
+      </div>
+    );
+  }
+
   return (
       <div className="space-y-6 max-w-6xl">
         {/* Header */}
@@ -218,7 +310,7 @@ export default function TenantSettingsPage() {
                     <Building2 className="size-5" />
                   </div>
               )}
-              {tenant?.name || slug}
+              {settings.branding.hospitalName || tenant?.name || slug}
             </h1>
             <p className="text-sm text-muted-foreground mt-1">Hospital workspace configuration</p>
           </div>
@@ -273,14 +365,50 @@ export default function TenantSettingsPage() {
                 <Card
                     title="Branding"
                     desc="Visual identity used across the workspace"
-                    onReset={() => setSettings({ ...settings, branding: { ...DEFAULT_SETTINGS.branding } })}
+                    onReset={() => {
+                      const provisionedName = initialTenantNameRef.current || tenant?.name || slug;
+                      setSettings({
+                        ...settings,
+                        branding: {
+                          ...DEFAULT_SETTINGS.branding,
+                          hospitalName: provisionedName,
+                        },
+                        hospital: {
+                          ...(settings as any).hospital,
+                          name: provisionedName,
+                          displayName: provisionedName,
+                        },
+                      } as any);
+                      setTenant((current: any) => current ? { ...current, name: provisionedName, logoUrl: null } : current);
+                      setShowBrandPreview(false);
+                      if (tenant?.id) {
+                        batchUpdateHospitalSettings(tenant.id, {
+                          name: provisionedName,
+                          logoUrl: "",
+                          primaryColor: DEFAULT_SETTINGS.branding.primaryColor,
+                        });
+                      }
+                    }}
                 >
                   <div className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="text-sm font-medium">Hospital Name</label>
                         <input type="text" value={settings.branding.hospitalName}
-                               onChange={e => update("branding.hospitalName", e.target.value)}
+                               onChange={e => {
+                                 const value = e.target.value;
+                                 setSettings({
+                                   ...settings,
+                                   branding: { ...settings.branding, hospitalName: value },
+                                   hospital: { ...(settings as any).hospital, name: value, displayName: value },
+                                 } as any);
+                                 setTenant((current: any) => current ? { ...current, name: value } : current);
+                                 if (tenant?.id) {
+                                   batchUpdateHospitalSettings(tenant.id, {
+                                     name: value || initialTenantNameRef.current || tenant.name,
+                                   });
+                                 }
+                               }}
                                placeholder="Enter hospital name"
                                className="mt-1.5 w-full h-10 px-3 rounded-lg border border-border bg-background text-sm" />
                         <p className="text-xs text-muted-foreground mt-1">Display name shown in sidebars and headers</p>
@@ -323,33 +451,67 @@ export default function TenantSettingsPage() {
                                  onChange={async (e) => {
                                    const file = e.target.files?.[0];
                                    if (!file) return;
+                                   if (!tenant?.id) {
+                                     toast.error("Tenant context not loaded yet");
+                                     return;
+                                   }
 
                                    const formData = new FormData();
                                    formData.append('file', file);
+                                   formData.append('tenantId', tenant.id);
                                    formData.append('type', 'logo');
 
                                    try {
-                                     const res = await fetch(`/api/tenants/${slug}/branding`, {
+                                     const res = await fetch(`/api/upload/hospital-logo`, {
                                        method: 'POST',
+                                       credentials: "include",
                                        body: formData,
                                      });
                                      if (res.ok) {
                                        const data = await res.json();
+                                       await fetch(`/api/tenants/${slug}/branding`, {
+                                         method: "PUT",
+                                         headers: { "Content-Type": "application/json" },
+                                         credentials: "include",
+                                         body: JSON.stringify({
+                                           logoUrl: data.url,
+                                           hospitalName: settings.branding.hospitalName || tenant.name,
+                                           primaryColor: settings.branding.primaryColor || orange,
+                                           faviconUrl: settings.branding.favicon || "",
+                                         }),
+                                       });
                                        update("branding.logoUrl", data.url);
+                                       setTenant((current: any) => current ? { ...current, logoUrl: data.url } : current);
+                                       if (tenant?.id) {
+                                         batchUpdateHospitalSettings(tenant.id, {
+                                           logoUrl: data.url,
+                                           name: settings.branding.hospitalName || tenant.name,
+                                           primaryColor: settings.branding.primaryColor,
+                                         });
+                                       }
                                        toast.success("Logo uploaded successfully");
                                      } else {
-                                       toast.error("Failed to upload logo");
+                                       const data = await res.json().catch(() => ({}));
+                                       toast.error(data.details || data.error || "Failed to upload logo");
                                      }
                                    } catch (error) {
-                                     toast.error("Upload failed");
+                                     toast.error(error instanceof Error ? error.message : "Upload failed");
                                    }
                                  }} />
-                          <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold"
+                          <button type="button" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold"
                                   onClick={() => document.getElementById('logo-upload')?.click()}>
                             <Upload className="size-4" /> Upload Logo
                           </button>
-                          <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
-                                  onClick={() => update("branding.logoUrl", "")}>
+                          <button type="button" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                                  onClick={() => {
+                                    update("branding.logoUrl", "");
+                                    setTenant((current: any) => current ? { ...current, logoUrl: null } : current);
+                                    if (tenant?.id) {
+                                      batchUpdateHospitalSettings(tenant.id, {
+                                        logoUrl: "",
+                                      });
+                                    }
+                                  }}>
                             <RefreshCw className="size-4" /> Reset to Default
                           </button>
                         </div>
@@ -369,13 +531,113 @@ export default function TenantSettingsPage() {
                     </div>
 
                     <div className="flex gap-2">
-                      <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowBrandPreview(true);
+                          toast.success("Brand preview opened");
+                        }}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold"
+                      >
                         <Eye className="size-4" /> Preview Changes
                       </button>
-                      <button className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const response = await fetch(`/api/tenants/${slug}/branding-kit`, {
+                              credentials: "include",
+                              cache: "no-store",
+                            });
+                            if (!response.ok) {
+                              const errorData = await response.json().catch(() => ({}));
+                              throw new Error(errorData?.error || "Failed to export branding kit");
+                            }
+                            const blob = await response.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = `${slug}-branding-kit.json`;
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            setTimeout(() => URL.revokeObjectURL(url), 1000);
+                            toast.success("Branding kit exported");
+                          } catch (error) {
+                            toast.error(error instanceof Error ? error.message : "Failed to export branding kit");
+                          }
+                        }}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                      >
                         <Download className="size-4" /> Export Branding Kit
                       </button>
                     </div>
+                    {showBrandPreview && (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                        <div ref={brandPreviewRef} className="max-h-[90vh] w-full max-w-5xl overflow-auto rounded-xl border border-border bg-background shadow-2xl">
+                          <div className="flex items-center justify-between border-b border-border px-6 py-4">
+                            <div>
+                              <h3 className="text-lg font-semibold">Brand Preview</h3>
+                              <p className="text-sm text-muted-foreground">Preview how branding changes appear across the tenant workspace</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowBrandPreview(false)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-muted"
+                            >
+                              <X className="size-4" />
+                              Close
+                            </button>
+                          </div>
+                          <div className="rounded-b-xl overflow-hidden">
+                        <div className="px-6 py-5 text-white" style={{ background: `linear-gradient(135deg, ${settings.branding.primaryColor}, ${settings.branding.primaryColor}cc)` }}>
+                          <div className="flex items-center justify-between gap-4">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.2em] text-white/75">Brand Preview</p>
+                              <h3 className="text-2xl font-bold mt-1">{settings.branding.hospitalName || tenant?.name || slug}</h3>
+                            </div>
+                            {settings.branding.logoUrl ? (
+                              <img src={settings.branding.logoUrl} alt="Logo preview" className="h-14 max-w-32 rounded-lg bg-white/10 p-2 object-contain" />
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-6 bg-background">
+                          <div className="rounded-xl border border-border p-4">
+                            <p className="text-sm font-semibold mb-3">Primary Button</p>
+                            <button className="rounded-xl px-4 py-2 text-white text-sm font-semibold" style={{ backgroundColor: settings.branding.primaryColor }}>
+                              Confirm Appointment
+                            </button>
+                          </div>
+                          <div className="rounded-xl border border-border p-4">
+                            <p className="text-sm font-semibold mb-3">Sidebar Identity</p>
+                            <div className="flex items-center gap-3">
+                              {settings.branding.logoUrl ? (
+                                <img src={settings.branding.logoUrl} alt="Sidebar preview" className="h-10 w-10 rounded-xl border border-border bg-white p-1 object-contain" />
+                              ) : (
+                                <div className="h-10 w-10 rounded-xl" style={{ backgroundColor: settings.branding.primaryColor }} />
+                              )}
+                              <div>
+                                <p className="text-sm font-semibold">{settings.branding.hospitalName || tenant?.name || slug}</p>
+                                <p className="text-xs text-muted-foreground">Healthcare OS</p>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="rounded-xl border border-border p-4">
+                            <p className="text-sm font-semibold mb-3">Browser Tab</p>
+                            <div className="flex items-center gap-2">
+                              {settings.branding.favicon ? (
+                                <img src={settings.branding.favicon} alt="Favicon preview" className="h-8 w-8 rounded border border-border bg-white p-1 object-contain" />
+                              ) : (
+                                <div className="h-8 w-8 rounded border border-border" style={{ backgroundColor: settings.branding.primaryColor }} />
+                              )}
+                              <span className="text-sm">{settings.branding.hospitalName || tenant?.name || slug}</span>
+                            </div>
+                          </div>
+                        </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </Card>
             )}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tenants, auditLogs, provisioningRuns, users } from "@/lib/db/schema";
 import { eq, desc, inArray, or, ilike } from "drizzle-orm";
+import { getTenantAccess, tenantAccessResponse } from "@/lib/api/tenant-access";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,9 @@ export async function GET(
 ) {
   try {
     const { slug } = await params;
+    const access = await getTenantAccess(req, slug);
+    if (!access.ok || !access.tenant) return tenantAccessResponse(access);
+    if (!access.canViewAudit) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     const url = new URL(req.url);
     const page = Math.max(1, Number(url.searchParams.get("page") || 1));
     const pageSize = Math.min(100, Math.max(5, Number(url.searchParams.get("pageSize") || 20)));
@@ -18,8 +22,7 @@ export async function GET(
     const status = url.searchParams.get("status") || ""; // running|completed|failed
     const q = (url.searchParams.get("q") || "").trim().toLowerCase();
 
-    const tenant = await db.query.tenants.findFirst({ where: eq(tenants.slug, slug) });
-    if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const tenant = access.tenant;
 
     let runs: any[] = [];
     if (kind === "all" || kind === "provisioning") {

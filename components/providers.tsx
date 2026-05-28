@@ -18,6 +18,7 @@ import {
   USER_LANGUAGE_STORAGE_KEY,
   USER_READ_RECEIPTS_STORAGE_KEY,
   USER_REDUCE_MOTION_STORAGE_KEY,
+  USER_TIME_FORMAT_STORAGE_KEY,
   USER_TIMEZONE_STORAGE_KEY,
 } from "@/lib/user-preferences";
 
@@ -30,6 +31,7 @@ function PreferenceBootstrap() {
         theme: readStoredThemePreference(),
         language: window.localStorage.getItem(USER_LANGUAGE_STORAGE_KEY) || "en",
         timezone: window.localStorage.getItem(USER_TIMEZONE_STORAGE_KEY) || "UTC",
+        timeFormat: window.localStorage.getItem(USER_TIME_FORMAT_STORAGE_KEY) || "12h",
         density: window.localStorage.getItem(USER_DENSITY_STORAGE_KEY) || "comfortable",
         calendarStart: window.localStorage.getItem(USER_CALENDAR_START_STORAGE_KEY) || "monday",
         fontScale: window.localStorage.getItem(USER_FONT_SCALE_STORAGE_KEY) || "default",

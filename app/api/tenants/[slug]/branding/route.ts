@@ -19,19 +19,39 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const rows = await db.select().from(tenantSettings)
       .where(and(eq(tenantSettings.tenantId, tenant.id), eq(tenantSettings.key, "branding")));
 
-    const branding = rows.length > 0 ? rows[0].value : {};
-    return NextResponse.json(branding);
+    const branding = (rows.length > 0 ? rows[0].value : {}) as Record<string, unknown>;
+    return NextResponse.json({
+      logoUrl: tenant.logoUrl || branding.logoUrl || "",
+      faviconUrl: branding.faviconUrl || "",
+      primaryColor: branding.primaryColor || "#F97316",
+      accentColor: branding.accentColor || "#EA580C",
+      lightLogoUrl: branding.lightLogoUrl || "",
+      hospitalName: tenant.name,
+    });
   } catch (e) {
     console.error("[tenant branding GET]", e);
     return NextResponse.json({ error: "Failed to fetch branding settings" }, { status: 500 });
   }
 }
 
+const assetUrlSchema = z.string().refine((value) => {
+  if (!value) return true;
+  if (value.startsWith("/")) return true;
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}, "Expected an absolute URL or tenant asset path");
+
 const updateSchema = z.object({
   primaryColor: z.string().optional(),
-  logoUrl: z.string().url().optional(),
+  logoUrl: assetUrlSchema.optional(),
   hospitalName: z.string().optional(),
-  favicon: z.string().url().optional(),
+  faviconUrl: assetUrlSchema.optional(),
+  accentColor: z.string().optional(),
+  lightLogoUrl: assetUrlSchema.optional(),
 });
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
@@ -58,6 +78,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         key: "branding",
         value: body,
       });
+    }
+
+    if (typeof body.logoUrl === "string") {
+      await db.update(tenants).set({ logoUrl: body.logoUrl, updatedAt: new Date() }).where(eq(tenants.id, tenant.id));
+    }
+    if (typeof body.hospitalName === "string" && body.hospitalName.trim()) {
+      await db.update(tenants).set({ name: body.hospitalName.trim(), updatedAt: new Date() }).where(eq(tenants.id, tenant.id));
     }
 
     // Audit log
@@ -93,14 +120,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     // Validate file type
-    const allowedTypes = ["image/svg+xml", "image/png", "image/jpeg", "image/jpg"];
+    const allowedTypes = ["image/svg+xml", "image/png", "image/jpeg", "image/jpg", "image/webp", "image/x-icon", "image/vnd.microsoft.icon"];
     if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json({ error: "Invalid file type. Only SVG, PNG, and JPG are allowed." }, { status: 400 });
+      return NextResponse.json({ error: `Invalid file type: ${file.type || "unknown"}` }, { status: 400 });
     }
 
     // Validate file size (2MB max)
-    if (file.size > 2 * 1024 * 1024) {
-      return NextResponse.json({ error: "File too large. Maximum size is 2MB." }, { status: 400 });
+    if (file.size > 5 * 1024 * 1024) {
+      return NextResponse.json({ error: "File too large. Maximum size is 5MB." }, { status: 400 });
     }
 
     // Create uploads directory if it doesn't exist
@@ -112,7 +139,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     // Generate filename
-    const extension = file.type === "image/svg+xml" ? "svg" : file.type.split("/")[1];
+    const extension = file.name.split(".").pop() || (type === "favicon" ? "ico" : "png");
     const filename = `${type}-${Date.now()}.${extension}`;
     const filepath = join(uploadsDir, filename);
 
@@ -128,7 +155,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const existing = await db.select().from(tenantSettings)
       .where(and(eq(tenantSettings.tenantId, tenant.id), eq(tenantSettings.key, "branding")));
 
-    const key = type === "logo" ? "logoUrl" : "favicon";
+    const key = type === "logo" ? "logoUrl" : "faviconUrl";
+
+    if (type === "logo") {
+      await db.update(tenants).set({ logoUrl: url, updatedAt: new Date() }).where(eq(tenants.id, tenant.id));
+    }
 
     if (existing.length > 0) {
       await db.update(tenantSettings)

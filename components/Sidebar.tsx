@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui";
 import { resolveTenantSlug, withTenantPrefix } from "@/lib/tenant-routing";
+import { getTenantSettingsSyncEventName } from "@/lib/hospital-settings-sync";
+import { getModuleKeyForPath, isTenantModuleEnabled, normalizeTenantModules } from "@/lib/tenant-modules";
 
 interface SidebarItem {
   label: string;
@@ -54,8 +56,8 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Departments", path: "/departments", icon: Layers, category: "Management" },
     { label: "Roles & Permissions", path: "/roles", icon: ShieldCheck, category: "Management" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
-    { label: "Feedback", path: "/feedback", icon: MessageSquare, category: "Communication" },
     { label: "Broadcasts", path: "/broadcasts", icon: Megaphone, category: "Communication" },
+    { label: "Feedback", path: "/feedback", icon: MessageSquare, category: "Communication" },
     { label: "Lab", path: "/lab", icon: FlaskConical, category: "Services" },
     { label: "Pharmacy", path: "/pharmacy", icon: Pill, category: "Services" },
     { label: "Billing", path: "/billing", icon: Wallet, category: "Finance" },
@@ -188,10 +190,32 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [tenantName, setTenantName] = useState<string>("Healthcare OS");
   const [tenantLogo, setTenantLogo] = useState<string | null>(null);
+  const [tenantModules, setTenantModules] = useState<Record<string, boolean> | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     setCollapsed(localStorage.getItem(STORAGE_KEY) === "1");
+
+    const applyBranding = (updates: { name?: string; logoUrl?: string | null; modules?: Record<string, boolean> }) => {
+      if (typeof updates.name === "string") {
+        setTenantName(updates.name);
+        sessionStorage.setItem("active_tenant_name", updates.name);
+      }
+      if ("logoUrl" in updates) {
+        const nextLogo = updates.logoUrl || null;
+        setTenantLogo(nextLogo);
+        if (nextLogo) {
+          sessionStorage.setItem("active_tenant_logo", nextLogo);
+        } else {
+          sessionStorage.removeItem("active_tenant_logo");
+        }
+      }
+      if (updates.modules) {
+        const normalized = normalizeTenantModules(updates.modules);
+        setTenantModules(normalized);
+        sessionStorage.setItem("active_tenant_modules", JSON.stringify(normalized));
+      }
+    };
 
     // Get tenant name from sessionStorage or cookies
     const name = sessionStorage.getItem("active_tenant_name");
@@ -204,7 +228,107 @@ export function Sidebar() {
     if (logo) {
       setTenantLogo(logo);
     }
-  }, []);
+
+    const syncFromStorage = () => {
+      const nextName = sessionStorage.getItem("active_tenant_name");
+      const nextLogo = sessionStorage.getItem("active_tenant_logo");
+      const nextModulesRaw = sessionStorage.getItem("active_tenant_modules");
+      if (nextName) setTenantName(nextName);
+      setTenantLogo(nextLogo || null);
+      if (nextModulesRaw) {
+        try {
+          setTenantModules(normalizeTenantModules(JSON.parse(nextModulesRaw)));
+        } catch {}
+      }
+    };
+
+    const syncFromEvent = (event: Event) => {
+      const detail = (event as CustomEvent<{ name?: string; logoUrl?: string | null }>).detail;
+      applyBranding(detail || {});
+      syncFromStorage();
+    };
+
+    const bc =
+      tenantSlug && typeof BroadcastChannel !== "undefined"
+        ? new BroadcastChannel(`hospital_settings_${user?.hospitalId || tenantSlug}`)
+        : null;
+
+    const syncFromBroadcast = (message: MessageEvent<any>) => {
+      const data = message.data?.data || {};
+      applyBranding({
+        name: data.name,
+        logoUrl: Object.prototype.hasOwnProperty.call(data, "logoUrl") ? data.logoUrl : undefined,
+        modules: data.modules,
+      });
+    };
+
+    const syncFromLocalStorageEvent = (event: StorageEvent) => {
+      if (event.key && event.key !== `hospital_settings_${user?.hospitalId || tenantSlug}`) return;
+      if (!event.newValue) return;
+      try {
+        const data = JSON.parse(event.newValue);
+        applyBranding({
+          name: data?.name,
+          logoUrl: Object.prototype.hasOwnProperty.call(data || {}, "logoUrl") ? data.logoUrl : undefined,
+          modules: data?.modules,
+        });
+      } catch {}
+    };
+
+    let brandingPollInterval: ReturnType<typeof setInterval> | null = null;
+    const fetchLatestBranding = async () => {
+      if (!tenantSlug) return;
+      try {
+        const response = await fetch(`/api/tenants/${tenantSlug}/branding`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        applyBranding({
+          name: data?.hospitalName,
+          logoUrl: Object.prototype.hasOwnProperty.call(data || {}, "logoUrl") ? data.logoUrl || null : undefined,
+        });
+      } catch {}
+    };
+
+    const fetchLatestModules = async () => {
+      if (!tenantSlug) return;
+      try {
+        const response = await fetch(`/api/tenants/${tenantSlug}/settings`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        applyBranding({ modules: data?.modules });
+      } catch {}
+    };
+
+    bc?.addEventListener("message", syncFromBroadcast);
+    window.addEventListener("storage", syncFromLocalStorageEvent);
+    window.addEventListener(getTenantSettingsSyncEventName(), syncFromEvent as EventListener);
+    fetchLatestBranding();
+    fetchLatestModules();
+    if (tenantSlug) {
+      brandingPollInterval = setInterval(fetchLatestBranding, 10000);
+      const modulesPollInterval = setInterval(fetchLatestModules, 10000);
+      return () => {
+        bc?.close();
+        window.removeEventListener("storage", syncFromLocalStorageEvent);
+        window.removeEventListener(getTenantSettingsSyncEventName(), syncFromEvent as EventListener);
+        if (brandingPollInterval) clearInterval(brandingPollInterval);
+        clearInterval(modulesPollInterval);
+      };
+    }
+
+    return () => {
+      bc?.close();
+      window.removeEventListener("storage", syncFromLocalStorageEvent);
+      window.removeEventListener(getTenantSettingsSyncEventName(), syncFromEvent as EventListener);
+      if (brandingPollInterval) clearInterval(brandingPollInterval);
+    };
+  }, [tenantSlug, user?.hospitalId]);
 
   const toggleCollapsed = () => {
     setCollapsed((c) => {
@@ -238,7 +362,7 @@ export function Sidebar() {
         collapsed && "justify-center px-2"
       )}>
         {tenantLogo ? (
-          <img src={tenantLogo} alt="Logo" className="h-9 w-9 shrink-0 rounded-xl object-cover border border-sidebar-border" />
+          <img data-hospital-logo src={tenantLogo} alt="Logo" className="h-9 w-9 shrink-0 rounded-xl object-cover border border-sidebar-border" />
         ) : (
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
             <GraduationCap className="h-5 w-5" />
@@ -246,7 +370,7 @@ export function Sidebar() {
         )}
         {!collapsed && (
           <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-semibold text-sidebar-foreground">{tenantName}</p>
+            <p data-hospital-name className="truncate text-base font-semibold text-sidebar-foreground">{tenantName}</p>
             <p className="truncate text-xs text-sidebar-muted">Healthcare OS</p>
           </div>
         )}
@@ -262,7 +386,7 @@ export function Sidebar() {
               </p>
             )}
             <ul className="space-y-0.5">
-              {group.items.map((item) => {
+              {group.items.filter((item) => isTenantModuleEnabled(tenantModules, getModuleKeyForPath(item.path))).map((item) => {
                 const resolvedPath = withTenantPrefix(item.path, tenantSlug, hostname);
                 const isActive =
                   pathname === resolvedPath ||

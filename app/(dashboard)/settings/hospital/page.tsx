@@ -64,6 +64,9 @@ interface TenantSettings {
   communication: {
     emailProvider: string;
     smsProvider: string;
+    defaultChannel?: string;
+    fallbackChannel?: string;
+    allowedChannels?: string[];
     integrationsSync?: {
       configuredProviders?: string[];
       activeProviders?: string[];
@@ -132,6 +135,39 @@ interface TenantSettings {
     dataBackupEnabled?: boolean;
     backupFrequency?: string;
   };
+  notifications?: {
+    emailEnabled?: boolean;
+    smsEnabled?: boolean;
+    pushEnabled?: boolean;
+    inAppEnabled?: boolean;
+    soundEnabled?: boolean;
+    quietHoursEnabled?: boolean;
+    quietHoursStart?: string;
+    quietHoursEnd?: string;
+  };
+  audit?: {
+    retentionDays?: number;
+    logAuthentication?: boolean;
+    logClinicalActions?: boolean;
+    logFinancialActions?: boolean;
+    logConfigurationChanges?: boolean;
+    exportFormat?: string;
+  };
+  system?: {
+    maintenanceMode?: boolean;
+    maintenanceMessage?: string;
+    autoUpdates?: boolean;
+    telemetryEnabled?: boolean;
+    healthAlertsEnabled?: boolean;
+  };
+  apiManagement?: {
+    ipAllowlistEnabled?: boolean;
+    webhookRetryEnabled?: boolean;
+    webhookRetryCount?: number;
+  };
+  dangerZone?: {
+    archiveGraceDays?: number;
+  };
   integrations?: Record<string, any>;
   tenant?: {
     id: string;
@@ -150,6 +186,7 @@ const SECTIONS: SectionDef[] = [
   { id: "modules", label: "Active Modules", icon: Zap, description: "Enable/disable hospital features", group: "Hospital" },
   { id: "preferences", label: "Preferences", icon: Settings, description: "Language, timezone, currency, format", group: "Hospital" },
   { id: "communication-channels", label: "Communication Channels", icon: MessageSquare, description: "SMS, Email, Notifications", group: "Hospital" },
+  { id: "notifications", label: "Notifications", icon: Bell, description: "Delivery defaults, quiet hours, sound, and in-app notification behavior", group: "Hospital" },
   { id: "billing", label: "Billing & Invoicing", icon: CreditCard, description: "Payment, tax, and invoice settings", group: "Hospital" },
   
   // System
@@ -475,6 +512,8 @@ function SectionContent({
       return <PreferencesSection settings={settings} onSettingsChange={onSettingsChange} />;
     case "communication-channels":
       return <CommunicationChannelsSection settings={settings} onSettingsChange={onSettingsChange} />;
+    case "notifications":
+      return <NotificationsSection settings={settings} onSettingsChange={onSettingsChange} />;
     case "billing":
       return <BillingSection settings={settings} onSettingsChange={onSettingsChange} />;
     case "security":
@@ -772,6 +811,7 @@ function BrandingSection({
 }) {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = async (file: File, type: "logo" | "favicon") => {
@@ -786,6 +826,7 @@ function BrandingSection({
 
       const res = await fetch("/api/upload/hospital-logo", {
         method: "POST",
+        credentials: "include",
         body: formData,
       });
 
@@ -832,9 +873,45 @@ function BrandingSection({
     }
   };
 
+  const handlePreview = () => {
+    setShowPreview(true);
+    toast.success("Brand preview opened");
+  };
+
+  const handleExportBrandingKit = () => {
+    const payload = {
+      hospital: settings.hospital,
+      branding: settings.branding,
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${settings.hospital.slug || "hospital"}-branding-kit.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Branding kit exported");
+  };
+
   return (
     <>
-      <Card title="Hospital Logo" description="Upload SVG, PNG, or JPG">
+      <Card
+        title="Hospital Logo"
+        description="Upload SVG, PNG, JPG, WEBP, or ICO assets from your device"
+        action={
+          <div className="flex items-center gap-2">
+            <button onClick={handlePreview} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted">
+              <EyeIcon className="size-3" />
+              Preview Changes
+            </button>
+            <button onClick={handleExportBrandingKit} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted">
+              <Download className="size-3" />
+              Export Branding Kit
+            </button>
+          </div>
+        }
+      >
         <div className="flex flex-col gap-4">
           {settings.branding.logoUrl && (
             <div className="relative w-full max-w-[200px] h-[100px] rounded-lg border border-border bg-muted flex items-center justify-center overflow-hidden">
@@ -897,6 +974,64 @@ function BrandingSection({
           </Field>
         </div>
       </Card>
+
+      {showPreview ? (
+        <Card
+          title="Brand Preview"
+          description="Preview how the tenant branding will appear in the product surfaces"
+          action={
+            <button
+              onClick={() => setShowPreview(false)}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted"
+            >
+              <X className="size-3" />
+              Close Preview
+            </button>
+          }
+        >
+          <div className="overflow-hidden rounded-2xl border border-border bg-background">
+            <div className="flex items-center justify-between px-6 py-5 text-white" style={{ background: `linear-gradient(135deg, ${settings.branding.primaryColor}, ${settings.branding.accentColor})` }}>
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-white/80">Tenant Brand</p>
+                <h3 className="text-2xl font-bold">{settings.hospital.displayName || settings.hospital.name || "Hospital"}</h3>
+              </div>
+              {settings.branding.logoUrl ? (
+                <img src={settings.branding.logoUrl} alt="Hospital logo preview" className="h-16 max-w-32 rounded-lg bg-white/10 p-2 object-contain" />
+              ) : null}
+            </div>
+            <div className="grid gap-4 p-6 md:grid-cols-3">
+              <div className="rounded-xl border border-border bg-card p-4">
+                <p className="mb-3 text-sm font-semibold text-foreground">Primary Action</p>
+                <button className="rounded-xl px-4 py-2 text-sm font-semibold text-white" style={{ backgroundColor: settings.branding.primaryColor }}>
+                  Confirm Appointment
+                </button>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-4">
+                <p className="mb-3 text-sm font-semibold text-foreground">Accent Badge</p>
+                <span className="inline-flex rounded-full px-3 py-1 text-xs font-semibold text-white" style={{ backgroundColor: settings.branding.accentColor }}>
+                  Critical Alert
+                </span>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-4">
+                <p className="mb-3 text-sm font-semibold text-foreground">Sidebar Preview</p>
+                <div className="rounded-xl border border-border bg-muted/40 p-3">
+                  <div className="flex items-center gap-3">
+                    {settings.branding.logoUrl ? (
+                      <img src={settings.branding.logoUrl} alt="Sidebar logo" className="h-10 w-10 rounded-xl object-contain bg-background p-1" />
+                    ) : (
+                      <div className="h-10 w-10 rounded-xl" style={{ backgroundColor: settings.branding.primaryColor }} />
+                    )}
+                    <div>
+                      <p className="text-sm font-semibold">{settings.hospital.shortName || settings.hospital.name || "Hospital"}</p>
+                      <p className="text-xs text-muted-foreground">Healthcare OS</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       <Card title="Color Scheme" description="Define your hospital's brand colors">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -982,6 +1117,33 @@ function BrandingSection({
             placeholder="https://..."
           />
         </Field>
+        <div className="border-t border-border pt-4">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted"
+            >
+              <Upload className="size-4" />
+              Upload / Replace Logo
+            </button>
+            <button
+              onClick={async () => {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = "image/*,.ico";
+                input.onchange = async () => {
+                  const file = input.files?.[0];
+                  if (file) await handleFileUpload(file, "favicon");
+                };
+                input.click();
+              }}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted"
+            >
+              <Upload className="size-4" />
+              Upload Favicon
+            </button>
+          </div>
+        </div>
       </Card>
     </>
   );
@@ -1100,21 +1262,45 @@ function ModulesSection({
 }) {
   const { user } = useAuthStore();
   const modules = [
-    { key: "appointments", label: "Appointments", icon: "📅" },
-    { key: "pharmacy", label: "Pharmacy", icon: "💊" },
-    { key: "lab", label: "Lab Services", icon: "🔬" },
-    { key: "billing", label: "Billing & Invoicing", icon: "💰" },
-    { key: "inpatient", label: "Inpatient Management", icon: "🛏️" },
-    { key: "emergency", label: "Emergency Department", icon: "🚑" },
-    { key: "telemedicine", label: "Telemedicine", icon: "📹" },
-    { key: "insurance", label: "Insurance Claims", icon: "📋" },
+    { key: "appointments", label: "Appointments" },
+    { key: "pharmacy", label: "Pharmacy" },
+    { key: "lab", label: "Lab Services" },
+    { key: "billing", label: "Billing & Invoicing" },
+    { key: "inpatient", label: "Inpatient Management" },
+    { key: "emergency", label: "Emergency Department" },
+    { key: "telemedicine", label: "Telemedicine" },
+    { key: "insurance", label: "Insurance Claims" },
+    { key: "queue", label: "Queue Management" },
+    { key: "vitals", label: "Nursing Vitals" },
+    { key: "carePlans", label: "Care Plans" },
+    { key: "feedback", label: "Feedback" },
+    { key: "messaging", label: "Messages & Calls" },
+    { key: "analytics", label: "Analytics" },
+    { key: "reports", label: "Reports" },
+    { key: "guardians", label: "Parent / Guardian Portal" },
+    { key: "patientPortal", label: "Patient Portal" },
+    { key: "inventory", label: "Inventory" },
+    { key: "qualityControl", label: "Quality Control" },
   ];
 
   return (
     <Card
       title="Active Modules"
       description="Enable or disable hospital features"
-      action={<RestoreDefaultsButton section="modules" tenantId={user?.hospitalId} />}
+      action={
+        <RestoreDefaultsButton
+          section="modules"
+          tenantId={user?.hospitalId}
+          onRestored={(defaults) =>
+            onSettingsChange({
+              modules: {
+                ...settings.modules,
+                ...(defaults || {}),
+              },
+            })
+          }
+        />
+      }
     >
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {modules.map((mod) => (
@@ -1153,6 +1339,7 @@ function CommunicationChannelsSection({
   onSettingsChange: (updates: Partial<TenantSettings>) => void;
 }) {
   const { user } = useAuthStore();
+  const [runningAction, setRunningAction] = useState<string | null>(null);
   const emailProviders = settings.communication.integrationsSync?.emailProviders || [];
   const communicationProviders = settings.communication.integrationsSync?.communicationProviders || [];
 
@@ -1195,12 +1382,130 @@ function CommunicationChannelsSection({
     });
   }, [onSettingsChange, settings.communication]);
 
+  const runCommunicationAction = useCallback(async (action: string) => {
+    if (!user?.hospitalId) return;
+    setRunningAction(action);
+    try {
+      const res = await fetch("/api/hospital/communications/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: user.hospitalId,
+          action,
+          communication: settings.communication,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || data.message || "Action failed");
+        return;
+      }
+
+      if (action === "export-configuration") {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${settings.tenant?.slug || "tenant"}-communications.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success("Communication configuration exported");
+        return;
+      }
+
+      if (action === "test-all" && Array.isArray(data.results)) {
+        toast.success(`Tested ${data.results.length} integration(s)`);
+        return;
+      }
+
+      toast.success(data.message || "Action completed");
+    } catch (error) {
+      console.error("Communication action failed:", error);
+      toast.error("Action failed");
+    } finally {
+      setRunningAction(null);
+    }
+  }, [settings.communication, settings.tenant?.slug, user?.hospitalId]);
+
+  const handleAddCustomIntegration = useCallback(async () => {
+    if (!user?.hospitalId) return;
+    const name = window.prompt("Custom integration name");
+    if (!name) return;
+    const endpoint = window.prompt("Webhook / endpoint URL");
+    if (!endpoint) return;
+    setRunningAction("add-custom");
+    try {
+      const res = await fetch("/api/hospital/communications/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: user.hospitalId,
+          action: "add-custom",
+          payload: { name, endpoint, events: [] },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to add custom integration");
+        return;
+      }
+      toast.success("Custom integration added");
+    } catch (error) {
+      console.error("Failed to add custom integration:", error);
+      toast.error("Failed to add custom integration");
+    } finally {
+      setRunningAction(null);
+    }
+  }, [user?.hospitalId]);
+
+  const handleSaveCommunicationConfig = useCallback(async () => {
+    if (!user?.hospitalId) return;
+    setRunningAction("save");
+    try {
+      const res = await fetch(`/api/hospital/settings?tenantId=${user.hospitalId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          communication: settings.communication,
+          integrations: settings.integrations,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to save communication configuration");
+        return;
+      }
+      toast.success("Communication configuration saved");
+    } catch (error) {
+      console.error("Failed to save communication configuration:", error);
+      toast.error("Failed to save communication configuration");
+    } finally {
+      setRunningAction(null);
+    }
+  }, [settings.communication, settings.integrations, user?.hospitalId]);
+
   return (
     <>
       <Card
         title="Communication Providers"
         description="Configure email and SMS providers"
-        action={<RestoreDefaultsButton section="communication" tenantId={user?.hospitalId} />}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <RestoreDefaultsButton section="communication" tenantId={user?.hospitalId} />
+            <button onClick={() => runCommunicationAction("test-email")} disabled={runningAction !== null} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50">
+              <Mail className="size-3" />
+              Test Email
+            </button>
+            <button onClick={() => runCommunicationAction("test-sms")} disabled={runningAction !== null} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50">
+              <Smartphone className="size-3" />
+              Test SMS
+            </button>
+            <button onClick={handleSaveCommunicationConfig} disabled={runningAction !== null} className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-3 py-2 text-xs font-semibold text-white hover:bg-orange-600 disabled:opacity-50">
+              <Save className="size-3" />
+              Save Configuration
+            </button>
+          </div>
+        }
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="Email Provider">
@@ -1244,6 +1549,46 @@ function CommunicationChannelsSection({
             <p className="mt-2 text-xs text-muted-foreground">
               Verified communication providers: {communicationProviders.length ? communicationProviders.join(", ") : "none"}
             </p>
+          </Field>
+        </div>
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-border pt-4">
+          <Field label="Default Channel">
+            <SelectInput
+              value={settings.communication.defaultChannel || "in_app"}
+              onChange={(e) =>
+                onSettingsChange({
+                  communication: {
+                    ...settings.communication,
+                    defaultChannel: e.target.value,
+                  },
+                })
+              }
+            >
+              {["in_app", "email", "sms", "push", "whatsapp", "voice"].map((channel) => (
+                <option key={channel} value={channel}>
+                  {channel.replace("_", " ")}
+                </option>
+              ))}
+            </SelectInput>
+          </Field>
+          <Field label="Fallback Channel">
+            <SelectInput
+              value={settings.communication.fallbackChannel || "email"}
+              onChange={(e) =>
+                onSettingsChange({
+                  communication: {
+                    ...settings.communication,
+                    fallbackChannel: e.target.value,
+                  },
+                })
+              }
+            >
+              {["in_app", "email", "sms", "push", "whatsapp", "voice"].map((channel) => (
+                <option key={channel} value={channel}>
+                  {channel.replace("_", " ")}
+                </option>
+              ))}
+            </SelectInput>
           </Field>
         </div>
       </Card>
@@ -1344,6 +1689,77 @@ function CommunicationChannelsSection({
         allowedCategories={["email", "communication", "calendar"]}
         onChange={handleIntegrationSync}
       />
+
+      <Card title="Communication Actions" description="Cross-check and export the current tenant communication setup">
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => runCommunicationAction("test-all")} disabled={runningAction !== null} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-50">
+            <CheckCircle2 className="size-4" />
+            Test All Integrations
+          </button>
+          <button onClick={() => runCommunicationAction("export-configuration")} disabled={runningAction !== null} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-50">
+            <Download className="size-4" />
+            Export Configuration
+          </button>
+          <button onClick={handleAddCustomIntegration} disabled={runningAction !== null} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-50">
+            <Plus className="size-4" />
+            Add Custom Integration
+          </button>
+        </div>
+      </Card>
+    </>
+  );
+}
+
+function NotificationsSection({
+  settings,
+  onSettingsChange,
+}: {
+  settings: TenantSettings;
+  onSettingsChange: (updates: Partial<TenantSettings>) => void;
+}) {
+  const { user } = useAuthStore();
+  const notificationSettings = settings.notifications || {};
+
+  return (
+    <>
+      <Card
+        title="Notification Delivery"
+        description="Tenant-wide delivery defaults for dashboard, patient, guardian, and staff notifications"
+        action={<RestoreDefaultsButton section="notifications" tenantId={user?.hospitalId} />}
+      >
+        <Row icon={Mail} title="Email Delivery" hint="Enable email as a supported notification path">
+          <Toggle checked={notificationSettings.emailEnabled ?? true} onChange={(v) => onSettingsChange({ notifications: { ...notificationSettings, emailEnabled: v } })} />
+        </Row>
+        <Row icon={Smartphone} title="SMS Delivery" hint="Enable SMS delivery for reminders and urgent messages">
+          <Toggle checked={notificationSettings.smsEnabled ?? false} onChange={(v) => onSettingsChange({ notifications: { ...notificationSettings, smsEnabled: v } })} />
+        </Row>
+        <Row icon={Bell} title="Push Delivery" hint="Allow browser or device push notifications">
+          <Toggle checked={notificationSettings.pushEnabled ?? true} onChange={(v) => onSettingsChange({ notifications: { ...notificationSettings, pushEnabled: v } })} />
+        </Row>
+        <Row icon={Bell} title="In-App Delivery" hint="Show notifications inside the app UI and dialogs">
+          <Toggle checked={notificationSettings.inAppEnabled ?? true} onChange={(v) => onSettingsChange({ notifications: { ...notificationSettings, inAppEnabled: v } })} />
+        </Row>
+      </Card>
+
+      <Card title="Experience" description="Behavior that affects how notifications feel inside the tenant">
+        <Row icon={Activity} title="Notification Sound" hint="Play sound for live announcements and important alerts">
+          <Toggle checked={notificationSettings.soundEnabled ?? true} onChange={(v) => onSettingsChange({ notifications: { ...notificationSettings, soundEnabled: v } })} />
+        </Row>
+        <Row icon={Moon} title="Quiet Hours" hint="Suppress non-critical notifications during configured hours">
+          <Toggle checked={notificationSettings.quietHoursEnabled ?? false} onChange={(v) => onSettingsChange({ notifications: { ...notificationSettings, quietHoursEnabled: v } })} />
+        </Row>
+
+        {notificationSettings.quietHoursEnabled ? (
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-border pt-4">
+            <Field label="Quiet Hours Start">
+              <TextInput type="time" value={notificationSettings.quietHoursStart || "22:00"} onChange={(e) => onSettingsChange({ notifications: { ...notificationSettings, quietHoursStart: e.target.value } })} />
+            </Field>
+            <Field label="Quiet Hours End">
+              <TextInput type="time" value={notificationSettings.quietHoursEnd || "06:00"} onChange={(e) => onSettingsChange({ notifications: { ...notificationSettings, quietHoursEnd: e.target.value } })} />
+            </Field>
+          </div>
+        ) : null}
+      </Card>
     </>
   );
 }
@@ -1355,9 +1771,10 @@ function BillingSection({
   settings: TenantSettings;
   onSettingsChange: (updates: Partial<TenantSettings>) => void;
 }) {
+  const { user } = useAuthStore();
   return (
     <>
-      <Card title="Invoice Settings">
+      <Card title="Invoice Settings" action={<RestoreDefaultsButton section="billing" tenantId={user?.hospitalId} />}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Field label="Invoice Prefix">
             <TextInput
@@ -1456,12 +1873,87 @@ function BillingSection({
 }
 
 function IntegrationsSection({ tenantSlug }: { tenantSlug?: string }) {
+  const [runningAction, setRunningAction] = useState<string | null>(null);
+
+  const handleTestAll = useCallback(async () => {
+    if (!tenantSlug) return;
+    setRunningAction("test-all");
+    try {
+      const listRes = await fetch(`/api/tenant/${tenantSlug}/integrations`);
+      const listData = await listRes.json();
+      if (!listRes.ok) {
+        toast.error(listData.error || "Failed to load integrations");
+        return;
+      }
+      const integrations = listData.integrations || [];
+      await Promise.all(
+        integrations.map((integration: any) =>
+          fetch(`/api/tenant/${tenantSlug}/integrations/${integration.id}/test`, { method: "POST" })
+        )
+      );
+      toast.success(`Tested ${integrations.length} integration(s)`);
+    } catch (error) {
+      console.error("Failed to test integrations:", error);
+      toast.error("Failed to test integrations");
+    } finally {
+      setRunningAction(null);
+    }
+  }, [tenantSlug]);
+
+  const handleExportConfig = useCallback(async () => {
+    if (!tenantSlug) return;
+    setRunningAction("export");
+    try {
+      const res = await fetch(`/api/tenant/${tenantSlug}/integrations`);
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to export integrations");
+        return;
+      }
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${tenantSlug}-integrations.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Integration configuration exported");
+    } catch (error) {
+      console.error("Failed to export integrations:", error);
+      toast.error("Failed to export integrations");
+    } finally {
+      setRunningAction(null);
+    }
+  }, [tenantSlug]);
+
+  const handleAddCustom = useCallback(() => {
+    toast.message("Use API Management webhooks for custom connectors, or connect a provider below.");
+  }, []);
+
   return (
-    <IntegrationManager
-      slug={tenantSlug}
-      title="All Tenant Integrations"
-      description="Manage secure API keys, OAuth tokens, sender identities, data connectors, and provider status across the hospital tenant."
-    />
+    <>
+      <Card title="Integration Actions" description="Operational actions for all tenant integrations">
+        <div className="flex flex-wrap gap-2">
+          <button onClick={handleTestAll} disabled={runningAction !== null} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-50">
+            <CheckCircle2 className="size-4" />
+            Test All Integrations
+          </button>
+          <button onClick={handleExportConfig} disabled={runningAction !== null} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-50">
+            <Download className="size-4" />
+            Export Configuration
+          </button>
+          <button onClick={handleAddCustom} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted">
+            <Plus className="size-4" />
+            Add Custom Integration
+          </button>
+        </div>
+      </Card>
+      <IntegrationManager
+        slug={tenantSlug}
+        title="All Tenant Integrations"
+        description="Manage secure API keys, OAuth tokens, sender identities, data connectors, and provider status across the hospital tenant."
+      />
+    </>
   );
 }
 function ComplianceSection({
@@ -1471,9 +1963,10 @@ function ComplianceSection({
   settings: TenantSettings;
   onSettingsChange: (updates: Partial<TenantSettings>) => void;
 }) {
+  const { user } = useAuthStore();
   return (
     <>
-      <Card title="Regulatory Compliance" description="Configure compliance standards">
+      <Card title="Regulatory Compliance" description="Configure compliance standards" action={<RestoreDefaultsButton section="compliance" tenantId={user?.hospitalId} />}>
         <Row
           icon={ShieldCheck}
           title="HIPAA Mode"
@@ -2385,7 +2878,7 @@ function DangerZoneSection({ tenantId }: { tenantId?: string }) {
   );
 }
 
-function RestoreDefaultsButton({ section, tenantId }: { section: string; tenantId?: string }) {
+function RestoreDefaultsButton({ section, tenantId, onRestored }: { section: string; tenantId?: string; onRestored?: (defaults: any) => void }) {
   const [restoring, setRestoring] = useState(false);
 
   const handleRestore = async () => {
@@ -2401,8 +2894,12 @@ function RestoreDefaultsButton({ section, tenantId }: { section: string; tenantI
       });
 
       if (res.ok) {
+        const data = await res.json();
         toast.success(`${section} settings restored to defaults`);
-        window.location.reload();
+        onRestored?.(data.defaults?.[section] ?? data.defaults ?? null);
+        if (!onRestored) {
+          window.location.reload();
+        }
       } else {
         const error = await res.json();
         toast.error(error.error || "Failed to restore defaults");
@@ -2437,7 +2934,7 @@ function PreferencesSection({
 
   return (
     <>
-      <Card title="Regional Settings" description="Language, timezone, and formatting">
+      <Card title="Regional Settings" description="Language, timezone, and formatting" action={<RestoreDefaultsButton section="preferences" tenantId={user?.hospitalId} />}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="Timezone">
             <SelectInput
@@ -2565,9 +3062,10 @@ function SecuritySection({
   settings: TenantSettings;
   onSettingsChange: (updates: Partial<TenantSettings>) => void;
 }) {
+  const { user } = useAuthStore();
   return (
     <>
-      <Card title="Password Policies">
+      <Card title="Password Policies" action={<RestoreDefaultsButton section="security" tenantId={user?.hospitalId} />}>
         <Row
           icon={Lock}
           title="Password Expiration"
@@ -2671,9 +3169,10 @@ function WorkflowSection({
   settings: TenantSettings;
   onSettingsChange: (updates: Partial<TenantSettings>) => void;
 }) {
+  const { user } = useAuthStore();
   return (
     <>
-      <Card title="Automation Features">
+      <Card title="Automation Features" action={<RestoreDefaultsButton section="workflow" tenantId={user?.hospitalId} />}>
         <Row
           icon={Zap}
           title="Automation Enabled"
@@ -2835,31 +3334,46 @@ function WorkflowSection({
 
 function APIManagementSection({ tenantId }: { tenantId?: string }) {
   const [apiKeys, setApiKeys] = useState<any[]>([]);
+  const [webhooks, setWebhooks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [keyName, setKeyName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createModalMode, setCreateModalMode] = useState<"create" | "show">("create");
   const [newKeyData, setNewKeyData] = useState<any>(null);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookEvents, setWebhookEvents] = useState("invoice.paid,appointment.created,lab.result_ready");
+  const [creatingWebhook, setCreatingWebhook] = useState(false);
 
   useEffect(() => {
     if (!tenantId) return;
 
-    const fetchKeys = async () => {
+    const fetchData = async () => {
       try {
-        const res = await fetch(`/api/hospital/api-keys?tenantId=${tenantId}`);
-        if (res.ok) {
-          const data = await res.json();
-          setApiKeys(data);
-        }
+        const [keysRes, webhooksRes] = await Promise.all([
+          fetch(`/api/hospital/api-keys?tenantId=${tenantId}`),
+          fetch(`/api/hospital/api-keys?tenantId=${tenantId}&action=webhooks`),
+        ]);
+        if (keysRes.ok) setApiKeys(await keysRes.json());
+        if (webhooksRes.ok) setWebhooks(await webhooksRes.json());
       } catch (error) {
-        console.error("Error fetching API keys:", error);
+        console.error("Error fetching API management data:", error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchKeys();
+    fetchData();
+  }, [tenantId]);
+
+  const reloadApiManagement = useCallback(async () => {
+    if (!tenantId) return;
+    const [keysRes, webhooksRes] = await Promise.all([
+      fetch(`/api/hospital/api-keys?tenantId=${tenantId}`),
+      fetch(`/api/hospital/api-keys?tenantId=${tenantId}&action=webhooks`),
+    ]);
+    if (keysRes.ok) setApiKeys(await keysRes.json());
+    if (webhooksRes.ok) setWebhooks(await webhooksRes.json());
   }, [tenantId]);
 
   const handleCreateKey = async () => {
@@ -2881,12 +3395,7 @@ function APIManagementSection({ tenantId }: { tenantId?: string }) {
         setNewKeyData(data);
         setCreateModalMode("show");
         toast.success("API key created successfully");
-
-        // Refresh keys list
-        const refreshRes = await fetch(`/api/hospital/api-keys?tenantId=${tenantId}`);
-        if (refreshRes.ok) {
-          setApiKeys(await refreshRes.json());
-        }
+        await reloadApiManagement();
       } else {
         const error = await res.json();
         toast.error(error.error || "Failed to create API key");
@@ -2904,13 +3413,13 @@ function APIManagementSection({ tenantId }: { tenantId?: string }) {
 
     try {
       const res = await fetch(
-        `/api/hospital/api-keys?tenantId=${tenantId}&keyId=${keyId}`,
+        `/api/hospital/api-keys?tenantId=${tenantId}&keyId=${keyId}&type=apiKey`,
         { method: "DELETE" }
       );
 
       if (res.ok) {
-        toast.success("API key deleted successfully");
-        setApiKeys(apiKeys.filter((k) => k.id !== keyId));
+        toast.success("API key revoked successfully");
+        await reloadApiManagement();
       } else {
         const error = await res.json();
         toast.error(error.error || "Failed to delete API key");
@@ -2921,22 +3430,135 @@ function APIManagementSection({ tenantId }: { tenantId?: string }) {
     }
   };
 
+  const handleRotateKey = async (keyId: string) => {
+    try {
+      const res = await fetch(`/api/hospital/api-keys?tenantId=${tenantId}&id=${keyId}&operation=rotate`, {
+        method: "PATCH",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to rotate API key");
+        return;
+      }
+      setNewKeyData({ key: data.apiKey?.key });
+      setCreateModalMode("show");
+      setShowCreateModal(true);
+      toast.success("API key rotated successfully");
+      await reloadApiManagement();
+    } catch (error) {
+      console.error("Error rotating API key:", error);
+      toast.error("Failed to rotate API key");
+    }
+  };
+
+  const handleCreateWebhook = async () => {
+    if (!webhookUrl.trim()) {
+      toast.error("Webhook URL is required");
+      return;
+    }
+    setCreatingWebhook(true);
+    try {
+      const res = await fetch(`/api/hospital/api-keys?tenantId=${tenantId}&action=webhook-add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: webhookUrl,
+          events: webhookEvents.split(",").map((item) => item.trim()).filter(Boolean),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to add webhook");
+        return;
+      }
+      toast.success("Webhook added successfully");
+      setWebhookUrl("");
+      await reloadApiManagement();
+    } catch (error) {
+      console.error("Error creating webhook:", error);
+      toast.error("Failed to add webhook");
+    } finally {
+      setCreatingWebhook(false);
+    }
+  };
+
+  const handleToggleWebhook = async (id: string) => {
+    try {
+      const res = await fetch(`/api/hospital/api-keys?tenantId=${tenantId}&action=webhook&id=${id}&operation=toggle`, {
+        method: "PATCH",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to update webhook");
+        return;
+      }
+      toast.success("Webhook updated");
+      await reloadApiManagement();
+    } catch (error) {
+      console.error("Error toggling webhook:", error);
+      toast.error("Failed to update webhook");
+    }
+  };
+
+  const handleDeleteWebhook = async (id: string) => {
+    try {
+      const res = await fetch(`/api/hospital/api-keys?tenantId=${tenantId}&id=${id}&type=webhook`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to remove webhook");
+        return;
+      }
+      toast.success("Webhook removed");
+      await reloadApiManagement();
+    } catch (error) {
+      console.error("Error deleting webhook:", error);
+      toast.error("Failed to remove webhook");
+    }
+  };
+
+  const handleExportLogs = () => {
+    const rows = [
+      ["type", "name", "status", "createdAt"],
+      ...apiKeys.map((item) => ["api_key", item.name, item.revokedAt ? "revoked" : "active", item.createdAt]),
+      ...webhooks.map((item) => ["webhook", item.url, item.active ? "active" : "inactive", item.createdAt]),
+    ];
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `api-management-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("API management logs exported");
+  };
+
   return (
     <>
       <Card
         title="API Keys"
         description="Manage API authentication keys"
         action={
-          <button
-            onClick={() => {
-              setCreateModalMode("create");
-              setKeyName("");
-              setShowCreateModal(true);
-            }}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold"
-          >
-            <Plus className="size-3" /> Create Key
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportLogs}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border hover:bg-muted text-xs font-semibold"
+            >
+              <Download className="size-3" /> Export Logs
+            </button>
+            <button
+              onClick={() => {
+                setCreateModalMode("create");
+                setKeyName("");
+                setShowCreateModal(true);
+              }}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold"
+            >
+              <Plus className="size-3" /> Create Key
+            </button>
+          </div>
         }
       >
         {loading ? (
@@ -2961,13 +3583,71 @@ function APIManagementSection({ tenantId }: { tenantId?: string }) {
                     Created: {new Date(key.createdAt).toLocaleDateString()}
                   </p>
                 </div>
-                <button
-                  onClick={() => handleDeleteKey(key.id)}
-                  className="p-1.5 rounded hover:bg-red-50 text-red-600"
-                  title="Delete API key"
-                >
-                  <Trash2 className="size-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => navigator.clipboard.writeText(key.prefix || "")}
+                    className="p-1.5 rounded hover:bg-muted"
+                    title="Copy key prefix"
+                  >
+                    <Copy className="size-4" />
+                  </button>
+                  <button
+                    onClick={() => handleRotateKey(key.id)}
+                    className="p-1.5 rounded hover:bg-muted"
+                    title="Rotate API key"
+                  >
+                    <RotateCw className="size-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteKey(key.id)}
+                    className="p-1.5 rounded hover:bg-red-50 text-red-600"
+                    title="Revoke API key"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card title="Webhooks" description="Push tenant events to external systems">
+        <div className="grid grid-cols-1 md:grid-cols-[2fr_2fr_auto] gap-3 mb-4">
+          <TextInput value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://example.com/webhooks/hospital" />
+          <TextInput value={webhookEvents} onChange={(e) => setWebhookEvents(e.target.value)} placeholder="invoice.paid,appointment.created" />
+          <button
+            onClick={handleCreateWebhook}
+            disabled={creatingWebhook}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-semibold"
+          >
+            <Plus className="size-4" />
+            Add Webhook
+          </button>
+        </div>
+
+        {webhooks.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No webhooks configured yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {webhooks.map((webhook) => (
+              <div key={webhook.id} className="rounded-lg border border-border p-4 flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold truncate">{webhook.url}</p>
+                  <p className="text-xs text-muted-foreground">Events: {(webhook.events || []).join(", ") || "none"}</p>
+                  <p className="text-xs text-muted-foreground">Secret: {webhook.secret?.slice(0, 12)}...</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => navigator.clipboard.writeText(webhook.secret || "")} className="p-1.5 rounded hover:bg-muted" title="Copy secret">
+                    <Copy className="size-4" />
+                  </button>
+                  <button onClick={() => handleToggleWebhook(webhook.id)} className="p-1.5 rounded hover:bg-muted" title="Toggle webhook">
+                    <Check className="size-4" />
+                  </button>
+                  <button onClick={() => handleDeleteWebhook(webhook.id)} className="p-1.5 rounded hover:bg-red-50 text-red-600" title="Remove webhook">
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

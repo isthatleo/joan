@@ -329,7 +329,7 @@ export function UserSettingsWorkspace({
                 <SelectField
                   label="Language"
                   value={settings.appearance.language}
-                  onChange={(value) => updateSection("appearance", { language: value })}
+                  onChange={(value) => updateSection("appearance", { language: value, languageSource: "user" as any })}
                   options={languages}
                 />
                 <SelectField

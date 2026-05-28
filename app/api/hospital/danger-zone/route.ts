@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tenantSettings, auditLogs, tenants, patients, users } from "@/lib/db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { z } from "zod";
+import crypto from "crypto";
 
 const confirmSchema = z.object({
   action: z.enum(["purge-data", "delete-tenant", "reset-settings"]),
@@ -34,12 +35,12 @@ export async function GET(request: NextRequest) {
 
     // Get stats
     const patientCount = await db
-      .select({ count: patients.id })
+      .select({ count: count() })
       .from(patients)
       .where(eq(patients.tenantId, tenantId));
 
     const userCount = await db
-      .select({ count: users.id })
+      .select({ count: count() })
       .from(users)
       .where(eq(users.tenantId, tenantId));
 
@@ -47,9 +48,11 @@ export async function GET(request: NextRequest) {
       tenantId,
       tenantName: tenant.name,
       createdAt: tenant.createdAt,
-      patientCount: patientCount.length > 0 ? patientCount[0].count : 0,
-      staffCount: userCount.length > 0 ? userCount[0].count : 0,
+      patientCount: patientCount[0]?.count ?? 0,
+      staffCount: userCount[0]?.count ?? 0,
       plan: tenant.plan,
+      isArchived: !tenant.isActive,
+      scheduledPurgeAt: tenant.scheduledPurgeAt,
     });
   } catch (error) {
     console.error("[danger-zone GET]", error);
@@ -161,7 +164,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    const body = confirmSchema.parse(await request.json());
+    const body = confirmSchema.partial({ confirmationCode: true }).parse(await request.json());
 
     // Verify confirmation code
     const codesSetting = await db
@@ -174,35 +177,37 @@ export async function DELETE(request: NextRequest) {
         )
       );
 
-    const codes = codesSetting.length > 0 ? (codesSetting[0].value as any) : {};
-    const codeData = codes[body.confirmationCode];
+    if (body.confirmationCode) {
+      const codes = codesSetting.length > 0 ? (codesSetting[0].value as any) : {};
+      const codeData = codes[body.confirmationCode];
 
-    if (!codeData || codeData.used || codeData.expiresAt < Date.now()) {
-      return NextResponse.json(
-        { error: "Invalid or expired confirmation code" },
-        { status: 400 }
-      );
+      if (!codeData || codeData.used || codeData.expiresAt < Date.now()) {
+        return NextResponse.json(
+          { error: "Invalid or expired confirmation code" },
+          { status: 400 }
+        );
+      }
+
+      codes[body.confirmationCode].used = true;
+      await db
+        .update(tenantSettings)
+        .set({ value: codes, updatedAt: new Date() })
+        .where(eq(tenantSettings.id, codesSetting[0].id));
     }
 
-    // Mark code as used
-    codes[body.confirmationCode].used = true;
-    await db
-      .update(tenantSettings)
-      .set({ value: codes, updatedAt: new Date() })
-      .where(eq(tenantSettings.id, codesSetting[0].id));
-
     if (body.action === "reset-settings") {
-      // Delete all tenant settings
-      const allSettings = await db
-        .select()
-        .from(tenantSettings)
-        .where(eq(tenantSettings.tenantId, tenantId));
-
-      for (const setting of allSettings) {
-        await db
-          .update(tenantSettings)
-          .set({ value: null, updatedAt: new Date() })
-          .where(eq(tenantSettings.id, setting.id));
+      const resetKeys = ["branding", "communication", "modules", "preferences", "ui", "compliance", "billing", "security", "workflow", "notifications", "audit", "system", "apiManagement", "dangerZone"];
+      for (const key of resetKeys) {
+        const existing = await db
+          .select()
+          .from(tenantSettings)
+          .where(and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, key)));
+        if (existing.length > 0) {
+          await db
+            .update(tenantSettings)
+            .set({ updatedAt: new Date() })
+            .where(eq(tenantSettings.id, existing[0].id));
+        }
       }
 
       // Audit
@@ -238,14 +243,41 @@ export async function DELETE(request: NextRequest) {
       });
     } else if (body.action === "delete-tenant") {
       // This is destructive - mark tenant for deletion
+      const purgeDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       await db
         .update(tenants)
         .set({
-          scheduledPurgeAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+          scheduledPurgeAt: purgeDate,
           isActive: false,
           updatedAt: new Date(),
         })
         .where(eq(tenants.id, tenantId));
+
+      const archiveSetting = await db
+        .select()
+        .from(tenantSettings)
+        .where(and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, "dangerZoneArchive")));
+
+      const archivePayload = {
+        archivedAt: new Date().toISOString(),
+        archivedBy: "hospital_admin",
+        reason: body.reason || null,
+        purgeDate: purgeDate.toISOString(),
+        restorableBy: ["super_admin"],
+      };
+
+      if (archiveSetting.length > 0) {
+        await db
+          .update(tenantSettings)
+          .set({ value: archivePayload, updatedAt: new Date() })
+          .where(eq(tenantSettings.id, archiveSetting[0].id));
+      } else {
+        await db.insert(tenantSettings).values({
+          tenantId,
+          key: "dangerZoneArchive",
+          value: archivePayload,
+        });
+      }
 
       await db.insert(auditLogs).values({
         action: "danger_zone.tenant_deletion_scheduled",
@@ -253,16 +285,14 @@ export async function DELETE(request: NextRequest) {
         entityId: tenantId,
         metadata: {
           reason: body.reason,
-          purgeDate: new Date(
-            Date.now() + 30 * 24 * 60 * 60 * 1000
-          ).toISOString(),
+          purgeDate: purgeDate.toISOString(),
         },
       });
 
       return NextResponse.json({
         message:
           "Tenant has been scheduled for deletion in 30 days. This can be cancelled.",
-        purgeDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        purgeDate,
       });
     }
 

@@ -117,27 +117,75 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
+      const precheckResponse = await fetch("/api/auth/login-guard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "precheck",
+          email,
+          tenantSlug: typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null,
+        }),
+      });
+      const precheckData = await precheckResponse.json().catch(() => ({}));
+      if (!precheckResponse.ok) {
+        throw new Error(precheckData?.error || "Sign-in precheck failed");
+      }
+      if (precheckData?.allowed === false && precheckData?.reason === "locked") {
+        setError(`This account is temporarily locked until ${precheckData.lockoutUntil || "later"}.`);
+        setLoading(false);
+        return;
+      }
+
       const result: any = await authClient.signIn.email({ email, password });
       if (result?.error) {
+        await fetch("/api/auth/login-guard", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "record-failure",
+            email,
+            tenantSlug: typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null,
+          }),
+        }).catch(() => null);
         setError(result.error.message || "Sign-in failed");
         setLoading(false);
         return;
       }
-      // Verify role matches selection
-      const roleRes = await fetch("/api/auth/role", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, tenantSlug: typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null }),
-      });
-      const { role } = await roleRes.json();
-      if (role && role !== selectedRole) {
-        setError(`This account is registered as ${role.replace(/_/g, " ")}, not ${selectedRole.replace(/_/g, " ")}.`);
-        await authClient.signOut();
-        setLoading(false);
-        return;
-      }
-      const resolvedRole = (role as AppRole | null) ?? (selectedRole as AppRole);
-      window.location.assign(ROLE_HOME[resolvedRole] ?? "/");
+       const successResponse = await fetch("/api/auth/login-guard", {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({
+           action: "record-success",
+           email,
+           tenantSlug: typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null,
+         }),
+       });
+       const successData = await successResponse.json().catch(() => ({}));
+       // Verify role matches selection
+       const roleRes = await fetch("/api/auth/role", {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({ email, tenantSlug: typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null }),
+       });
+       const { role } = await roleRes.json();
+       if (role && role !== selectedRole) {
+         setError(`This account is registered as ${role.replace(/_/g, " ")}, not ${selectedRole.replace(/_/g, " ")}.`);
+         await authClient.signOut();
+         setLoading(false);
+         return;
+       }
+       const resolvedRole = (role as AppRole | null) ?? (selectedRole as AppRole);
+       if (successData?.passwordExpired) {
+         const resetPath = typeof window !== "undefined" && sessionStorage.getItem("active_tenant_slug")
+           ? `/tenant/${sessionStorage.getItem("active_tenant_slug")}/complete-access?redirect=${encodeURIComponent(ROLE_HOME[resolvedRole] ?? "/")}`
+           : `/complete-access?redirect=${encodeURIComponent(ROLE_HOME[resolvedRole] ?? "/")}`;
+         window.location.href = resetPath;
+         return;
+       }
+       
+       // Redirect to the appropriate dashboard
+       const dashboardPath = ROLE_HOME[resolvedRole] ?? "/";
+       router.push(dashboardPath);
     } catch (err: any) {
       setError(err?.message || "Sign-in failed");
     } finally {

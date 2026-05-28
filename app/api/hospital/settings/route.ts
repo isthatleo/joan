@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { tenants, tenantSettings, integrations, auditLogs, users } from "@/lib/db/schema";
+import { tenants, tenantSettings, integrations, auditLogs } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -44,6 +44,9 @@ const DEFAULTS = {
   communication: {
     emailProvider: "resend", // "resend", "sendgrid", "mailgun"
     smsProvider: "twilio", // "twilio", "aws_sns"
+    defaultChannel: "in_app",
+    fallbackChannel: "email",
+    allowedChannels: ["in_app", "email", "sms", "push", "whatsapp", "voice"],
     notificationPreferences: {
       emailEnabled: true,
       smsEnabled: false,
@@ -60,6 +63,17 @@ const DEFAULTS = {
     emergency: false,
     telemedicine: false,
     insurance: true,
+    queue: true,
+    vitals: true,
+    carePlans: true,
+    feedback: true,
+    messaging: true,
+    analytics: true,
+    reports: true,
+    guardians: true,
+    patientPortal: true,
+    inventory: true,
+    qualityControl: true,
   },
   preferences: {
     timezone: "UTC",
@@ -89,7 +103,70 @@ const DEFAULTS = {
     paymentMethods: ["cash", "card"],
     autoChargeInsurance: false,
   },
+  notifications: {
+    emailEnabled: true,
+    smsEnabled: false,
+    pushEnabled: true,
+    inAppEnabled: true,
+    soundEnabled: true,
+    quietHoursEnabled: false,
+    quietHoursStart: "22:00",
+    quietHoursEnd: "06:00",
+  },
+  workflow: {
+    automationEnabled: true,
+    appointmentReminders: true,
+    prescriptionAlerts: true,
+    patientNotifications: true,
+    staffNotifications: true,
+    billingAutomation: false,
+    reportGeneration: false,
+    dataBackupEnabled: true,
+    backupFrequency: "daily",
+  },
+  audit: {
+    retentionDays: 365,
+    logAuthentication: true,
+    logClinicalActions: true,
+    logFinancialActions: true,
+    logConfigurationChanges: true,
+    exportFormat: "csv",
+  },
+  system: {
+    maintenanceMode: false,
+    maintenanceMessage: "",
+    autoUpdates: false,
+    telemetryEnabled: true,
+    healthAlertsEnabled: true,
+  },
+  apiManagement: {
+    ipAllowlistEnabled: false,
+    webhookRetryEnabled: true,
+    webhookRetryCount: 3,
+  },
+  dangerZone: {
+    archiveGraceDays: 30,
+  },
 };
+
+const SETTINGS_KEYS = [
+  "hospital",
+  "branding",
+  "contact",
+  "communication",
+  "modules",
+  "preferences",
+  "ui",
+  "compliance",
+  "billing",
+  "security",
+  "workflow",
+  "notifications",
+  "audit",
+  "system",
+  "apiManagement",
+  "dangerZone",
+] as const;
 
 // GET all tenant settings
 export async function GET(request: NextRequest) {
@@ -115,7 +192,7 @@ export async function GET(request: NextRequest) {
       .from(tenantSettings)
       .where(eq(tenantSettings.tenantId, tenantId));
 
-    const settings: any = { ...DEFAULTS };
+    const settings: any = structuredClone(DEFAULTS);
 
     // Merge db settings with defaults
     for (const row of rows) {
@@ -215,7 +292,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Handle logo upload
-    if (body.branding?.logoUrl && body.branding.logoUrl !== tenant.logoUrl) {
+    if (typeof body.branding?.logoUrl === "string" && body.branding.logoUrl !== tenant.logoUrl) {
       await db
         .update(tenants)
         .set({
@@ -227,30 +304,26 @@ export async function PUT(request: NextRequest) {
       changedKeys.push("branding.logoUrl");
     }
 
-    // Handle contact info updates
     if (body.contact) {
-      if (body.contact.email && body.contact.email !== tenant.contactEmail) {
-        await db
-          .update(tenants)
-          .set({ contactEmail: body.contact.email })
-          .where(eq(tenants.id, tenantId));
-        changedKeys.push("contact.email");
-      }
-
-      if (body.contact.phone && body.contact.phone !== tenant.contactPhone) {
-        await db
-          .update(tenants)
-          .set({ contactPhone: body.contact.phone })
-          .where(eq(tenants.id, tenantId));
-        changedKeys.push("contact.phone");
-      }
+      await db
+        .update(tenants)
+        .set({
+          contactEmail: body.contact.email ?? tenant.contactEmail,
+          contactPhone: body.contact.phone ?? tenant.contactPhone,
+          address: body.contact.address ?? tenant.address,
+          city: body.contact.city ?? tenant.city,
+          country: body.contact.country ?? tenant.country,
+          timezone: body.preferences?.timezone ?? tenant.timezone,
+          updatedAt: new Date(),
+        })
+        .where(eq(tenants.id, tenantId));
+      changedKeys.push("tenant.contact");
     }
 
-    // Update settings entries
-    for (const [key, value] of Object.entries(body)) {
-      if (["hospital", "branding", "contact", "integrations"].includes(key)) {
-        continue; // Already handled above
-      }
+    // Persist tenant-scoped settings sections
+    for (const key of SETTINGS_KEYS) {
+      if (!(key in body)) continue;
+      const value = body[key];
 
       const existing = await db
         .select()

@@ -22,6 +22,7 @@
   appearance: {
     theme: "system",
     language: "en",
+    languageSource: "tenant",
     timezone: "UTC",
     timeFormat: "12h",
     density: "comfortable",
@@ -38,6 +39,9 @@
     passwordlessSignin: false,
     biometricPrompt: false,
     forcePasswordChange: false,
+    passwordLastChanged: "",
+    failedLoginAttempts: 0,
+    lockoutUntil: "",
   },
   communication: {
     messageSettings: {
@@ -69,6 +73,7 @@ export type UserSettingsShape = typeof defaultUserSettings;
 
 const allowedThemes = new Set(["light", "dark", "system"]);
 const allowedLanguages = new Set(["en", "fr", "es", "sw", "ar"]);
+const allowedLanguageSources = new Set(["tenant", "user"]);
 const allowedTimeFormats = new Set(["12h", "24h"]);
 const allowedDensity = new Set(["compact", "comfortable", "spacious"]);
 const allowedCalendarStart = new Set(["monday", "sunday"]);
@@ -144,6 +149,7 @@ export function mergeUserSettings(settings: unknown): UserSettingsShape {
     appearance: {
       theme: asAllowedString(appearance.theme, allowedThemes, defaultUserSettings.appearance.theme),
       language: asAllowedString(appearance.language, allowedLanguages, defaultUserSettings.appearance.language),
+      languageSource: asAllowedString(appearance.languageSource, allowedLanguageSources, defaultUserSettings.appearance.languageSource),
       timezone: asString(appearance.timezone, defaultUserSettings.appearance.timezone),
       timeFormat: asAllowedString(appearance.timeFormat, allowedTimeFormats, defaultUserSettings.appearance.timeFormat),
       density: asAllowedString(appearance.density, allowedDensity, defaultUserSettings.appearance.density),
@@ -160,6 +166,9 @@ export function mergeUserSettings(settings: unknown): UserSettingsShape {
       passwordlessSignin: asBoolean(security.passwordlessSignin, defaultUserSettings.security.passwordlessSignin),
       biometricPrompt: asBoolean(security.biometricPrompt, defaultUserSettings.security.biometricPrompt),
       forcePasswordChange: asBoolean(security.forcePasswordChange, defaultUserSettings.security.forcePasswordChange),
+      passwordLastChanged: asString(security.passwordLastChanged, defaultUserSettings.security.passwordLastChanged),
+      failedLoginAttempts: typeof security.failedLoginAttempts === "number" ? security.failedLoginAttempts : defaultUserSettings.security.failedLoginAttempts,
+      lockoutUntil: asString(security.lockoutUntil, defaultUserSettings.security.lockoutUntil),
     },
     communication: {
       messageSettings: {

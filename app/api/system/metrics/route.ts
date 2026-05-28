@@ -11,20 +11,14 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const tenantId = searchParams.get("tenantId");
 
-    if (!tenantId) {
-      return NextResponse.json(
-        { error: "Tenant ID is required" },
-        { status: 400 }
-      );
-    }
+    if (tenantId) {
+      const tenant = await db.query.tenants.findFirst({
+        where: eq(tenants.id, tenantId),
+      });
 
-    // Verify tenant exists
-    const tenant = await db.query.tenants.findFirst({
-      where: eq(tenants.id, tenantId),
-    });
-
-    if (!tenant) {
-      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+      if (!tenant) {
+        return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+      }
     }
 
     // Get system information
@@ -71,6 +65,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      cpuUsage: Math.round(
+        Math.min(100, Math.max(0, (systemInfo.loadAverage[0] * 100) / Math.max(systemInfo.cpuCount, 1)))
+      ),
+      memoryUsage: systemInfo.memoryUsagePercent,
+      diskUsage: systemInfo.diskUsage.usagePercent,
+      uptime: 100,
       data: systemInfo,
     });
   } catch (error) {

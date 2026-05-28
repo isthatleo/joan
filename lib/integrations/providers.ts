@@ -141,7 +141,7 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     fields: [
       { key: "accountSid", label: "Account SID", type: "text", required: true, placeholder: "AC..." },
       { key: "authToken", label: "Auth Token", type: "password", required: true },
-      { key: "fromNumber", label: "From Number", type: "text", placeholder: "+15551234567" },
+      { key: "phoneNumber", label: "From Number", type: "text", placeholder: "+15551234567" },
     ],
     verify: async (c) => {
       const r = await jsonFetch(`https://api.twilio.com/2010-04-01/Accounts/${c.accountSid}.json`, {
@@ -161,18 +161,24 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
       { key: "secretKey", label: "Secret Key", type: "password", required: true, placeholder: "sk_..." },
       { key: "webhookSecret", label: "Webhook Secret", type: "password", placeholder: "whsec_..." },
     ],
+    verify: async (c) => {
+      const r = await jsonFetch("https://api.stripe.com/v1/account", {
+        headers: { Authorization: `Bearer ${c.secretKey}` },
+      });
+      return r.ok ? { ok: true, account: r.body?.email || r.body?.id } : { ok: false, error: `Stripe error: ${r.status}` };
+    },
   },
   {
-    id: "aws_s3",
+    id: "aws-s3",
     name: "AWS S3",
     category: "data",
     description: "Cloud object storage for exports, archives, and documents.",
     docsUrl: "https://docs.aws.amazon.com/AmazonS3/latest/API/Welcome.html",
     fields: [
-      { key: "accessKeyId", label: "Access Key ID", type: "password", required: true },
-      { key: "secretAccessKey", label: "Secret Access Key", type: "password", required: true },
+      { key: "accessKey", label: "Access Key ID", type: "password", required: true },
+      { key: "secretKey", label: "Secret Access Key", type: "password", required: true },
       { key: "region", label: "Region", type: "text", required: true, placeholder: "us-east-1" },
-      { key: "bucket", label: "Bucket", type: "text", required: true },
+      { key: "bucketName", label: "Bucket", type: "text", required: true },
     ],
   },
   {
@@ -338,6 +344,305 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
       { key: "projectId", label: "Project ID", type: "text", required: true },
       { key: "location", label: "Location", type: "text", placeholder: "us-central1" },
     ],
+  },
+  {
+    id: "aws-ses",
+    name: "AWS SES",
+    category: "email",
+    description: "Amazon Simple Email Service.",
+    docsUrl: "https://docs.aws.amazon.com/ses/",
+    fields: [
+      { key: "accessKey", label: "Access Key", type: "password", required: true },
+      { key: "secretKey", label: "Secret Key", type: "password", required: true },
+      { key: "region", label: "Region", type: "text", required: true, placeholder: "us-east-1" },
+      { key: "fromEmail", label: "Default From Email", type: "text" },
+      { key: "fromName", label: "Default From Name", type: "text" },
+    ],
+  },
+  {
+    id: "nexmo",
+    name: "Nexmo (Vonage)",
+    category: "communication",
+    description: "SMS and communication APIs.",
+    docsUrl: "https://developer.vonage.com/",
+    fields: [
+      { key: "apiKey", label: "API Key", type: "password", required: true },
+      { key: "apiSecret", label: "API Secret", type: "password", required: true },
+      { key: "brandName", label: "Brand Name", type: "text" },
+    ],
+    verify: async (c) => {
+      const r = await jsonFetch(`https://rest.nexmo.com/account/get-balance?api_key=${encodeURIComponent(c.apiKey)}&api_secret=${encodeURIComponent(c.apiSecret)}`, { method: "GET" });
+      return r.ok ? { ok: true } : { ok: false, error: `Vonage error: ${r.status}` };
+    },
+  },
+  {
+    id: "aws-sns",
+    name: "AWS SNS",
+    category: "communication",
+    description: "Simple Notification Service for SMS delivery.",
+    docsUrl: "https://docs.aws.amazon.com/sns/",
+    fields: [
+      { key: "accessKey", label: "Access Key", type: "password", required: true },
+      { key: "secretKey", label: "Secret Key", type: "password", required: true },
+      { key: "region", label: "Region", type: "text", required: true },
+      { key: "topicArn", label: "Topic ARN", type: "text" },
+    ],
+  },
+  {
+    id: "messagebird",
+    name: "MessageBird",
+    category: "communication",
+    description: "SMS and omnichannel messaging.",
+    docsUrl: "https://developers.messagebird.com/",
+    fields: [
+      { key: "apiKey", label: "API Key", type: "password", required: true },
+      { key: "originator", label: "Originator", type: "text" },
+    ],
+    verify: async (c) => {
+      const r = await jsonFetch("https://rest.messagebird.com/balance", {
+        headers: { Authorization: `AccessKey ${c.apiKey}` },
+      });
+      return r.ok ? { ok: true } : { ok: false, error: `MessageBird error: ${r.status}` };
+    },
+  },
+  {
+    id: "paypal",
+    name: "PayPal",
+    category: "productivity",
+    description: "Online payment processing.",
+    docsUrl: "https://developer.paypal.com/docs/api/overview/",
+    fields: [
+      { key: "clientId", label: "Client ID", type: "password", required: true },
+      { key: "clientSecret", label: "Client Secret", type: "password", required: true },
+      { key: "environment", label: "Environment", type: "text" },
+    ],
+    verify: async (c) => {
+      const base = c.environment === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
+      const r = await jsonFetch(`${base}/v1/oauth2/token`, {
+        method: "POST",
+        headers: {
+          Authorization: "Basic " + Buffer.from(`${c.clientId}:${c.clientSecret}`).toString("base64"),
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ grant_type: "client_credentials" }),
+      });
+      return r.ok ? { ok: true, account: c.clientId.slice(0, 8) } : { ok: false, error: `PayPal error: ${r.status}` };
+    },
+  },
+  {
+    id: "square",
+    name: "Square",
+    category: "productivity",
+    description: "Point-of-sale and payment infrastructure.",
+    docsUrl: "https://developer.squareup.com/docs",
+    fields: [
+      { key: "applicationId", label: "Application ID", type: "password", required: true },
+      { key: "accessToken", label: "Access Token", type: "password", required: true },
+      { key: "locationId", label: "Location ID", type: "text" },
+    ],
+    verify: async (c) => {
+      const r = await jsonFetch("https://connect.squareup.com/v2/locations", {
+        headers: { Authorization: `Bearer ${c.accessToken}`, "Square-Version": "2025-01-23" },
+      });
+      return r.ok ? { ok: true, account: r.body?.locations?.[0]?.name || c.locationId } : { ok: false, error: `Square error: ${r.status}` };
+    },
+  },
+  {
+    id: "authorize-net",
+    name: "Authorize.Net",
+    category: "productivity",
+    description: "Payment gateway services.",
+    docsUrl: "https://developer.authorize.net/api/reference/",
+    fields: [
+      { key: "apiLoginId", label: "API Login ID", type: "password", required: true },
+      { key: "transactionKey", label: "Transaction Key", type: "password", required: true },
+      { key: "environment", label: "Environment", type: "text" },
+    ],
+  },
+  {
+    id: "gcs",
+    name: "Google Cloud Storage",
+    category: "data",
+    description: "Cloud object storage.",
+    docsUrl: "https://cloud.google.com/storage/docs",
+    fields: [
+      { key: "projectId", label: "Project ID", type: "text", required: true },
+      { key: "serviceAccountKey", label: "Service Account Key", type: "password", required: true },
+      { key: "bucketName", label: "Bucket Name", type: "text", required: true },
+    ],
+  },
+  {
+    id: "azure-blob",
+    name: "Azure Blob Storage",
+    category: "data",
+    description: "Microsoft cloud object storage.",
+    docsUrl: "https://learn.microsoft.com/azure/storage/blobs/",
+    fields: [
+      { key: "accountName", label: "Account Name", type: "text", required: true },
+      { key: "accountKey", label: "Account Key", type: "password", required: true },
+      { key: "containerName", label: "Container Name", type: "text", required: true },
+    ],
+  },
+  {
+    id: "cloudinary",
+    name: "Cloudinary",
+    category: "data",
+    description: "Media management and CDN.",
+    docsUrl: "https://cloudinary.com/documentation",
+    fields: [
+      { key: "cloudName", label: "Cloud Name", type: "text", required: true },
+      { key: "apiKey", label: "API Key", type: "password", required: true },
+      { key: "apiSecret", label: "API Secret", type: "password", required: true },
+    ],
+    verify: async (c) => {
+      const r = await jsonFetch(`https://api.cloudinary.com/v1_1/${c.cloudName}/usage`, {
+        headers: { Authorization: "Basic " + Buffer.from(`${c.apiKey}:${c.apiSecret}`).toString("base64") },
+      });
+      return r.ok ? { ok: true, account: c.cloudName } : { ok: false, error: `Cloudinary error: ${r.status}` };
+    },
+  },
+  {
+    id: "google-analytics",
+    name: "Google Analytics",
+    category: "productivity",
+    description: "Usage tracking and analytics.",
+    docsUrl: "https://developers.google.com/analytics",
+    fields: [
+      { key: "measurementId", label: "Measurement ID", type: "text", required: true },
+      { key: "apiSecret", label: "API Secret", type: "password" },
+    ],
+  },
+  {
+    id: "mixpanel",
+    name: "Mixpanel",
+    category: "productivity",
+    description: "Product analytics platform.",
+    docsUrl: "https://developer.mixpanel.com/",
+    fields: [
+      { key: "projectToken", label: "Project Token", type: "password", required: true },
+      { key: "apiSecret", label: "API Secret", type: "password" },
+    ],
+  },
+  {
+    id: "sentry",
+    name: "Sentry",
+    category: "productivity",
+    description: "Application error monitoring.",
+    docsUrl: "https://docs.sentry.io/api/",
+    fields: [
+      { key: "dsn", label: "DSN", type: "text", required: true },
+      { key: "environment", label: "Environment", type: "text" },
+    ],
+  },
+  {
+    id: "datadog",
+    name: "DataDog",
+    category: "productivity",
+    description: "Infrastructure and application monitoring.",
+    docsUrl: "https://docs.datadoghq.com/api/latest/",
+    fields: [
+      { key: "apiKey", label: "API Key", type: "password", required: true },
+      { key: "appKey", label: "Application Key", type: "password" },
+      { key: "site", label: "Site", type: "text" },
+    ],
+    verify: async (c) => {
+      const site = c.site ? `api.${c.site}.datadoghq.com` : "api.datadoghq.com";
+      const r = await jsonFetch(`https://${site}/api/v1/validate`, {
+        headers: { "DD-API-KEY": c.apiKey, ...(c.appKey ? { "DD-APPLICATION-KEY": c.appKey } : {}) },
+      });
+      return r.ok && r.body?.valid !== false ? { ok: true } : { ok: false, error: `Datadog error: ${r.status}` };
+    },
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    category: "communication",
+    description: "Team alerts and notification delivery.",
+    docsUrl: "https://api.slack.com/",
+    fields: [
+      { key: "webhookUrl", label: "Webhook URL", type: "url" },
+      { key: "botToken", label: "Bot Token", type: "password" },
+      { key: "channel", label: "Channel", type: "text" },
+    ],
+    verify: async (c) => {
+      if (c.webhookUrl) {
+        const r = await jsonFetch(c.webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: "Joan integration test message" }),
+        });
+        return r.ok ? { ok: true } : { ok: false, error: `Slack webhook error: ${r.status}` };
+      }
+      if (c.botToken) {
+        const r = await jsonFetch("https://slack.com/api/auth.test", {
+          headers: { Authorization: `Bearer ${c.botToken}` },
+        });
+        return r.ok && r.body?.ok ? { ok: true, account: r.body?.user } : { ok: false, error: r.body?.error || `Slack error: ${r.status}` };
+      }
+      return { ok: false, error: "Slack webhook URL or bot token is required" };
+    },
+  },
+  {
+    id: "teams",
+    name: "Microsoft Teams",
+    category: "communication",
+    description: "Teams channels and bot notifications.",
+    docsUrl: "https://learn.microsoft.com/microsoftteams/platform/",
+    fields: [
+      { key: "webhookUrl", label: "Webhook URL", type: "url" },
+      { key: "tenantId", label: "Tenant ID", type: "text" },
+    ],
+    verify: async (c) => {
+      if (!c.webhookUrl) return { ok: false, error: "Teams webhook URL is required" };
+      const r = await jsonFetch(c.webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "Joan integration test message" }),
+      });
+      return r.ok ? { ok: true } : { ok: false, error: `Teams webhook error: ${r.status}` };
+    },
+  },
+  {
+    id: "discord",
+    name: "Discord",
+    category: "communication",
+    description: "Webhook-based alerting to Discord servers.",
+    docsUrl: "https://discord.com/developers/docs/intro",
+    fields: [
+      { key: "webhookUrl", label: "Webhook URL", type: "url", required: true },
+      { key: "botToken", label: "Bot Token", type: "password" },
+    ],
+    verify: async (c) => {
+      const r = await jsonFetch(c.webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "Joan integration test message" }),
+      });
+      return r.ok ? { ok: true } : { ok: false, error: `Discord webhook error: ${r.status}` };
+    },
+  },
+  {
+    id: "zoom",
+    name: "Zoom",
+    category: "calendar",
+    description: "Video meeting scheduling and conferencing.",
+    docsUrl: "https://developers.zoom.us/docs/api/",
+    fields: [
+      { key: "clientId", label: "Client ID", type: "password", required: true },
+      { key: "clientSecret", label: "Client Secret", type: "password", required: true },
+      { key: "accountId", label: "Account ID", type: "text" },
+    ],
+    verify: async (c) => {
+      const r = await jsonFetch("https://zoom.us/oauth/token", {
+        method: "POST",
+        headers: {
+          Authorization: "Basic " + Buffer.from(`${c.clientId}:${c.clientSecret}`).toString("base64"),
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ grant_type: "account_credentials", account_id: c.accountId || "" }),
+      });
+      return r.ok ? { ok: true, account: c.accountId } : { ok: false, error: `Zoom error: ${r.status}` };
+    },
   },
 ];
 

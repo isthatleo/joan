@@ -1,124 +1,61 @@
 import { NextRequest, NextResponse } from "next/server";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { systemMetrics, systemAlerts, tenants } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { auditLogs, systemAlerts, systemMetrics } from "@/lib/db/schema";
+import { getTenantAccess, tenantAccessResponse } from "@/lib/api/tenant-access";
+import { getTenantSystemSettings } from "@/lib/tenant-system-settings";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const access = await getTenantAccess(request, slug);
+  if (!access.ok || !access.tenant) return tenantAccessResponse(access);
+
   try {
-    const { slug } = await params;
     const { searchParams } = new URL(request.url);
-    const days = parseInt(searchParams.get("days") || "30");
+    const days = Math.max(1, Math.min(90, Number(searchParams.get("days") || "30")));
     const format = searchParams.get("format") || "json";
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    // Get tenant
-    const tenant = await db.query.tenants.findFirst({
-      where: eq(tenants.slug, slug),
-    });
+    const [metrics, alerts, settings, auditSummary] = await Promise.all([
+      db.select().from(systemMetrics).where(and(eq(systemMetrics.tenantId, access.tenant.id), gte(systemMetrics.timestamp, cutoff))).orderBy(desc(systemMetrics.timestamp)).limit(1000),
+      db.select().from(systemAlerts).where(and(eq(systemAlerts.tenantId, access.tenant.id), gte(systemAlerts.createdAt, cutoff))).orderBy(desc(systemAlerts.createdAt)).limit(200),
+      getTenantSystemSettings(access.tenant.id),
+      db.select({ count: sql<number>`count(*)` }).from(auditLogs).where(and(eq(auditLogs.tenantId, access.tenant.id), gte(auditLogs.createdAt, cutoff))),
+    ]);
 
-    if (!tenant) {
-      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
-    }
-
-    // Get data from last N days
-    const cutoffTime = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-
-    const metrics = await db
-      .select()
-      .from(systemMetrics)
-      .where((m) => m.tenantId === tenant.id && m.timestamp >= cutoffTime)
-      .orderBy(desc(systemMetrics.timestamp));
-
-    const alerts = await db
-      .select()
-      .from(systemAlerts)
-      .where((a) => a.tenantId === tenant.id && a.createdAt >= cutoffTime)
-      .orderBy(desc(systemAlerts.createdAt));
-
-    const report = {
-      tenant: {
-        name: tenant.name,
-        slug: tenant.slug,
-        id: tenant.id,
-      },
-      period: {
-        start: cutoffTime.toISOString(),
-        end: new Date().toISOString(),
-        days,
-      },
-      metrics: {
-        total: metrics.length,
-        avgCpu: Math.round(
-          metrics.reduce((sum, m) => sum + (m.cpuUsage || 0), 0) / metrics.length
-        ),
-        avgMemory: Math.round(
-          metrics.reduce((sum, m) => sum + (m.memoryUsage || 0), 0) /
-            metrics.length
-        ),
-        avgDisk: Math.round(
-          metrics.reduce((sum, m) => sum + (m.diskUsage || 0), 0) / metrics.length
-        ),
-        peakCpu: Math.max(...metrics.map((m) => m.cpuUsage || 0)),
-        peakMemory: Math.max(...metrics.map((m) => m.memoryUsage || 0)),
-        peakDisk: Math.max(...metrics.map((m) => m.diskUsage || 0)),
-        data: metrics,
-      },
-      alerts: {
-        total: alerts.length,
-        critical: alerts.filter((a) => a.severity === "critical").length,
-        warning: alerts.filter((a) => a.severity === "warning").length,
-        info: alerts.filter((a) => a.severity === "info").length,
-        data: alerts,
-      },
+    const payload = {
+      tenant: { id: access.tenant.id, slug: access.tenant.slug, name: access.tenant.name },
       generatedAt: new Date().toISOString(),
+      period: { days, start: cutoff.toISOString(), end: new Date().toISOString() },
+      settings,
+      overview: {
+        metrics: metrics.length,
+        alerts: alerts.length,
+        unresolvedAlerts: alerts.filter((item) => !item.isResolved).length,
+        auditEvents: Number(auditSummary[0]?.count || 0),
+      },
+      metrics,
+      alerts,
     };
 
     if (format === "csv") {
-      // Generate CSV
-      let csv = "System Health Report\n";
-      csv += `Tenant: ${tenant.name}\n`;
-      csv += `Period: ${cutoffTime.toISOString()} to ${new Date().toISOString()}\n\n`;
-
-      csv += "METRICS SUMMARY\n";
-      csv += `Total Readings,${metrics.length}\n`;
-      csv += `Avg CPU Usage,${report.metrics.avgCpu}%\n`;
-      csv += `Avg Memory Usage,${report.metrics.avgMemory}%\n`;
-      csv += `Avg Disk Usage,${report.metrics.avgDisk}%\n`;
-      csv += `Peak CPU Usage,${report.metrics.peakCpu}%\n`;
-      csv += `Peak Memory Usage,${report.metrics.peakMemory}%\n`;
-      csv += `Peak Disk Usage,${report.metrics.peakDisk}%\n\n`;
-
-      csv += "ALERTS SUMMARY\n";
-      csv += `Total Alerts,${alerts.length}\n`;
-      csv += `Critical,${report.alerts.critical}\n`;
-      csv += `Warning,${report.alerts.warning}\n`;
-      csv += `Info,${report.alerts.info}\n\n`;
-
-      csv += "METRIC DETAILS\n";
-      csv += "Timestamp,CPU Usage,Memory Usage,Disk Usage,Network I/O,Active Users,API Response Time\n";
-      metrics.forEach((m) => {
-        csv += `${m.timestamp},${m.cpuUsage},${m.memoryUsage},${m.diskUsage},${m.networkIo},${m.activeUsers},${m.apiResponseTime}\n`;
+      let csv = "metric,timestamp,value\n";
+      metrics.forEach((item) => {
+        csv += `cpu,${item.timestamp},${item.cpuUsage || 0}\n`;
+        csv += `memory,${item.timestamp},${item.memoryUsage || 0}\n`;
+        csv += `disk,${item.timestamp},${item.diskUsage || 0}\n`;
       });
-
       return new NextResponse(csv, {
-        status: 200,
         headers: {
           "Content-Type": "text/csv",
-          "Content-Disposition": `attachment; filename="system-report-${slug}-${new Date().toISOString().split("T")[0]}.csv"`,
+          "Content-Disposition": `attachment; filename=\"${slug}-system-report.csv\"`,
         },
       });
     }
 
-    // JSON format
-    return NextResponse.json(report);
+    return NextResponse.json(payload);
   } catch (error) {
     console.error("Error exporting system report:", error);
-    return NextResponse.json(
-      { error: "Failed to export system report" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to export system report" }, { status: 500 });
   }
 }
-

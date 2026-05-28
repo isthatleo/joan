@@ -8,11 +8,13 @@
 import { useEffect, useCallback } from 'react';
 
 export interface TenantBrandingUpdate {
-  type: 'branding' | 'name' | 'logo' | 'colors' | 'modules' | 'communication';
+  type: 'branding' | 'name' | 'logo' | 'colors' | 'modules' | 'communication' | 'preferences';
   tenantId: string;
   data: Record<string, any>;
   timestamp: number;
 }
+
+const TENANT_SETTINGS_EVENT = "tenant-settings-sync";
 
 /**
  * Broadcast tenant settings changes to all open tabs/windows
@@ -88,6 +90,10 @@ export function syncHospitalNameToSidebar(tenantName: string) {
 
   // Update document title
   document.title = `${tenantName} - Dashboard`;
+  sessionStorage.setItem("active_tenant_name", tenantName);
+  window.dispatchEvent(new CustomEvent(TENANT_SETTINGS_EVENT, {
+    detail: { name: tenantName },
+  }));
 }
 
 /**
@@ -106,6 +112,14 @@ export function syncHospitalLogoToSidebar(logoUrl: string, lightLogoUrl?: string
       }
     }
   });
+  if (logoUrl) {
+    sessionStorage.setItem("active_tenant_logo", logoUrl);
+  } else {
+    sessionStorage.removeItem("active_tenant_logo");
+  }
+  window.dispatchEvent(new CustomEvent(TENANT_SETTINGS_EVENT, {
+    detail: { logoUrl: logoUrl || null, lightLogoUrl },
+  }));
 }
 
 /**
@@ -146,6 +160,9 @@ export function syncBrandingColors(primaryColor: string, accentColor?: string) {
     .border-primary { border-color: var(--color-primary); }
   `;
   document.head.appendChild(styleSheet);
+  window.dispatchEvent(new CustomEvent(TENANT_SETTINGS_EVENT, {
+    detail: { primaryColor, accentColor: accentColor || primaryColor },
+  }));
 }
 
 /**
@@ -154,6 +171,7 @@ export function syncBrandingColors(primaryColor: string, accentColor?: string) {
  */
 export function syncModuleVisibility(enabledModules: Record<string, boolean>) {
   if (typeof window === 'undefined') return;
+  sessionStorage.setItem("active_tenant_modules", JSON.stringify(enabledModules));
 
   // Map module names to navigation item identifiers
   const moduleMap: Record<string, string> = {
@@ -220,6 +238,7 @@ export function batchUpdateHospitalSettings(
     primaryColor?: string;
     accentColor?: string;
     modules?: Record<string, boolean>;
+    preferences?: Record<string, any>;
   }
 ) {
   if (typeof window === 'undefined') return;
@@ -228,8 +247,8 @@ export function batchUpdateHospitalSettings(
     syncHospitalNameToSidebar(updates.name);
   }
 
-  if (updates.logoUrl) {
-    syncHospitalLogoToSidebar(updates.logoUrl, updates.lightLogoUrl);
+  if ("logoUrl" in updates) {
+    syncHospitalLogoToSidebar(updates.logoUrl || "", updates.lightLogoUrl);
   }
 
   if (updates.primaryColor || updates.accentColor) {
@@ -239,6 +258,14 @@ export function batchUpdateHospitalSettings(
   if (updates.modules) {
     syncModuleVisibility(updates.modules);
   }
+
+  if (updates.preferences) {
+    sessionStorage.setItem("active_tenant_preferences", JSON.stringify(updates.preferences));
+  }
+
+  window.dispatchEvent(new CustomEvent(TENANT_SETTINGS_EVENT, {
+    detail: updates,
+  }));
 
   // Broadcast to other tabs
   if (typeof BroadcastChannel !== 'undefined') {
@@ -257,6 +284,10 @@ export function batchUpdateHospitalSettings(
     `hospital_settings_${tenantId}`,
     JSON.stringify(updates)
   );
+}
+
+export function getTenantSettingsSyncEventName() {
+  return TENANT_SETTINGS_EVENT;
 }
 
 /**
