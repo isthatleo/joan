@@ -6,7 +6,7 @@ import { eq, and, sql } from "drizzle-orm";
 // Webhook for payment success events
 export async function POST(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
-    const slug = resolvedParams.slug;
+    const { slug } = await params;
     const body = await request.json();
 
     // Verify webhook signature (implement based on payment provider)

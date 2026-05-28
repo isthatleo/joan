@@ -1,5 +1,6 @@
 export const USER_THEME_STORAGE_KEY = "joan-theme";
 export const USER_LANGUAGE_STORAGE_KEY = "joan-language";
+export const USER_LANGUAGE_SOURCE_STORAGE_KEY = "joan-language-source";
 export const USER_TIMEZONE_STORAGE_KEY = "joan-timezone";
 export const USER_TIME_FORMAT_STORAGE_KEY = "joan-time-format";
 export const USER_FONT_SCALE_STORAGE_KEY = "joan-font-scale";
@@ -20,6 +21,7 @@ export type UserPreferenceSettings = {
   appearance?: {
     theme?: ThemePreference;
     language?: string;
+    languageSource?: string;
     timezone?: string;
     timeFormat?: string;
     density?: string;
@@ -73,6 +75,7 @@ export function applyUserPreferences(settings: UserPreferenceSettings | null | u
   const appearance = settings?.appearance || {};
   const theme = (appearance.theme as ThemePreference | undefined) || "system";
   const language = appearance.language || "en";
+  const languageSource = appearance.languageSource || "tenant";
   const timezone = appearance.timezone || "UTC";
   const timeFormat = appearance.timeFormat || "12h";
   const density = appearance.density || "comfortable";
@@ -103,6 +106,7 @@ export function applyUserPreferences(settings: UserPreferenceSettings | null | u
   document.documentElement.style.fontSize = resolveFontSize(fontScale);
 
   window.localStorage.setItem(USER_LANGUAGE_STORAGE_KEY, language);
+  window.localStorage.setItem(USER_LANGUAGE_SOURCE_STORAGE_KEY, languageSource);
   window.localStorage.setItem(USER_TIMEZONE_STORAGE_KEY, timezone);
   window.localStorage.setItem(USER_TIME_FORMAT_STORAGE_KEY, timeFormat);
   window.localStorage.setItem(USER_FONT_SCALE_STORAGE_KEY, fontScale);

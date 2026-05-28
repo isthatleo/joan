@@ -31,12 +31,38 @@ export default function MasterLoginPage() {
     setError("");
     setLoading(true);
     try {
+      const precheckResponse = await fetch("/api/auth/login-guard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "precheck", email }),
+      });
+      const precheckData = await precheckResponse.json().catch(() => ({}));
+      if (!precheckResponse.ok) {
+        throw new Error(precheckData?.error || "Sign-in precheck failed");
+      }
+      if (precheckData?.allowed === false && precheckData?.reason === "locked") {
+        setError(`This account is temporarily locked until ${precheckData.lockoutUntil || "later"}.`);
+        setLoading(false);
+        return;
+      }
+
       const result: any = await authClient.signIn.email({ email, password });
       if (result?.error) {
+        await fetch("/api/auth/login-guard", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "record-failure", email }),
+        }).catch(() => null);
         setError(result.error.message || "Sign-in failed");
         setLoading(false);
         return;
       }
+      const successResponse = await fetch("/api/auth/login-guard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "record-success", email }),
+      });
+      const successData = await successResponse.json().catch(() => ({}));
       const roleRes = await fetch("/api/auth/role", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -47,6 +73,10 @@ export default function MasterLoginPage() {
         setError("This account does not have super admin privileges.");
         await authClient.signOut();
         setLoading(false);
+        return;
+      }
+      if (successData?.passwordExpired) {
+        window.location.assign(`/complete-access?redirect=${encodeURIComponent(ROLE_HOME.super_admin)}`);
         return;
       }
       window.location.assign(ROLE_HOME.super_admin);

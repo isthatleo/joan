@@ -37,14 +37,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    // Get API keys
+    const settingKey = action === "webhooks" ? "webhooks" : "apiKeys";
+
     const setting = await db
       .select()
       .from(tenantSettings)
       .where(
         and(
           eq(tenantSettings.tenantId, tenantId),
-          eq(tenantSettings.key, "apiKeys")
+          eq(tenantSettings.key, settingKey)
         )
       );
 
@@ -54,11 +55,16 @@ export async function GET(request: NextRequest) {
 
     const keys = (setting[0].value as any[]) || [];
 
+    if (action === "webhooks") {
+      return NextResponse.json(keys);
+    }
+
     // Don't return full secrets
     const safeKeys = keys.map((k) => ({
       id: k.id,
       name: k.name,
       key: k.key ? k.key.substring(0, 10) + "..." : null,
+      prefix: k.key ? k.key.substring(0, 10) : null,
       scopes: k.scopes || [],
       createdAt: k.createdAt,
       lastUsedAt: k.lastUsedAt,
@@ -99,7 +105,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
-    if (action === "generate") {
+    if (!action || action === "generate") {
       // Generate new API key
       const data = apiKeySchema.parse(body);
 
@@ -153,6 +159,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         message: "API key generated successfully",
+        key: newKey.key,
         apiKey: newKey.key,
         id: newKey.id,
         warning: "Save this key securely. You won't be able to see it again!",
@@ -243,7 +250,7 @@ export async function PATCH(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const tenantId = searchParams.get("tenantId");
     const action = searchParams.get("action");
-    const id = searchParams.get("id");
+    const id = searchParams.get("id") || searchParams.get("keyId");
 
     if (!tenantId || !id) {
       return NextResponse.json(
@@ -321,8 +328,8 @@ export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const tenantId = searchParams.get("tenantId");
-    const id = searchParams.get("id");
-    const type = searchParams.get("type"); // "apiKey" or "webhook"
+    const id = searchParams.get("id") || searchParams.get("keyId");
+    const type = searchParams.get("type") || "apiKey"; // "apiKey" or "webhook"
 
     if (!tenantId || !id || !type) {
       return NextResponse.json(

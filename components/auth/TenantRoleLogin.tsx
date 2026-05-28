@@ -176,12 +176,38 @@ export function TenantRoleLogin({
     setError("");
 
     try {
+      const precheckResponse = await fetch("/api/auth/login-guard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "precheck", email, tenantSlug: slug }),
+      });
+      const precheckData = await precheckResponse.json().catch(() => ({}));
+      if (!precheckResponse.ok) {
+        throw new Error(precheckData?.error || "Sign-in precheck failed");
+      }
+      if (precheckData?.allowed === false && precheckData?.reason === "locked") {
+        setError(`This account is temporarily locked until ${precheckData.lockoutUntil || "later"}.`);
+        return;
+      }
+
       const result = await authClient.signIn.email({ email, password });
 
       if ((result as any)?.error) {
+        await fetch("/api/auth/login-guard", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "record-failure", email, tenantSlug: slug }),
+        }).catch(() => null);
         setError((result as any).error.message || "Sign-in failed");
         return;
       }
+
+      const successResponse = await fetch("/api/auth/login-guard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "record-success", email, tenantSlug: slug }),
+      });
+      const successData = await successResponse.json().catch(() => ({}));
 
       const roleResponse = await fetch("/api/auth/role", {
         method: "POST",
@@ -201,6 +227,31 @@ export function TenantRoleLogin({
 
       const resolvedRole = (role as AppRole | null) ?? (selectedRole as AppRole);
       const dashboardPath = getTenantDashboardPath(slug, resolvedRole, window.location.hostname);
+
+      if (successData?.passwordExpired) {
+        const activationPath = withTenantPrefix("/complete-access", slug, window.location.hostname);
+        const params = new URLSearchParams({
+          redirect: dashboardPath,
+          role: resolvedRole,
+        });
+        window.location.assign(`${activationPath}?${params.toString()}`);
+        return;
+      }
+
+      const securityResponse = await fetch(`/api/tenant/${slug}/security/2fa/challenge`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const securityData = await securityResponse.json().catch(() => ({}));
+      if (securityResponse.ok && securityData?.required) {
+        const verifyPath = withTenantPrefix("/verify-2fa", slug, window.location.hostname);
+        const params = new URLSearchParams({
+          redirect: dashboardPath,
+          role: resolvedRole,
+        });
+        window.location.assign(`${verifyPath}?${params.toString()}`);
+        return;
+      }
 
       const settingsResponse = await fetch("/api/users/settings", {
         cache: "no-store",

@@ -8,6 +8,7 @@ import * as authSchema from "@/lib/auth-schema";
 import { mergeUserSettings } from "@/lib/user-settings";
 import { drizzle as drizzleAuth } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
+import { getTenantSecuritySettings } from "@/lib/tenant-security";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required");
@@ -16,13 +17,29 @@ if (!process.env.DATABASE_URL) {
 const authSql = neon(process.env.DATABASE_URL, { fullResults: false });
 const authDb = drizzleAuth(authSql, { schema: authSchema });
 
-function validatePassword(password: string) {
-  if (password.length < 8) {
-    return "Password must be at least 8 characters long.";
+function validatePassword(password: string, policy?: {
+  passwordMinLength?: number;
+  requireUppercase?: boolean;
+  requireLowercase?: boolean;
+  requireNumbers?: boolean;
+  requireSpecialCharacters?: boolean;
+}) {
+  const minLength = Math.max(6, Number(policy?.passwordMinLength || 8));
+  if (password.length < minLength) {
+    return `Password must be at least ${minLength} characters long.`;
   }
 
-  if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password)) {
-    return "Password must include uppercase, lowercase, and a number.";
+  if (policy?.requireUppercase !== false && !/[A-Z]/.test(password)) {
+    return "Password must include an uppercase letter.";
+  }
+  if (policy?.requireLowercase !== false && !/[a-z]/.test(password)) {
+    return "Password must include a lowercase letter.";
+  }
+  if (policy?.requireNumbers !== false && !/[0-9]/.test(password)) {
+    return "Password must include a number.";
+  }
+  if (policy?.requireSpecialCharacters && !/[^A-Za-z0-9]/.test(password)) {
+    return "Password must include a special character.";
   }
 
   return null;
@@ -47,17 +64,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Passwords do not match." }, { status: 400 });
     }
 
-    const passwordError = validatePassword(password);
-    if (passwordError) {
-      return NextResponse.json({ error: passwordError }, { status: 400 });
-    }
-
     const appUser = await db.query.users.findFirst({
       where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
     });
 
     if (!appUser) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
+    }
+
+    const tenantSecurity = appUser.tenantId ? await getTenantSecuritySettings(appUser.tenantId).catch(() => null) : null;
+    const passwordError = validatePassword(password, tenantSecurity || undefined);
+    if (passwordError) {
+      return NextResponse.json({ error: passwordError }, { status: 400 });
     }
 
     const settingsRecord = await db.query.userSettings.findFirst({
@@ -92,6 +110,9 @@ export async function POST(request: NextRequest) {
       security: {
         ...(mergedSettings.security ?? {}),
         forcePasswordChange: false,
+        passwordLastChanged: new Date().toISOString(),
+        failedLoginAttempts: 0,
+        lockoutUntil: "",
       },
     });
 

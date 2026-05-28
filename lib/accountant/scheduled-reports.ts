@@ -9,6 +9,7 @@ import {
   renderReportHtml,
   renderReportPdf,
 } from "@/lib/accountant/report-builder";
+import { getTenantWorkflowSettings, isWorkflowAutomationAllowed } from "@/lib/tenant-workflows";
 
 type ScheduledRow = typeof scheduledAccountantReports.$inferSelect;
 type TemplateRow = typeof accountantReportTemplates.$inferSelect;
@@ -167,7 +168,7 @@ function buildEmailTemplate(reportName: string, reportType: string, reportUrl: s
     summary: snapshot.summary,
     sections: snapshot.sections.slice(0, 3).map((section) => ({
       title: section.title,
-      body: section.description || "",
+      body: "description" in section && typeof section.description === "string" ? section.description : "",
     })),
     footerNote: "This is an automated scheduled report delivery.",
     variant: "report" as const,
@@ -218,7 +219,7 @@ async function sendScheduledReportEmails(args: {
         subject: `${args.report.name} is ready`,
         tenantSlug: args.tenant.slug,
         templateName: "scheduled-report",
-        template: buildEmailTemplate(args.report.name, args.report.type, reportUrl, snapshot),
+        template: buildEmailTemplate(args.report.name, args.report.type, reportUrl, snapshot) as any,
         attachments: [
           {
             filename: `${args.report.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "scheduled-report"}.${fileExtensionForFormat(format)}`,
@@ -257,13 +258,40 @@ export async function executeScheduledReport(schedule: ScheduledRow): Promise<Ru
       throw new Error("Tenant not found for scheduled report");
     }
 
-    const [template] = await db
+    const workflow = await getTenantWorkflowSettings(tenant.id);
+    if (!isWorkflowAutomationAllowed(workflow, "reportGeneration")) {
+      const now = new Date();
+      const nextRun = computeFutureRun(schedule.nextRun, schedule.frequency, now);
+      const currentMeta = ((schedule.metadata || {}) as Record<string, any>) || {};
+      await db
+        .update(scheduledAccountantReports)
+        .set({
+          nextRun,
+          updatedAt: now,
+          metadata: {
+            ...currentMeta,
+            lastAttemptAt: now.toISOString(),
+            lastResult: "suppressed",
+            lastError: "Tenant workflow policy disabled report generation",
+            runCount: Number(currentMeta.runCount || 0),
+          },
+        })
+        .where(eq(scheduledAccountantReports.id, schedule.id));
+
+      return {
+        ok: false,
+        scheduleId: schedule.id,
+        error: "Tenant workflow policy disabled report generation",
+      };
+    }
+
+    const templates = await db
       .select()
       .from(accountantReportTemplates)
-      .where(and(eq(accountantReportTemplates.id, schedule.templateId), eq(accountantReportTemplates.tenantId, tenant.id), isNull(accountantReportTemplates.deletedAt)))
-      .limit(1);
+      .where(eq(accountantReportTemplates.tenantId, tenant.id));
+    const template = templates.find((item) => item.id === schedule.templateId && !item.deletedAt) || null;
 
-    if (!template) {
+    if (!template || template.deletedAt) {
       throw new Error("Scheduled report template not found");
     }
 

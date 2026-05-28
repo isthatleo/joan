@@ -360,7 +360,7 @@ export async function provisionPatientPortalAccess(input: ProvisionPatientAccess
   } else if (input.phone) {
     const { NotificationService } = await import("@/lib/services/notification.service");
     const notifications = new NotificationService();
-    await notifications.sendSMS(input.phone, onboardingMessage);
+    await notifications.sendSMS(input.phone, onboardingMessage, { tenantSlugOrId: input.tenantSlug });
     delivery = "sms";
   }
 

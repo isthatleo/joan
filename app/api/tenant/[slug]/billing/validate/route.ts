@@ -12,7 +12,7 @@ import {
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
-    const slug = resolvedParams.slug;
+    const { slug } = await params;
     const { searchParams } = new URL(request.url);
     const action = searchParams.get("action");
     const method = searchParams.get("method");
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: "Tenant slug required" }, { status: 400 });
     }
 
-    let result = { allowed: false, reason: "Unknown action" };
+    let result: Record<string, any> = { allowed: false, reason: "Unknown action" };
 
     switch (action) {
       case "payment":

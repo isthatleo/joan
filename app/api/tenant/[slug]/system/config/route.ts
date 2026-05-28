@@ -1,112 +1,73 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { systemConfigurations, tenants } from "@/lib/db/schema";
+import { auditLogs, systemConfigurations } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { getTenantAccess, tenantAccessResponse } from "@/lib/api/tenant-access";
+import { getTenantSystemSettings, normalizeTenantSystemSettings, upsertTenantSystemSettings } from "@/lib/tenant-system-settings";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const access = await getTenantAccess(request, slug);
+  if (!access.ok || !access.tenant) return tenantAccessResponse(access);
+
   try {
-    const { slug } = await params;
-
-    // Get tenant
-    const tenant = await db.query.tenants.findFirst({
-      where: eq(tenants.slug, slug),
-    });
-
-    if (!tenant) {
-      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
-    }
-
-    // Get configurations
-    const configs = await db
-      .select()
-      .from(systemConfigurations)
-      .where(eq(systemConfigurations.tenantId, tenant.id));
-
-    // Convert to key-value map
-    const configMap = Object.fromEntries(
-      configs.map((c) => [c.key, c.value])
-    );
-
-    // Set defaults if not exists
-    const defaults = {
-      cpu_threshold: 80,
-      memory_threshold: 85,
-      disk_threshold: 90,
-      alert_email: null,
-      alert_webhook: null,
-    };
-
-    return NextResponse.json({
-      config: { ...defaults, ...configMap },
-      configs,
-    });
+    const [settings, configs] = await Promise.all([
+      getTenantSystemSettings(access.tenant.id),
+      db.select().from(systemConfigurations).where(eq(systemConfigurations.tenantId, access.tenant.id)),
+    ]);
+    return NextResponse.json({ settings, configs });
   } catch (error) {
     console.error("Error fetching system config:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch system config" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to fetch system config" }, { status: 500 });
   }
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-) {
-  try {
-    const { slug } = await params;
-    const body = await request.json();
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const access = await getTenantAccess(request, slug);
+  if (!access.ok || !access.tenant) return tenantAccessResponse(access);
+  if (!access.canEditSettings) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    // Get tenant
-    const tenant = await db.query.tenants.findFirst({
-      where: eq(tenants.slug, slug),
+  try {
+    const body = await request.json().catch(() => ({}));
+    const settings = normalizeTenantSystemSettings(body);
+    await upsertTenantSystemSettings(access.tenant.id, settings);
+
+    const configEntries = [
+      { key: "cpu_threshold", value: settings.cpuThreshold, description: "CPU threshold percentage" },
+      { key: "memory_threshold", value: settings.memoryThreshold, description: "Memory threshold percentage" },
+      { key: "disk_threshold", value: settings.diskThreshold, description: "Disk threshold percentage" },
+      { key: "alert_email", value: settings.alertEmail, description: "Alert email destination" },
+      { key: "alert_webhook", value: settings.alertWebhook, description: "Alert webhook destination" },
+    ];
+
+    for (const entry of configEntries) {
+      const existing = await db.select().from(systemConfigurations).where(eq(systemConfigurations.tenantId, access.tenant.id));
+      const found = existing.find((item) => item.key === entry.key);
+      if (found) {
+        await db.update(systemConfigurations).set({ value: entry.value, description: entry.description, updatedAt: new Date() }).where(eq(systemConfigurations.id, found.id));
+      } else {
+        await db.insert(systemConfigurations).values({
+          tenantId: access.tenant.id,
+          key: entry.key,
+          value: entry.value,
+          description: entry.description,
+        });
+      }
+    }
+
+    await db.insert(auditLogs).values({
+      tenantId: access.tenant.id,
+      userId: access.user?.id || null,
+      action: "tenant.system_config_updated",
+      entity: "system",
+      entityId: access.tenant.id,
+      metadata: settings,
     });
 
-    if (!tenant) {
-      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
-    }
-
-    // Upsert configuration
-    const existing = await db
-      .select()
-      .from(systemConfigurations)
-      .where(
-        (c) =>
-          c.tenantId === tenant.id && c.key === body.key
-      );
-
-    let config;
-    if (existing.length > 0) {
-      config = await db
-        .update(systemConfigurations)
-        .set({
-          value: body.value,
-          description: body.description,
-        })
-        .where(eq(systemConfigurations.id, existing[0].id))
-        .returning();
-    } else {
-      config = await db
-        .insert(systemConfigurations)
-        .values({
-          tenantId: tenant.id,
-          key: body.key,
-          value: body.value,
-          description: body.description,
-        })
-        .returning();
-    }
-
-    return NextResponse.json(config[0]);
+    return NextResponse.json({ ok: true, settings });
   } catch (error) {
     console.error("Error saving system config:", error);
-    return NextResponse.json(
-      { error: "Failed to save system config" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to save system config" }, { status: 500 });
   }
 }
-
