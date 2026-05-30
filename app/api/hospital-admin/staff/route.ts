@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, userRoles, roles } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
@@ -37,48 +37,49 @@ export async function GET(request: NextRequest) {
         )
       );
 
-    // Get roles for each staff member
-    const staffWithRoles = await Promise.all(
-      staffMembers.map(async (staff) => {
-        const [userRole] = await db
-          .select({ roleName: roles.name })
+    const staffIds = staffMembers.map((staff) => staff.id);
+    const roleRows = staffIds.length
+      ? await db
+          .select({ userId: userRoles.userId, roleName: roles.name })
           .from(userRoles)
           .innerJoin(roles, eq(userRoles.roleId, roles.id))
-          .where(eq(userRoles.userId, staff.id))
-          .limit(1);
+          .where(inArray(userRoles.userId, staffIds))
+          .catch((error) => {
+            console.error("Error fetching staff roles:", error);
+            return [];
+          })
+      : [];
 
-        const roleNames: { [key: string]: string } = {
-          hospital_admin: "Hospital Admin",
-          doctor: "Doctor",
-          nurse: "Nurse",
-          lab_technician: "Lab Technician",
-          pharmacist: "Pharmacist",
-          accountant: "Accountant",
-          receptionist: "Receptionist",
-          patient: "Patient",
-          guardian: "Guardian",
-        };
+    const roleByUserId = new Map(roleRows.map((row) => [row.userId, row.roleName]));
+    const roleNames: Record<string, string> = {
+      hospital_admin: "Hospital Admin",
+      doctor: "Doctor",
+      nurse: "Nurse",
+      lab_technician: "Lab Technician",
+      pharmacist: "Pharmacist",
+      accountant: "Accountant",
+      receptionist: "Receptionist",
+      patient: "Patient",
+      guardian: "Guardian",
+    };
 
-        const roleName = userRole?.roleName || "staff";
+    const staffWithRoles = staffMembers.map((staff) => {
+      const roleName = roleByUserId.get(staff.id) || "staff";
 
-        return {
-          id: staff.id,
-          name: staff.name || "Unknown Staff",
-          role: roleNames[roleName] || roleName,
-          department: "General",
-          status: Math.random() > 0.3 ? "on-duty" : (Math.random() > 0.5 ? "off-duty" : "on-leave"),
-          avatar: staff.avatar,
-        };
-      })
-    );
+      return {
+        id: staff.id,
+        name: staff.name || staff.email,
+        role: roleNames[roleName] || roleName.replace(/_/g, " "),
+        department: roleNames[roleName] || "Staff",
+        status: "active",
+        avatar: staff.avatar,
+      };
+    });
 
     return NextResponse.json(staffWithRoles);
   } catch (error) {
     console.error("Error fetching staff:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json([]);
   }
 }
 

@@ -16,7 +16,7 @@ async function resolveTenantUser(sessionEmail: string, slug: string) {
   if (!tenantId) return null;
 
   return db.query.users.findFirst({
-    where: and(eq(users.tenantId, tenantId), ilike(users.email, sessionEmail), isNull(users.deletedAt)),
+    where: and(eq(users.tenantId, tenantId), ilike(users.email, sessionEmail), eq(users.isActive, true), isNull(users.deletedAt)),
     columns: { id: true, tenantId: true },
   });
 }
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const receiver = await db.query.users.findFirst({
-      where: and(eq(users.id, receiverId), eq(users.tenantId, currentUser.tenantId), isNull(users.deletedAt)),
+      where: and(eq(users.id, receiverId), eq(users.tenantId, currentUser.tenantId), eq(users.isActive, true), isNull(users.deletedAt)),
       columns: { id: true },
     });
 

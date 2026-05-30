@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { MessagingService } from "@/lib/services/messaging.service";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
+import { tenants, users } from "@/lib/db/schema";
 import { and, eq, ilike, isNull } from "drizzle-orm";
+import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { getTenantSubdomain } from "@/lib/tenant-routing";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,7 +23,23 @@ async function resolveCurrentAppUser(request: NextRequest) {
     columns: { id: true, tenantId: true },
   });
 
-  return { session, appUser };
+  let messagingTenantId = appUser?.tenantId || null;
+  if (!messagingTenantId) {
+    const hostSlug = getTenantSubdomain(request.headers.get("host"));
+    if (hostSlug) {
+      messagingTenantId = await getTenantIdBySlug(hostSlug);
+    }
+  }
+
+  if (!messagingTenantId && appUser?.id) {
+    const adminTenant = await db.query.tenants.findFirst({
+      where: eq(tenants.adminUserId, appUser.id),
+      columns: { id: true },
+    });
+    messagingTenantId = adminTenant?.id || null;
+  }
+
+  return { session, appUser, messagingTenantId };
 }
 
 async function canAccessUser(sessionEmail: string | undefined, userId: string) {
@@ -33,23 +51,40 @@ async function canAccessUser(sessionEmail: string | undefined, userId: string) {
   return !!matchingUser;
 }
 
+async function resolveMessageUserId(sessionEmail: string | undefined, requestedUserId: string | null, appUserId?: string | null) {
+  if (requestedUserId && await canAccessUser(sessionEmail, requestedUserId)) {
+    return requestedUserId;
+  }
+
+  if (appUserId && await canAccessUser(sessionEmail, appUserId)) {
+    return appUserId;
+  }
+
+  if (sessionEmail) {
+    const emailUser = await db.query.users.findFirst({
+      where: and(ilike(users.email, sessionEmail), isNull(users.deletedAt)),
+      columns: { id: true },
+    });
+    if (emailUser?.id) return emailUser.id;
+  }
+
+  return null;
+}
+
 export async function GET(request: NextRequest) {
   try {
-    const { session, appUser } = await resolveCurrentAppUser(request);
+    const { session, appUser, messagingTenantId } = await resolveCurrentAppUser(request);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get("userId") || appUser?.id || (session.user.id as string);
+    const userId = await resolveMessageUserId(session.user.email, searchParams.get("userId"), appUser?.id);
     const otherUserId = searchParams.get("otherUserId");
     const type = searchParams.get("type") || "conversations";
     const search = searchParams.get("search") || undefined;
 
     if (!userId) {
-      return NextResponse.json({ error: "User ID required" }, { status: 400 });
-    }
-    if (!(await canAccessUser(session.user.email, userId))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -59,7 +94,7 @@ export async function GET(request: NextRequest) {
           {
             currentUser: {
               id: userId,
-              tenantId: appUser?.tenantId ?? null,
+              tenantId: messagingTenantId,
             },
           },
           { headers: { "Cache-Control": "no-store, max-age=0" } }
@@ -68,7 +103,7 @@ export async function GET(request: NextRequest) {
       case "conversations":
         const conversations = await service.getConversations(userId);
         return NextResponse.json(
-          { conversations, currentUser: { id: userId, tenantId: appUser?.tenantId ?? null } },
+          { conversations, currentUser: { id: userId, tenantId: messagingTenantId } },
           { headers: { "Cache-Control": "no-store, max-age=0" } }
         );
 
@@ -95,7 +130,7 @@ export async function GET(request: NextRequest) {
           });
         }
         return NextResponse.json(
-          { messages, otherUser, currentUser: { id: userId, tenantId: appUser?.tenantId ?? null } },
+          { messages, otherUser, currentUser: { id: userId, tenantId: messagingTenantId } },
           { headers: { "Cache-Control": "no-store, max-age=0" } }
         );
 
@@ -106,14 +141,14 @@ export async function GET(request: NextRequest) {
       case "unread":
         const unreadCount = await service.getInboxCount(userId);
         return NextResponse.json(
-          { unreadCount, currentUser: { id: userId, tenantId: appUser?.tenantId ?? null } },
+          { unreadCount, currentUser: { id: userId, tenantId: messagingTenantId } },
           { headers: { "Cache-Control": "no-store, max-age=0" } }
         );
 
       case "available-users":
-        const users = await service.getAvailableContacts(userId, search);
+        const users = await service.getAvailableContacts(userId, search, messagingTenantId || undefined);
         return NextResponse.json(
-          { users, currentUser: { id: userId, tenantId: appUser?.tenantId ?? null } },
+          { users, currentUser: { id: userId, tenantId: messagingTenantId } },
           { headers: { "Cache-Control": "no-store, max-age=0" } }
         );
 
@@ -128,25 +163,23 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { session, appUser } = await resolveCurrentAppUser(request);
+    const { session, appUser, messagingTenantId } = await resolveCurrentAppUser(request);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const data = await request.json();
-    if (!appUser) {
+    const senderId = await resolveMessageUserId(session.user.email, data.senderId || null, appUser?.id);
+    if (!senderId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    if (data.senderId && !(await canAccessUser(session.user.email, data.senderId))) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    data.senderId = appUser.id;
+    data.senderId = senderId;
 
     if (data.type === "broadcast") {
       const messages = await service.sendBroadcast(data);
       return NextResponse.json({ messages });
     } else {
-      const message = await service.sendMessage(data);
+      const message = await service.sendMessage({ ...data, tenantId: messagingTenantId || undefined });
       return NextResponse.json({ message });
     }
   } catch (error) {

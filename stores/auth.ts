@@ -17,9 +17,10 @@ interface User {
   email: string;
   fullName: string;
   role?: AppRole;
+  tenantId?: string;
   hospitalId?: string;
   hospitalName?: string;
-  avatar?: string;
+  avatar?: string | null;
 }
 
 interface AuthState {

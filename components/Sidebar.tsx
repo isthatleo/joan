@@ -275,7 +275,9 @@ export function Sidebar() {
       } catch {}
     };
 
-    let brandingPollInterval: ReturnType<typeof setInterval> | null = null;
+    const hasCachedBranding = Boolean(name || logo);
+    const hasCachedModules = Boolean(sessionStorage.getItem("active_tenant_modules"));
+
     const fetchLatestBranding = async () => {
       if (!tenantSlug) return;
       try {
@@ -308,17 +310,26 @@ export function Sidebar() {
     bc?.addEventListener("message", syncFromBroadcast);
     window.addEventListener("storage", syncFromLocalStorageEvent);
     window.addEventListener(getTenantSettingsSyncEventName(), syncFromEvent as EventListener);
-    fetchLatestBranding();
-    fetchLatestModules();
+    const scheduleRefresh = (task: () => Promise<void>) => {
+      const run = () => void task();
+      if ("requestIdleCallback" in window) {
+        window.requestIdleCallback(run, { timeout: 2000 });
+      } else {
+        globalThis.setTimeout(run, 0);
+      }
+    };
+
     if (tenantSlug) {
-      brandingPollInterval = setInterval(fetchLatestBranding, 10000);
-      const modulesPollInterval = setInterval(fetchLatestModules, 10000);
+      if (!hasCachedBranding) {
+        scheduleRefresh(fetchLatestBranding);
+      }
+      if (!hasCachedModules) {
+        scheduleRefresh(fetchLatestModules);
+      }
       return () => {
         bc?.close();
         window.removeEventListener("storage", syncFromLocalStorageEvent);
         window.removeEventListener(getTenantSettingsSyncEventName(), syncFromEvent as EventListener);
-        if (brandingPollInterval) clearInterval(brandingPollInterval);
-        clearInterval(modulesPollInterval);
       };
     }
 
@@ -326,7 +337,6 @@ export function Sidebar() {
       bc?.close();
       window.removeEventListener("storage", syncFromLocalStorageEvent);
       window.removeEventListener(getTenantSettingsSyncEventName(), syncFromEvent as EventListener);
-      if (brandingPollInterval) clearInterval(brandingPollInterval);
     };
   }, [tenantSlug, user?.hospitalId]);
 
@@ -434,7 +444,7 @@ export function Sidebar() {
           collapsed && "justify-center px-0"
         )}>
           <Avatar className="h-8 w-8 shrink-0">
-            <AvatarImage src={user?.avatar} alt={user?.fullName || "User"} />
+            <AvatarImage src={user?.avatar || undefined} alt={user?.fullName || "User"} />
             <AvatarFallback className="text-xs font-semibold">
               {(user?.fullName || user?.email || "U").charAt(0).toUpperCase()}
             </AvatarFallback>

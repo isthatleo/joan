@@ -1,79 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { listPharmacyAnalytics } from "@/lib/pharmacy/data";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-) {
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
-    const slug = (await params).slug;
-    const { searchParams } = new URL(request.url);
-    const range = searchParams.get("range") || "30days";
+    const { slug } = await params;
+    const tenantId = await getTenantIdBySlug(slug);
+    if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    // Mock analytics data
-    const analytics = {
-      totalRevenue: 45230.50,
-      revenueGrowth: 8.5,
-      totalPrescriptions: 287,
-      prescriptionsGrowth: 5.2,
-      averagePrescriptionValue: 157.50,
-      totalDispensed: 456,
-      dispensingAccuracy: 98.5,
-      averageFillTime: 12.5,
-      topMedications: [
-        {
-          name: "Amoxicillin 500mg",
-          count: 87,
-          revenue: 21.75,
-        },
-        {
-          name: "Metformin 1000mg",
-          count: 65,
-          revenue: 9.75,
-        },
-        {
-          name: "Lisinopril 10mg",
-          count: 54,
-          revenue: 18.90,
-        },
-        {
-          name: "Simvastatin 20mg",
-          count: 45,
-          revenue: 20.25,
-        },
-        {
-          name: "Ibuprofen 400mg",
-          count: 123,
-          revenue: 9.84,
-        },
-      ],
-      monthlyData: [
-        {
-          month: "Jan",
-          revenue: 35000,
-          prescriptions: 220,
-        },
-        {
-          month: "Feb",
-          revenue: 38500,
-          prescriptions: 245,
-        },
-        {
-          month: "Mar",
-          revenue: 42000,
-          prescriptions: 268,
-        },
-        {
-          month: "Apr",
-          revenue: 45230.50,
-          prescriptions: 287,
-        },
-      ],
-    };
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
-    return NextResponse.json(analytics);
+    return NextResponse.json(await listPharmacyAnalytics(tenantId), {
+      headers: { "Cache-Control": "no-store, max-age=0" },
+    });
   } catch (error) {
-    console.error("Error fetching analytics:", error);
-    return NextResponse.json({ error: "Failed to fetch analytics" }, { status: 500 });
+    console.error("Error fetching tenant pharmacy analytics:", error);
+    return NextResponse.json({ error: "Failed to fetch pharmacy analytics" }, { status: 500 });
   }
 }
-

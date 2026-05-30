@@ -1,29 +1,37 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import { Download, Loader2, RefreshCw } from "lucide-react";
 
 type AnalyticsPayload = { summary: { totalPrescriptions: number; filledPrescriptions: number; inventoryValue: number; lowStockItems: number; openAlerts: number; activeInteractionRisks: number; activeSuppliers: number }; trends: { labels: string[]; dispensed: number[]; revenue: number[] }; topMedications: Array<{ name: string; quantity: number }>; categoryMix: Record<string, number> };
 
 export default function PharmacyAnalyticsPage() {
+  const params = useParams();
+  const slug = params?.slug as string;
   const [data, setData] = useState<AnalyticsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
 
   const fetchAnalytics = async (silent = false) => {
     if (!silent) setLoading(true);
     setRefreshing(true);
+    setError("");
     try {
-      const res = await fetch("/api/pharmacy/analytics", { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to load analytics");
-      setData(await res.json());
+      const res = await fetch(`/api/tenant/${slug}/pharmacy/analytics`, { cache: "no-store" });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(payload?.error || "Failed to load analytics");
+      setData(payload);
+    } catch (analyticsError: any) {
+      setError(analyticsError?.message || "Failed to load analytics");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  useEffect(() => { fetchAnalytics(); }, []);
+  useEffect(() => { if (slug) fetchAnalytics(); }, [slug]);
 
   const exportCsv = () => {
     if (!data) return;
@@ -49,6 +57,7 @@ export default function PharmacyAnalyticsPage() {
         </div>
         <div className="flex gap-2"><button onClick={() => fetchAnalytics(true)} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button><button onClick={exportCsv} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"><Download className="h-4 w-4" />Export CSV</button></div>
       </div>
+      {error ? <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div> : null}
 
       <div className="grid gap-4 md:grid-cols-4 xl:grid-cols-7">
         {Object.entries(data?.summary || {}).map(([label, value]) => <div key={label} className="rounded-2xl border border-border bg-card p-4 shadow-sm"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{label.replace(/([A-Z])/g, " $1")}</p><p className="mt-3 text-2xl font-semibold text-foreground">{typeof value === "number" && label.toLowerCase().includes("value") ? `$${value.toFixed(2)}` : value}</p></div>)}

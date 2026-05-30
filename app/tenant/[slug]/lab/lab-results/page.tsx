@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { withTenantPrefix } from "@/lib/tenant-routing";
-import { ArrowLeft, Download, Loader2, Microscope, RefreshCw, Search, Upload } from "lucide-react";
+import { ArrowLeft, Download, Loader2, RefreshCw, Search } from "lucide-react";
 
 export default function LabResultsPage() {
   const params = useParams();
@@ -51,11 +51,10 @@ export default function LabResultsPage() {
         <div>
           <Link href={path("/lab")} className="mb-3 inline-flex items-center gap-2 text-sm text-primary hover:underline"><ArrowLeft className="h-4 w-4" />Back to dashboard</Link>
           <h1 className="text-3xl font-bold text-foreground">Results</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Publish findings, inspect payloads, and route clinicians into completed work.</p>
+          <p className="mt-1 text-sm text-muted-foreground">View published findings, inspect payloads, and monitor result turnaround.</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => load(true)} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted"><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button>
-          <Link href={path("/lab/lab-results/upload")} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"><Upload className="h-4 w-4" />Upload Result</Link>
         </div>
       </div>
 

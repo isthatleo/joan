@@ -135,6 +135,11 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
+      if (precheckData?.allowed === false && precheckData?.reason === "inactive") {
+        setError("This account has been deactivated. Contact your hospital administrator.");
+        setLoading(false);
+        return;
+      }
 
       const result: any = await authClient.signIn.email({ email, password });
       if (result?.error) {
@@ -151,23 +156,32 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-       const successResponse = await fetch("/api/auth/login-guard", {
-         method: "POST",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({
-           action: "record-success",
-           email,
-           tenantSlug: typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null,
+       const tenantSlug = typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null;
+       const [successResponse, roleRes] = await Promise.all([
+         fetch("/api/auth/login-guard", {
+           method: "POST",
+           headers: { "Content-Type": "application/json" },
+           body: JSON.stringify({
+             action: "record-success",
+             email,
+             tenantSlug,
+           }),
          }),
-       });
+         fetch("/api/auth/role", {
+           method: "POST",
+           headers: { "Content-Type": "application/json" },
+           body: JSON.stringify({ email, tenantSlug }),
+         }),
+       ]);
        const successData = await successResponse.json().catch(() => ({}));
+       if (!successResponse.ok) {
+         throw new Error(successData?.error || "Sign-in completion failed");
+       }
+       if (!roleRes.ok) {
+         throw new Error("Unable to verify account role");
+       }
        // Verify role matches selection
-       const roleRes = await fetch("/api/auth/role", {
-         method: "POST",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({ email, tenantSlug: typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null }),
-       });
-       const { role } = await roleRes.json();
+       const { role } = await roleRes.json().catch(() => ({ role: null }));
        if (role && role !== selectedRole) {
          setError(`This account is registered as ${role.replace(/_/g, " ")}, not ${selectedRole.replace(/_/g, " ")}.`);
          await authClient.signOut();
@@ -175,7 +189,7 @@ export default function LoginPage() {
          return;
        }
        const resolvedRole = (role as AppRole | null) ?? (selectedRole as AppRole);
-       if (successData?.passwordExpired) {
+       if (successData?.passwordExpired || successData?.forcePasswordChange) {
          const resetPath = typeof window !== "undefined" && sessionStorage.getItem("active_tenant_slug")
            ? `/tenant/${sessionStorage.getItem("active_tenant_slug")}/complete-access?redirect=${encodeURIComponent(ROLE_HOME[resolvedRole] ?? "/")}`
            : `/complete-access?redirect=${encodeURIComponent(ROLE_HOME[resolvedRole] ?? "/")}`;

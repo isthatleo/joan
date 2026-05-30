@@ -52,6 +52,7 @@ function mapFeedback(record: FeedbackRecord) {
       : undefined,
     resolvedAt: record.resolvedAt,
     resolution: record.resolution,
+    patientFeedback: Boolean(record.patientFeedback),
   };
 }
 
@@ -194,6 +195,7 @@ export class FeedbackService {
         userName: sql<string | null>`coalesce(${users.fullName}, ${feedbacks.userName})`,
         userEmail: sql<string | null>`coalesce(${users.email}, ${feedbacks.userEmail})`,
         tenantName: tenants.name,
+        patientFeedback: feedbacks.patientFeedback,
         assignedToId: feedbacks.assignedTo,
         assignedToName: sql<string | null>`null`,
         assignedToEmail: sql<string | null>`null`,

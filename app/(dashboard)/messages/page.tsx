@@ -171,13 +171,15 @@ export default function MessagesPage() {
   };
 
   const { data: selfData } = useQuery({
-    queryKey: ["messaging-self"],
+    queryKey: ["messaging-self", user?.id],
     queryFn: async () => {
-      const response = await fetch("/api/messages?type=self", { cache: "no-store" });
+      const params = new URLSearchParams({ type: "self" });
+      if (user?.id) params.set("userId", user.id);
+      const response = await fetch(`/api/messages?${params.toString()}`, { cache: "no-store", credentials: "include" });
       if (!response.ok) throw new Error("Failed to resolve messaging user");
       return response.json();
     },
-    enabled: !!user?.email,
+    enabled: !!user?.email || !!user?.id,
   });
 
   const messagingUserId = selfData?.currentUser?.id ?? null;
@@ -422,9 +424,9 @@ export default function MessagesPage() {
     refetchOnWindowFocus: true,
   });
 
-  const conversations = conversationsData?.conversations || [];
-  const messages = chatData?.messages || [];
-  const availableUsers = usersData?.users || [];
+  const conversations: Conversation[] = conversationsData?.conversations || [];
+  const messages: Message[] = chatData?.messages || [];
+  const availableUsers: User[] = usersData?.users || [];
 
   useEffect(() => {
     setOnlineUsers(new Set(presenceData?.onlineUserIds || []));
@@ -697,7 +699,7 @@ export default function MessagesPage() {
     };
   }, []);
 
-  const filteredConversations = conversations.filter(conv =>
+  const filteredConversations = conversations.filter((conv: Conversation) =>
     conv.user.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     conv.user.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -1052,7 +1054,7 @@ export default function MessagesPage() {
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {filteredConversations.map((conversation) => (
+              {filteredConversations.map((conversation: Conversation) => (
                 <button
                   key={conversation.user.id}
                   onClick={() => setSelectedChat(conversation.user.id)}
@@ -1087,7 +1089,7 @@ export default function MessagesPage() {
                       <div className="flex items-center justify-between">
                         <p className="text-sm text-muted-foreground truncate">
                           {conversation.lastMessage.type === "call_event"
-                            ? renderCallLabel(conversation.lastMessage as Message)
+                            ? renderCallLabel(conversation.lastMessage as unknown as Message)
                             : conversation.lastMessage.message}
                         </p>
                         {conversation.unreadCount > 0 && (
@@ -1183,7 +1185,7 @@ export default function MessagesPage() {
                   <p className="text-sm">Send a message to start the conversation</p>
                 </div>
               ) : (
-                messages.map((message) => {
+                messages.map((message: Message) => {
                   const isOwnMessage = message.sender.id === messagingUserId;
                   return (
                     <div
