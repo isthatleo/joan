@@ -4,11 +4,7 @@ import { and, eq, ilike, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tenants, users } from "@/lib/db/schema";
 import { getTenantSecuritySettings } from "@/lib/tenant-security";
-import { OTPService } from "@/lib/services/otp.service";
-import { NotificationService } from "@/lib/services/notification.service";
-
-const otpService = new OTPService();
-const notifications = new NotificationService();
+import { getUserTwoFactor } from "@/lib/user-two-factor";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -29,35 +25,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ required: false });
   }
 
-  const otp = await otpService.createOTP(tenant.id, user.id, "2fa", 10);
-  const message = `Your ${tenant.name} verification code is ${otp.code}. It expires in 10 minutes.`;
-  const delivery: string[] = [];
-  let sent = false;
-
-  if (user.email) {
-    await notifications.sendEmail(
-      user.email,
-      `${tenant.name} verification code`,
-      message,
-      { tenantSlug: slug }
-    ).catch(() => null);
-    delivery.push(`Email: ${user.email}`);
-    sent = true;
-  }
-
-  if (user.phone) {
-    await notifications.sendSMS(user.phone, message, { tenantSlugOrId: slug }).catch(() => null);
-    delivery.push(`SMS: ${user.phone}`);
-    sent = true;
-  }
-
-  if (!sent) {
-    return NextResponse.json({ error: "No delivery channel is configured for this account" }, { status: 400 });
+  const twoFactor = await getUserTwoFactor(user.id);
+  if (twoFactor?.enabled && twoFactor.secretEncrypted) {
+    return NextResponse.json({
+      required: true,
+      method: "authenticator",
+      enrolled: true,
+      setupRequired: false,
+      message: "Enter the six-digit code from your authenticator app.",
+    });
   }
 
   return NextResponse.json({
     required: true,
-    delivery,
-    expiresAt: otp.expiresAt,
+    method: "authenticator",
+    enrolled: false,
+    setupRequired: true,
+    message: "Authenticator app enrollment is required before continuing.",
   });
 }

@@ -43,9 +43,20 @@ export const DEFAULT_TENANT_WORKFLOW_SETTINGS = {
 export type TenantWorkflowSettings = typeof DEFAULT_TENANT_WORKFLOW_SETTINGS;
 
 export function normalizeTenantWorkflowSettings(value?: Partial<TenantWorkflowSettings> | Record<string, any> | null): TenantWorkflowSettings {
+  const source = value || {};
+  const backupFrequency = ["daily", "weekly", "monthly"].includes(String(source.backupFrequency)) ? String(source.backupFrequency) : DEFAULT_TENANT_WORKFLOW_SETTINGS.backupFrequency;
   return {
     ...DEFAULT_TENANT_WORKFLOW_SETTINGS,
-    ...(value || {}),
+    ...source,
+    automationEnabled: source.automationEnabled !== false,
+    appointmentReminders: source.appointmentReminders !== false,
+    patientNotifications: source.patientNotifications !== false,
+    staffNotifications: source.staffNotifications !== false,
+    prescriptionAlerts: source.prescriptionAlerts !== false,
+    billingAutomation: Boolean(source.billingAutomation),
+    reportGeneration: Boolean(source.reportGeneration),
+    dataBackupEnabled: source.dataBackupEnabled !== false,
+    backupFrequency: backupFrequency as TenantWorkflowSettings["backupFrequency"],
     customWorkflows: Array.isArray(value?.customWorkflows)
       ? value!.customWorkflows.map((item: any) => ({
           id: String(item?.id || ""),
@@ -64,17 +75,17 @@ export async function getTenantWorkflowSettings(tenantId: string) {
   return normalizeTenantWorkflowSettings((row?.value as Record<string, any>) || {});
 }
 
-export async function upsertTenantWorkflowSettings(tenantId: string, value: TenantWorkflowSettings) {
+export async function upsertTenantWorkflowSettings(tenantId: string, value: TenantWorkflowSettings, updatedBy?: string | null) {
   const existing = await db.query.tenantSettings.findFirst({
     where: and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, "workflow")),
   });
 
   if (existing) {
-    await db.update(tenantSettings).set({ value, updatedAt: new Date() }).where(eq(tenantSettings.id, existing.id));
+    await db.update(tenantSettings).set({ value, updatedAt: new Date(), updatedBy: updatedBy || null }).where(eq(tenantSettings.id, existing.id));
     return;
   }
 
-  await db.insert(tenantSettings).values({ tenantId, key: "workflow", value });
+  await db.insert(tenantSettings).values({ tenantId, key: "workflow", value, updatedBy: updatedBy || null });
 }
 
 export function isWorkflowAutomationAllowed(settings: TenantWorkflowSettings, ...flags: Array<keyof TenantWorkflowSettings>) {

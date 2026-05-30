@@ -40,7 +40,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const body = await request.json().catch(() => ({}));
     const settings = normalizeTenantAuditSettings(body);
-    await upsertTenantAuditSettings(access.tenant.id, settings);
+    await upsertTenantAuditSettings(access.tenant.id, settings, access.user?.id || null);
     await db.insert(auditLogs).values({
       tenantId: access.tenant.id,
       userId: access.user?.id || null,

@@ -71,26 +71,27 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
-  const access = await getTenantAccess(request, slug);
-  if (!access.ok || !access.tenant) {
-    return NextResponse.json({ error: access.reason || "Forbidden" }, { status: access.status });
-  }
-  if (!access.canEditSettings) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  try {
+    const { slug } = await params;
+    const access = await getTenantAccess(request, slug);
+    if (!access.ok || !access.tenant) {
+      return NextResponse.json({ error: access.reason || "Forbidden" }, { status: access.status });
+    }
+    if (!access.canEditSettings) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
-  const body = await request.json().catch(() => ({}));
-  const action = String(body?.action || "");
-  const overrideSettings = normalizeTenantNotificationSettings(body?.settings || {});
-  const persistedSettings = await getTenantNotificationSettings(access.tenant.id);
-  const settings = body?.useDraftSettings ? overrideSettings : normalizeTenantNotificationSettings({
-    ...persistedSettings,
-    ...(body?.settings || {}),
-  });
-  const actor = await resolveActor(request.headers);
+    const body = await request.json().catch(() => ({}));
+    const action = String(body?.action || "");
+    const overrideSettings = normalizeTenantNotificationSettings(body?.settings || {});
+    const persistedSettings = await getTenantNotificationSettings(access.tenant.id);
+    const settings = body?.useDraftSettings ? overrideSettings : normalizeTenantNotificationSettings({
+      ...persistedSettings,
+      ...(body?.settings || {}),
+    });
+    const actor = await resolveActor(request.headers);
 
-  if (action === "export") {
+    if (action === "export") {
     const overview = await getTenantNotificationOverview(access.tenant.id);
     const activeProviders = await listActiveProviders(access.tenant.id);
     await db.insert(auditLogs).values({
@@ -101,7 +102,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       entityId: access.tenant.id,
       metadata: { settings, overview },
     });
-    return NextResponse.json({
+      return NextResponse.json({
       tenant: { id: access.tenant.id, slug: access.tenant.slug, name: access.tenant.name },
       exportedAt: new Date().toISOString(),
       settings,
@@ -109,9 +110,60 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       activeProviders,
       enabledCategories: getEnabledCategories(settings),
     });
-  }
+    }
 
-  if (action === "test") {
+    if (action === "mark-all-read") {
+      await db
+        .update(notifications)
+        .set({ read: true, updatedAt: new Date() })
+        .where(and(eq(notifications.tenantId, access.tenant.id), eq(notifications.read, false)));
+      await db.insert(auditLogs).values({
+        tenantId: access.tenant.id,
+        userId: actor?.id || access.user?.id || null,
+        action: "tenant.notifications_marked_read",
+        entity: "notifications",
+        entityId: access.tenant.id,
+        metadata: { scope: "tenant" },
+      });
+      return NextResponse.json({ ok: true, overview: await getTenantNotificationOverview(access.tenant.id) });
+    }
+
+    if (action === "critical-test") {
+      const currentUser = actor || access.user;
+      if (!currentUser) return NextResponse.json({ error: "Current user not found" }, { status: 404 });
+      const title = "Critical tenant alert test";
+      const message = `Critical notification routing was tested for ${access.tenant.name}.`;
+      await db.insert(notifications).values({
+        tenantId: access.tenant.id,
+        userId: currentUser.id,
+        type: "critical",
+        title,
+        message,
+        metadata: {
+          severity: "critical",
+          category: "emergency_events",
+          source: "tenant-settings",
+          testedAt: new Date().toISOString(),
+        },
+        read: false,
+      });
+      await db.insert(auditLogs).values({
+        tenantId: access.tenant.id,
+        userId: currentUser.id,
+        action: "tenant.notifications_critical_tested",
+        entity: "notification_settings",
+        entityId: access.tenant.id,
+        metadata: { settings, quietHoursActive: isWithinQuietHours(settings) },
+      });
+      return NextResponse.json({
+        ok: true,
+        quietHoursActive: isWithinQuietHours(settings),
+        preview: { title, message, severity: "critical" },
+        overview: await getTenantNotificationOverview(access.tenant.id),
+      });
+    }
+
+    if (action === "test") {
     const tenant = access.tenant;
     const currentUser = actor || access.user;
     if (!currentUser) {
@@ -229,7 +281,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       },
     });
 
-    return NextResponse.json({
+      return NextResponse.json({
       ok: channelResults.every((item) => item.ok || item.status === "skipped" || item.status === "suppressed"),
       quietHoursActive,
       channels: channelResults,
@@ -249,7 +301,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         metadata: testMetadata,
       },
     });
-  }
+    }
 
-  return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
+    return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
+  } catch (error: any) {
+    console.error("[tenant notifications action]", error);
+    return NextResponse.json({ error: error?.message || "Notification action failed" }, { status: 500 });
+  }
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { auditLogs, notifications } from "@/lib/db/schema";
+import { auditLogs, notifications, users } from "@/lib/db/schema";
 import { getTenantAccess, tenantAccessResponse } from "@/lib/api/tenant-access";
 import { getTenantSecuritySettings } from "@/lib/tenant-security";
 import { getTenantComplianceSettings, normalizeTenantComplianceSettings, upsertTenantComplianceSettings } from "@/lib/tenant-compliance";
@@ -77,49 +77,50 @@ function computeScore(findings: Finding[]) {
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
-  const access = await getTenantAccess(request, slug);
-  if (!access.ok || !access.tenant) return tenantAccessResponse(access);
-  if (!access.canEditSettings) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  try {
+    const { slug } = await params;
+    const access = await getTenantAccess(request, slug);
+    if (!access.ok || !access.tenant) return tenantAccessResponse(access);
+    if (!access.canEditSettings) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const body = await request.json().catch(() => ({}));
-  const action = String(body?.action || "");
+    const body = await request.json().catch(() => ({}));
+    const action = String(body?.action || "");
 
-  const [compliance, security] = await Promise.all([
-    getTenantComplianceSettings(access.tenant.id),
-    getTenantSecuritySettings(access.tenant.id),
-  ]);
+    const [compliance, security] = await Promise.all([
+      getTenantComplianceSettings(access.tenant.id),
+      getTenantSecuritySettings(access.tenant.id),
+    ]);
 
-  if (action === "run-check") {
-    const findings = buildFindings(compliance, security);
-    const score = computeScore(findings);
-    const next = normalizeTenantComplianceSettings({
-      ...compliance,
-      lastComplianceReviewAt: new Date().toISOString(),
-      lastComplianceScore: score,
-    });
-    await upsertTenantComplianceSettings(access.tenant.id, next);
-    await db.insert(auditLogs).values({
-      tenantId: access.tenant.id,
-      userId: access.user?.id || null,
-      action: "tenant.compliance_check_run",
-      entity: "compliance",
-      entityId: access.tenant.id,
-      metadata: { score, findings },
-    });
-    return NextResponse.json({
-      ok: findings.every((item) => item.status !== "fail"),
-      score,
-      findings,
-      settings: next,
-      guidance: {
-        hipaa: "HIPAA Security/Privacy Rule alignment requires administrative, technical, and physical safeguards plus operational review.",
-        who: "WHO guidance is implemented here as safety and governance controls, not legal certification.",
-      },
-    });
-  }
+    if (action === "run-check") {
+      const findings = buildFindings(compliance, security);
+      const score = computeScore(findings);
+      const next = normalizeTenantComplianceSettings({
+        ...compliance,
+        lastComplianceReviewAt: new Date().toISOString(),
+        lastComplianceScore: score,
+      });
+      await upsertTenantComplianceSettings(access.tenant.id, next, access.user?.id || null);
+      await db.insert(auditLogs).values({
+        tenantId: access.tenant.id,
+        userId: access.user?.id || null,
+        action: "tenant.compliance_check_run",
+        entity: "compliance",
+        entityId: access.tenant.id,
+        metadata: { score, findings },
+      });
+      return NextResponse.json({
+        ok: findings.every((item) => item.status !== "fail"),
+        score,
+        findings,
+        settings: next,
+        guidance: {
+          hipaa: "HIPAA Security/Privacy Rule alignment requires administrative, technical, and physical safeguards plus operational review.",
+          who: "WHO guidance is implemented here as safety and governance controls, not legal certification.",
+        },
+      });
+    }
 
-  if (action === "export-report") {
+    if (action === "export-report") {
     const findings = buildFindings(compliance, security);
     const score = computeScore(findings);
     const since = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30);
@@ -128,7 +129,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       .from(auditLogs)
       .where(and(eq(auditLogs.tenantId, access.tenant.id), gte(auditLogs.createdAt, since), eq(auditLogs.entity, "compliance")))
       .orderBy(desc(auditLogs.createdAt));
-    return NextResponse.json({
+      return NextResponse.json({
       tenant: { id: access.tenant.id, slug: access.tenant.slug, name: access.tenant.name },
       exportedAt: new Date().toISOString(),
       score,
@@ -137,34 +138,69 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       findings,
       recentEvents,
     });
-  }
+    }
 
-  if (action === "schedule-review") {
-    const nextDate = String(body?.date || new Date(Date.now() + 1000 * 60 * 60 * 24 * 90).toISOString());
-    const next = normalizeTenantComplianceSettings({
-      ...compliance,
-      nextComplianceReviewAt: nextDate,
-    });
-    await upsertTenantComplianceSettings(access.tenant.id, next);
-    await db.insert(auditLogs).values({
-      tenantId: access.tenant.id,
-      userId: access.user?.id || null,
-      action: "tenant.compliance_review_scheduled",
-      entity: "compliance",
-      entityId: access.tenant.id,
-      metadata: { nextComplianceReviewAt: nextDate },
-    });
-    return NextResponse.json({ ok: true, nextComplianceReviewAt: nextDate, settings: next });
-  }
+    if (action === "schedule-review") {
+      const nextDate = String(body?.date || new Date(Date.now() + 1000 * 60 * 60 * 24 * 90).toISOString());
+      const next = normalizeTenantComplianceSettings({
+        ...compliance,
+        nextComplianceReviewAt: nextDate,
+      });
+      await upsertTenantComplianceSettings(access.tenant.id, next, access.user?.id || null);
+      await db.insert(auditLogs).values({
+        tenantId: access.tenant.id,
+        userId: access.user?.id || null,
+        action: "tenant.compliance_review_scheduled",
+        entity: "compliance",
+        entityId: access.tenant.id,
+        metadata: { nextComplianceReviewAt: nextDate },
+      });
+      return NextResponse.json({ ok: true, nextComplianceReviewAt: nextDate, settings: next });
+    }
 
-  if (action === "preview-breach") {
+    if (action === "training-reminders") {
+      if (!compliance.trainingTracking || !compliance.automatedTrainingReminders) {
+        return NextResponse.json({ error: "Training tracking and automated reminders must be enabled" }, { status: 400 });
+      }
+      const staff = await db.query.users.findMany({
+        where: and(eq(users.tenantId, access.tenant.id), isNull(users.deletedAt)),
+        columns: { id: true, email: true, fullName: true, role: true },
+      });
+      const recipients = staff.filter((user) => user.role !== "patient" && user.role !== "guardian");
+      for (const user of recipients.slice(0, 50)) {
+        await db.insert(notifications).values({
+          tenantId: access.tenant.id,
+          userId: user.id,
+          type: "compliance_training",
+          title: "Compliance training reminder",
+          message: "Please complete required tenant compliance and security training.",
+          metadata: {
+            severity: "info",
+            category: "compliance_training",
+            source: "tenant-settings",
+          },
+          read: false,
+        });
+      }
+      await db.insert(auditLogs).values({
+        tenantId: access.tenant.id,
+        userId: access.user?.id || null,
+        action: "tenant.compliance_training_reminders_sent",
+        entity: "compliance",
+        entityId: access.tenant.id,
+        metadata: { recipients: recipients.length },
+      });
+      return NextResponse.json({ ok: true, recipients: recipients.length });
+    }
+
+    if (action === "preview-breach") {
     const lastSecurityEvents = await db
       .select()
       .from(notifications)
       .where(eq(notifications.tenantId, access.tenant.id))
       .orderBy(desc(notifications.createdAt))
       .limit(10);
-    return NextResponse.json({
+      return NextResponse.json({
       ok: true,
       breachWorkflowEnabled: compliance.breachNotificationSystem && security.dataBreachAlerts,
       contacts: {
@@ -178,7 +214,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         createdAt: row.createdAt,
       })),
     });
-  }
+    }
 
-  return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
+    return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
+  } catch (error: any) {
+    console.error("[tenant compliance action]", error);
+    return NextResponse.json({ error: error?.message || "Compliance action failed" }, { status: 500 });
+  }
 }

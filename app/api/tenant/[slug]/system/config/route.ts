@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auditLogs, systemConfigurations } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getTenantAccess, tenantAccessResponse } from "@/lib/api/tenant-access";
 import { getTenantSystemSettings, normalizeTenantSystemSettings, upsertTenantSystemSettings } from "@/lib/tenant-system-settings";
 
@@ -31,7 +31,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const body = await request.json().catch(() => ({}));
     const settings = normalizeTenantSystemSettings(body);
-    await upsertTenantSystemSettings(access.tenant.id, settings);
+    await upsertTenantSystemSettings(access.tenant.id, settings, access.user?.id || null);
 
     const configEntries = [
       { key: "cpu_threshold", value: settings.cpuThreshold, description: "CPU threshold percentage" },
@@ -41,8 +41,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       { key: "alert_webhook", value: settings.alertWebhook, description: "Alert webhook destination" },
     ];
 
+    const existing = await db.select().from(systemConfigurations).where(eq(systemConfigurations.tenantId, access.tenant.id));
     for (const entry of configEntries) {
-      const existing = await db.select().from(systemConfigurations).where(eq(systemConfigurations.tenantId, access.tenant.id));
       const found = existing.find((item) => item.key === entry.key);
       if (found) {
         await db.update(systemConfigurations).set({ value: entry.value, description: entry.description, updatedAt: new Date() }).where(eq(systemConfigurations.id, found.id));
@@ -52,6 +52,20 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           key: entry.key,
           value: entry.value,
           description: entry.description,
+        });
+      }
+    }
+
+    if (settings.maintenanceMode) {
+      const existingMaintenance = await db.select().from(systemConfigurations).where(and(eq(systemConfigurations.tenantId, access.tenant.id), eq(systemConfigurations.key, "maintenance_mode"))).limit(1);
+      if (existingMaintenance[0]) {
+        await db.update(systemConfigurations).set({ value: { enabled: true, message: settings.maintenanceMessage }, updatedAt: new Date() }).where(eq(systemConfigurations.id, existingMaintenance[0].id));
+      } else {
+        await db.insert(systemConfigurations).values({
+          tenantId: access.tenant.id,
+          key: "maintenance_mode",
+          value: { enabled: true, message: settings.maintenanceMessage },
+          description: "Tenant maintenance mode policy",
         });
       }
     }

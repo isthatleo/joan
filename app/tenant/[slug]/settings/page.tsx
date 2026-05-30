@@ -16,11 +16,12 @@ import { CurrencySelect } from "@/components/forms/CurrencySelect";
 import { DEFAULT_TENANT_MODULES, normalizeTenantModules } from "@/lib/tenant-modules";
 import { batchUpdateHospitalSettings } from "@/lib/hospital-settings-sync";
 import { applyTenantPreferences } from "@/lib/tenant-preferences";
+import { authClient } from "@/lib/auth-client";
 
 const orange = "#F97316";
 
 type SettingsShape = {
-  branding: { primaryColor: string; logoUrl: string; hospitalName: string; favicon: string; };
+  branding: { primaryColor: string; logoUrl: string; hospitalName: string; favicon: string; faviconUrl: string; };
   notifications: {
     emailEnabled: boolean;
     smsEnabled: boolean;
@@ -54,7 +55,14 @@ type SettingsShape = {
     showTooltips: boolean;
     keyboardShortcuts: boolean;
   };
-  communications: { emailProvider: string; smsProvider: string; webhookUrl: string; };
+  communications: {
+    emailProvider: string;
+    smsProvider: string;
+    webhookUrl: string;
+    defaultChannel: string;
+    fallbackChannel: string;
+    allowedChannels: string[];
+  };
   workflow: {
     automationEnabled: boolean;
     appointmentReminders: boolean;
@@ -215,7 +223,7 @@ type SettingsShape = {
 };
 
 const DEFAULT_SETTINGS: SettingsShape = {
-  branding: { primaryColor: "#F97316", logoUrl: "", hospitalName: "", favicon: "" },
+  branding: { primaryColor: "#F97316", logoUrl: "", hospitalName: "", favicon: "", faviconUrl: "" },
   notifications: {
     emailEnabled: true,
     smsEnabled: false,
@@ -249,7 +257,14 @@ const DEFAULT_SETTINGS: SettingsShape = {
     showTooltips: true,
     keyboardShortcuts: true,
   },
-  communications: { emailProvider: "resend", smsProvider: "twilio", webhookUrl: "" },
+  communications: {
+    emailProvider: "resend",
+    smsProvider: "twilio",
+    webhookUrl: "",
+    defaultChannel: "in_app",
+    fallbackChannel: "email",
+    allowedChannels: ["in_app", "email", "sms", "push"],
+  },
   workflow: {
     automationEnabled: true,
     appointmentReminders: true,
@@ -624,6 +639,7 @@ export default function TenantSettingsPage() {
   const [systemLoading, setSystemLoading] = useState(false);
   const [systemAlertsList, setSystemAlertsList] = useState<any[]>([]);
   const [billingLoading, setBillingLoading] = useState(false);
+  const [billingPeriod, setBillingPeriod] = useState("month");
   const [billingOverview, setBillingOverview] = useState<BillingOverview>({
     revenue: { total: 0, billed: 0, outstanding: 0, outstandingPercentage: 0, collectionRate: 0, invoiceCount: 0 },
     paymentMethods: [],
@@ -668,7 +684,12 @@ export default function TenantSettingsPage() {
           fetchedSettings = {
             ...DEFAULT_SETTINGS,
             ...s,
-            branding: { ...DEFAULT_SETTINGS.branding, ...(s?.branding || {}) },
+            branding: {
+              ...DEFAULT_SETTINGS.branding,
+              ...(s?.branding || {}),
+              faviconUrl: s?.branding?.faviconUrl || s?.branding?.favicon || "",
+              favicon: s?.branding?.favicon || s?.branding?.faviconUrl || "",
+            },
             notifications: { ...DEFAULT_SETTINGS.notifications, ...(s?.notifications || {}) },
             preferences: { ...DEFAULT_SETTINGS.preferences, ...(s?.preferences || {}) },
             communications: { ...DEFAULT_SETTINGS.communications, ...(s?.communications || s?.communication || {}) },
@@ -709,7 +730,7 @@ export default function TenantSettingsPage() {
         credentials: "include",
         cache: "no-store",
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || "Failed to load integrations");
       setIntegrations(Array.isArray(data.integrations) ? data.integrations : []);
       setCustomIntegrations(Array.isArray(data.customIntegrations) ? data.customIntegrations : []);
@@ -722,6 +743,11 @@ export default function TenantSettingsPage() {
             emailProvider: data.communication.emailProvider || current.communications.emailProvider,
             smsProvider: data.communication.smsProvider || current.communications.smsProvider,
             webhookUrl: data.communication.webhookUrl || current.communications.webhookUrl,
+            defaultChannel: data.communication.defaultChannel || current.communications.defaultChannel,
+            fallbackChannel: data.communication.fallbackChannel || current.communications.fallbackChannel,
+            allowedChannels: Array.isArray(data.communication.allowedChannels)
+              ? data.communication.allowedChannels
+              : current.communications.allowedChannels,
           },
         } : current);
       }
@@ -733,20 +759,32 @@ export default function TenantSettingsPage() {
   }, [slug]);
 
   const setCommunicationPreference = useCallback(async (next: Partial<SettingsShape["communications"]>) => {
-    setSettings((current) => current ? { ...current, communications: { ...current.communications, ...next } } : current);
+    const normalizedNext = {
+      ...next,
+      allowedChannels: Array.isArray(next.allowedChannels) ? next.allowedChannels : undefined,
+    };
+    setSettings((current) => current ? {
+      ...current,
+      communications: {
+        ...current.communications,
+        ...normalizedNext,
+        allowedChannels: normalizedNext.allowedChannels || current.communications.allowedChannels,
+      },
+    } : current);
     try {
       const response = await fetch(`/api/tenants/${slug}/settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ communication: next }),
+        body: JSON.stringify({ communication: normalizedNext }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || "Failed to update communication preferences");
     } catch (error: any) {
       toast.error(error?.message || "Failed to update communication preferences");
+      throw error;
     }
-  }, [slug]);
+  }, [billingPeriod, slug]);
 
   const refreshIntegrationConsole = useCallback(async () => {
     if (!slug) return;
@@ -756,7 +794,7 @@ export default function TenantSettingsPage() {
         credentials: "include",
         cache: "no-store",
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || "Failed to load integration data");
       setWebhooks(Array.isArray(data.webhooks) ? data.webhooks : []);
       setApiKeys(Array.isArray(data.apiKeys) ? data.apiKeys : []);
@@ -809,6 +847,27 @@ export default function TenantSettingsPage() {
       toast.error(error?.message || "Failed to load notification settings");
     } finally {
       setNotificationsLoading(false);
+    }
+  }, [slug]);
+
+  const refreshSecuritySection = useCallback(async () => {
+    if (!slug) return;
+    setSecurityLoading(true);
+    try {
+      const response = await fetch(`/api/tenant/${slug}/security/settings`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || "Failed to load security settings");
+      if (data?.settings) {
+        setSettings((current) => current ? { ...current, security: { ...DEFAULT_SETTINGS.security, ...(data.settings || {}) } } : current);
+      }
+      setSecuritySettings(data?.dashboard || {});
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to load security settings");
+    } finally {
+      setSecurityLoading(false);
     }
   }, [slug]);
 
@@ -899,7 +958,7 @@ export default function TenantSettingsPage() {
     setBillingLoading(true);
     try {
       const [summaryRes, configRes] = await Promise.all([
-        fetch(`/api/tenant/${slug}/billing`, { credentials: "include", cache: "no-store" }),
+        fetch(`/api/tenant/${slug}/billing?period=${encodeURIComponent(billingPeriod)}`, { credentials: "include", cache: "no-store" }),
         fetch(`/api/tenant/${slug}/billing/config`, { credentials: "include", cache: "no-store" }),
       ]);
       const summary = await summaryRes.json().catch(() => ({}));
@@ -921,7 +980,7 @@ export default function TenantSettingsPage() {
     } finally {
       setBillingLoading(false);
     }
-  }, [slug]);
+  }, [billingPeriod, slug]);
 
   const saveBillingSettings = useCallback(async () => {
     if (!settings?.billing) return;
@@ -938,12 +997,12 @@ export default function TenantSettingsPage() {
     return data;
   }, [settings?.billing, slug]);
 
-  const runBillingAction = useCallback(async (action: string) => {
+  const runBillingAction = useCallback(async (action: string, payload?: Record<string, any>) => {
     const response = await fetch(`/api/tenant/${slug}/billing/actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, ...(payload || {}) }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data?.error || `Failed to ${action}`);
@@ -992,6 +1051,18 @@ export default function TenantSettingsPage() {
     return data;
   }, [settings?.system, slug]);
 
+  const runSystemAction = useCallback(async (action: string, payload?: Record<string, any>) => {
+    const response = await fetch(`/api/tenant/${slug}/system/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action, ...(payload || {}) }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data?.error || `Failed to ${action}`);
+    return data;
+  }, [slug]);
+
   const refreshAuditSettings = useCallback(async () => {
     if (!slug) return;
     setAuditSettingsLoading(true);
@@ -1028,12 +1099,12 @@ export default function TenantSettingsPage() {
     return data;
   }, [settings?.audit, slug]);
 
-  const runAuditAction = useCallback(async (action: string) => {
+  const runAuditAction = useCallback(async (action: string, payload?: Record<string, any>) => {
     const response = await fetch(`/api/tenant/${slug}/audit/actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, ...(payload || {}) }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data?.error || `Failed to ${action}`);
@@ -1058,12 +1129,12 @@ export default function TenantSettingsPage() {
     }
   }, [slug]);
 
-  const runDangerAction = useCallback(async (action: string) => {
+  const runDangerAction = useCallback(async (action: string, payload?: Record<string, any>) => {
     const response = await fetch(`/api/tenant/${slug}/danger-zone`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, ...(payload || {}) }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data?.error || `Failed to ${action}`);
@@ -1084,6 +1155,11 @@ export default function TenantSettingsPage() {
     if (tab !== "notifications") return;
     void refreshNotifications();
   }, [refreshNotifications, tab]);
+
+  useEffect(() => {
+    if (tab !== "security") return;
+    void refreshSecuritySection();
+  }, [refreshSecuritySection, tab]);
 
   useEffect(() => {
     if (tab !== "preferences") return;
@@ -1126,7 +1202,7 @@ export default function TenantSettingsPage() {
       ...(auditStatus ? { status: auditStatus } : {}),
       ...(auditQuery ? { q: auditQuery } : {}),
     });
-    fetch(`/api/tenants/${slug}/audit?${qs.toString()}`)
+    fetch(`/api/tenant/${slug}/audit/events?${qs.toString()}`, { credentials: "include", cache: "no-store" })
       .then(r => r.json())
       .then(d => {
         setEvents(d.events || []);
@@ -1148,6 +1224,85 @@ export default function TenantSettingsPage() {
     setSettings({ ...settings, [section]: { ...(settings as any)[section], [key]: value } });
   };
 
+  const updateFavicon = (value: string) => {
+    if (!settings) return;
+    setSettings({
+      ...settings,
+      branding: {
+        ...settings.branding,
+        favicon: value,
+        faviconUrl: value,
+      },
+    });
+  };
+
+  const saveModulePolicy = async () => {
+    if (!settings) return;
+    const modules = normalizeTenantModules(settings.modules);
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/tenants/${slug}/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ modules }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || "Failed to save module policy");
+
+      setSettings((current) => current ? { ...current, modules } : current);
+      setOriginal((current) => current ? { ...current, modules } : current);
+      batchUpdateHospitalSettings(tenant?.id || slug, { modules });
+      openActionDialog("Module Policy Saved", "Tenant module access has been updated and synced across active dashboards.", [
+        `Enabled modules: ${Object.values(modules).filter(Boolean).length}`,
+        `Disabled modules: ${Object.values(modules).filter((value) => !value).length}`,
+      ]);
+      toast.success("Module policy saved");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to save module policy");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveCommunicationPolicy = async () => {
+    if (!settings) return;
+    const communication = {
+      ...settings.communications,
+      allowedChannels: Array.from(new Set(settings.communications.allowedChannels || [])).filter(Boolean),
+    };
+    setCommLoading(true);
+    try {
+      await setCommunicationPreference(communication);
+      setSettings((current) => current ? { ...current, communications: communication } : current);
+      setOriginal((current) => current ? { ...current, communications: communication } : current);
+      openActionDialog("Communication Policy Saved", "Tenant delivery routing rules were persisted to the live settings store.", [
+        `Default channel: ${communication.defaultChannel}`,
+        `Fallback channel: ${communication.fallbackChannel}`,
+        `Allowed channels: ${communication.allowedChannels.join(", ") || "None"}`,
+      ]);
+      toast.success("Communication policy saved");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to save communication policy");
+    } finally {
+      setCommLoading(false);
+    }
+  };
+
+  const toggleCommunicationChannel = (channel: string, enabled: boolean) => {
+    if (!settings) return;
+    const current = new Set(settings.communications.allowedChannels || []);
+    if (enabled) current.add(channel);
+    else current.delete(channel);
+    setSettings({
+      ...settings,
+      communications: {
+        ...settings.communications,
+        allowedChannels: Array.from(current),
+      },
+    });
+  };
+
   const resetModuleStates = () => {
     if (!settings) return;
     const nextModules = Object.fromEntries(
@@ -1158,7 +1313,9 @@ export default function TenantSettingsPage() {
           : false,
       ])
     );
-    setSettings({ ...settings, modules: nextModules });
+    const normalizedModules = normalizeTenantModules(nextModules);
+    setSettings({ ...settings, modules: normalizedModules });
+    batchUpdateHospitalSettings(tenant?.id || slug, { modules: normalizedModules });
     toast.success("Module defaults restored");
   };
 
@@ -1172,6 +1329,16 @@ export default function TenantSettingsPage() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const safeJson = async (response: Response) => {
+    const text = await response.text().catch(() => "");
+    if (!text.trim()) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: text };
+    }
   };
 
   const openActionDialog = (title: string, description?: string, details?: string[]) => {
@@ -1208,6 +1375,27 @@ export default function TenantSettingsPage() {
     if (!response.ok) throw new Error(data?.error || `Failed to ${action}`);
     return data;
   }, [slug]);
+
+  const saveSecurityPolicy = useCallback(async () => {
+    if (!settings) return;
+    setSecurityLoading(true);
+    try {
+      const response = await fetch(`/api/tenant/${slug}/security/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ settings: settings.security }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || "Failed to save security policy");
+      setSettings((current) => current ? { ...current, security: { ...DEFAULT_SETTINGS.security, ...(data.settings || settings.security) } } : current);
+      setOriginal((current: any) => current ? { ...current, security: { ...DEFAULT_SETTINGS.security, ...(data.settings || settings.security) } } : current);
+      setSecuritySettings(data?.dashboard || {});
+      toast.success("Security policy saved");
+    } finally {
+      setSecurityLoading(false);
+    }
+  }, [settings, slug]);
 
   const saveNotificationSettings = useCallback(async (nextSettings?: SettingsShape["notifications"]) => {
     const payload = nextSettings || settings?.notifications;
@@ -1262,6 +1450,7 @@ export default function TenantSettingsPage() {
     const next = { ...DEFAULT_SETTINGS.preferences, ...(data.preferences || payload) };
     setSettings((current) => current ? { ...current, preferences: next } : current);
     setOriginal((current) => current ? { ...current, preferences: next } : current);
+    if (data?.overview) setPreferenceOverview(data.overview);
     applyTenantPreferences(next as any);
     batchUpdateHospitalSettings(tenant?.id || slug, { preferences: next as any } as any);
     try {
@@ -1270,7 +1459,7 @@ export default function TenantSettingsPage() {
     return data;
   }, [settings?.preferences, slug, tenant?.id]);
 
-  const runPreferenceAction = useCallback(async (action: string) => {
+  const runPreferenceAction = useCallback(async (action: string, payload?: Record<string, any>) => {
     const response = await fetch(`/api/tenant/${slug}/preferences/actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1278,6 +1467,7 @@ export default function TenantSettingsPage() {
       body: JSON.stringify({
         action,
         preferences: settings?.preferences,
+        ...(payload || {}),
       }),
     });
     const data = await response.json().catch(() => ({}));
@@ -1300,8 +1490,9 @@ export default function TenantSettingsPage() {
     setSettings((current) => current ? { ...current, workflow: next } : current);
     setOriginal((current) => current ? { ...current, workflow: next } : current);
     setWorkflowOverview(data?.overview || workflowOverview);
+    batchUpdateHospitalSettings(tenant?.id || slug, { workflow: next as any } as any);
     return data;
-  }, [settings?.workflow, slug, workflowOverview]);
+  }, [settings?.workflow, slug, tenant?.id, workflowOverview]);
 
   const runWorkflowAction = useCallback(async (action: string, payload?: Record<string, any>) => {
     const response = await fetch(`/api/tenant/${slug}/workflow/actions`, {
@@ -1329,6 +1520,7 @@ export default function TenantSettingsPage() {
     const next = { ...DEFAULT_SETTINGS.compliance, ...(data.settings || payload) };
     setSettings((current) => current ? { ...current, compliance: next } : current);
     setOriginal((current) => current ? { ...current, compliance: next } : current);
+    if (data?.overview) setComplianceOverview(data.overview);
     return data;
   }, [settings?.compliance, slug]);
 
@@ -1483,10 +1675,19 @@ export default function TenantSettingsPage() {
     if (!settings) return;
     setSaving(true);
     try {
+      const settingsPayload = {
+        ...settings,
+        branding: {
+          ...settings.branding,
+          faviconUrl: settings.branding.faviconUrl || settings.branding.favicon || "",
+          favicon: settings.branding.favicon || settings.branding.faviconUrl || "",
+        },
+      };
       const res = await fetch(`/api/tenants/${slug}/settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
+        credentials: "include",
+        body: JSON.stringify(settingsPayload),
       });
       if (!res.ok) throw new Error(await res.text());
       batchUpdateHospitalSettings(tenant?.id || slug, {
@@ -1495,7 +1696,8 @@ export default function TenantSettingsPage() {
         primaryColor: settings.branding.primaryColor,
         modules: settings.modules,
       });
-      setOriginal(JSON.parse(JSON.stringify(settings)));
+      setSettings(settingsPayload);
+      setOriginal(JSON.parse(JSON.stringify(settingsPayload)));
       toast.success("Settings saved");
     } catch (e: any) {
       toast.error(`Save failed: ${e?.message || "unknown"}`);
@@ -1511,11 +1713,22 @@ export default function TenantSettingsPage() {
     }
     setDeleting(true);
     try {
-      const res = await fetch(`/api/tenants/${slug}`, { method: "DELETE" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed");
+      const data = await runDangerAction("archive", { confirmSlug: confirmText });
       toast.success(`Tenant archived. Hard purge available after ${format(new Date(data.scheduledPurgeAt), "PP")}`);
-      setTimeout(() => router.push("/tenants"), 1200);
+      setConfirmText("");
+      try {
+        document.cookie = "x-tenant-slug=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+        sessionStorage.removeItem("active_tenant_slug");
+        sessionStorage.removeItem("active_tenant_id");
+        sessionStorage.removeItem("active_tenant_name");
+        sessionStorage.removeItem("active_tenant_logo");
+        sessionStorage.removeItem("active_tenant_branding");
+        sessionStorage.removeItem("active_tenant_modules");
+        sessionStorage.removeItem("active_tenant_preferences");
+        sessionStorage.removeItem("active_tenant_workflow");
+      } catch {}
+      await authClient.signOut().catch(() => null);
+      router.replace("/login");
     } catch (e: any) {
       toast.error(`Archive failed: ${e?.message}`);
     } finally {
@@ -1637,11 +1850,49 @@ export default function TenantSettingsPage() {
                   </div>
                   <div>
                     <label className="text-sm font-medium">Favicon URL</label>
-                    <input type="url" value={settings.branding.favicon}
-                      onChange={e => update("branding.favicon", e.target.value)}
-                      placeholder="https://..."
+                    <input type="url" value={settings.branding.faviconUrl || settings.branding.favicon}
+                      onChange={e => updateFavicon(e.target.value)}
+                      placeholder="https://... or upload file"
                       className="mt-1.5 w-full h-10 px-3 rounded-lg border border-border bg-background text-sm" />
-                    <p className="text-xs text-muted-foreground mt-1">Browser tab icon (32x32 PNG)</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <input type="file" id="favicon-upload" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml,image/x-icon,image/vnd.microsoft.icon" className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+
+                          const formData = new FormData();
+                          formData.append("file", file);
+                          formData.append("type", "favicon");
+
+                          try {
+                            const res = await fetch(`/api/tenants/${slug}/branding`, {
+                              method: "POST",
+                              body: formData,
+                              credentials: "include",
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (res.ok && data.url) {
+                              updateFavicon(data.url);
+                              toast.success("Favicon uploaded successfully");
+                            } else {
+                              toast.error(data?.error || "Failed to upload favicon");
+                            }
+                          } catch (error) {
+                            toast.error("Favicon upload failed");
+                          } finally {
+                            e.currentTarget.value = "";
+                          }
+                        }} />
+                      <button type="button" className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                        onClick={() => document.getElementById("favicon-upload")?.click()}>
+                        <Upload className="size-4" /> Upload Favicon
+                      </button>
+                      <button type="button" className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                        onClick={() => updateFavicon("")}>
+                        <RefreshCw className="size-4" /> Reset
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">Browser tab icon. Recommended: square PNG/ICO/SVG, max 5MB.</p>
                   </div>
                 </div>
 
@@ -1686,6 +1937,7 @@ export default function TenantSettingsPage() {
                             const res = await fetch(`/api/tenants/${slug}/branding`, {
                               method: 'POST',
                               body: formData,
+                              credentials: "include",
                             });
                             if (res.ok) {
                               const data = await res.json();
@@ -1722,7 +1974,7 @@ export default function TenantSettingsPage() {
                   <p className="text-xs text-muted-foreground mt-2">Logo appears in sidebars, headers, and reports. Recommended: 256x256px, transparent background</p>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => {
@@ -1817,8 +2069,8 @@ export default function TenantSettingsPage() {
                           <div className="rounded-xl border border-border p-4">
                             <p className="mb-3 text-sm font-semibold">Browser Tab</p>
                             <div className="flex items-center gap-2">
-                              {settings.branding.favicon ? (
-                                <img src={settings.branding.favicon} alt="Favicon preview" className="h-8 w-8 rounded border border-border bg-white p-1 object-contain" />
+                              {(settings.branding.faviconUrl || settings.branding.favicon) ? (
+                                <img src={settings.branding.faviconUrl || settings.branding.favicon} alt="Favicon preview" className="h-8 w-8 rounded border border-border bg-white p-1 object-contain" />
                               ) : (
                                 <div className="h-8 w-8 rounded border border-border" style={{ backgroundColor: settings.branding.primaryColor }} />
                               )}
@@ -1867,14 +2119,24 @@ export default function TenantSettingsPage() {
                     type="button"
                     onClick={() => {
                       if (!settings) return;
-                      const nextModules = Object.fromEntries(Object.keys(settings.modules).map((key) => [key, true]));
+                      const nextModules = normalizeTenantModules(Object.fromEntries(Object.keys(settings.modules).map((key) => [key, true])));
                       setSettings({ ...settings, modules: nextModules });
+                      batchUpdateHospitalSettings(tenant?.id || slug, { modules: nextModules });
                       toast.success("All modules enabled");
                     }}
                     className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600"
                   >
                     <CheckCircle2 className="size-4" />
                     Enable All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveModulePolicy}
+                    disabled={saving}
+                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                    Save Module Policy
                   </button>
                   <button
                     type="button"
@@ -1899,7 +2161,11 @@ export default function TenantSettingsPage() {
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {Object.entries(settings.modules).map(([k, v]) => (
-                    <Toggle key={k} label={cap(k)} desc={moduleHint(k)} value={v} onChange={x => update(`modules.${k}`, x)} />
+                    <Toggle key={k} label={moduleLabel(k)} desc={moduleHint(k)} value={v} onChange={x => {
+                      const nextModules = normalizeTenantModules({ ...settings.modules, [k]: x });
+                      setSettings({ ...settings, modules: nextModules });
+                      batchUpdateHospitalSettings(tenant?.id || slug, { modules: nextModules });
+                    }} />
                   ))}
                 </div>
               </div>
@@ -1998,6 +2264,22 @@ export default function TenantSettingsPage() {
                       <RefreshCw className={`size-3.5 ${notificationsLoading ? "animate-spin" : ""}`} />
                       Refresh
                     </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const data = await runNotificationAction("mark-all-read");
+                          setNotificationOverview(data?.overview || notificationOverview);
+                          toast.success("Notifications marked as read");
+                        } catch (error: any) {
+                          toast.error(error?.message || "Failed to mark notifications as read");
+                        }
+                      }}
+                      className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs hover:bg-muted"
+                    >
+                      <CheckCircle2 className="size-3.5" />
+                      Mark All Read
+                    </button>
                   </div>
                   <div className="mt-4 space-y-2">
                     {notificationOverview.recentEvents.length === 0 ? (
@@ -2048,6 +2330,32 @@ export default function TenantSettingsPage() {
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold"
                   >
                     <Bell className="size-4" /> Test Notifications
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await saveNotificationSettings();
+                        const data = await runNotificationAction("critical-test");
+                        setNotificationOverview(data?.overview || notificationOverview);
+                        setActionDialog({
+                          title: "Critical Alert Test",
+                          description: "A critical notification was queued using the active tenant notification policy.",
+                          details: [
+                            data?.quietHoursActive ? "Quiet hours are currently active." : "Quiet hours are currently inactive.",
+                            "Critical alerts are allowed to bypass quiet hours when that policy is enabled.",
+                          ],
+                          variant: "notification-test",
+                          payload: data,
+                        });
+                        toast.success("Critical alert test completed");
+                      } catch (error: any) {
+                        toast.error(error?.message || "Critical alert test failed");
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                  >
+                    <AlertTriangle className="size-4" /> Test Critical Alert
                   </button>
                   <button
                     type="button"
@@ -2163,6 +2471,29 @@ export default function TenantSettingsPage() {
                   <div className="rounded-xl border border-border bg-muted/10 px-4 py-3">
                     <p className="text-xs font-medium text-muted-foreground">Language Policy</p>
                     <p className="mt-1 text-sm text-foreground">Tenant language applies to all users except users who explicitly changed language in personal settings.</p>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const confirmed = window.confirm("Clear user language overrides so all users inherit the tenant language?");
+                        if (!confirmed) return;
+                        try {
+                          const data = await runPreferenceAction("clear-language-overrides");
+                          if (data?.overview) {
+                            setPreferenceOverview({
+                              totalUsers: data.overview.totalUsers || 0,
+                              languageOverrides: data.overview.languageOverrides || 0,
+                              inheritingLanguage: data.overview.affectedUsers ?? Math.max((data.overview.totalUsers || 0) - (data.overview.languageOverrides || 0), 0),
+                            });
+                          }
+                          toast.success(`${data?.changed || 0} language override(s) cleared`);
+                        } catch (error: any) {
+                          toast.error(error?.message || "Failed to clear language overrides");
+                        }
+                      }}
+                      className="mt-2 text-xs font-semibold text-orange-600 hover:underline"
+                    >
+                      Clear user language overrides
+                    </button>
                   </div>
                 </div>
 
@@ -2182,7 +2513,27 @@ export default function TenantSettingsPage() {
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const data = await runPreferenceAction("preview");
+                        openActionDialog("Preference Preview", "Sample output for the selected locale and display defaults.", [
+                          `Date: ${data?.samples?.date || "2026-05-30"}`,
+                          `Time: ${data?.samples?.time || "2:30 PM"}`,
+                          `Number: ${data?.samples?.number || "1,234.56"}`,
+                          `Currency: ${data?.samples?.currency || `${settings.preferences.currency} 1,234.56`}`,
+                          `Week starts: ${data?.samples?.weekStart || settings.preferences.weekStartDay}`,
+                        ]);
+                      } catch (error: any) {
+                        toast.error(error?.message || "Failed to preview preferences");
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                  >
+                    <Eye className="size-4" /> Preview
+                  </button>
                   <button
                     type="button"
                     onClick={async () => {
@@ -2365,12 +2716,87 @@ export default function TenantSettingsPage() {
                     <h4 className="text-sm font-semibold text-foreground mb-3">Custom Workflow Library</h4>
                     <div className="space-y-2">
                       {settings.workflow.customWorkflows.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-3 text-sm">
+                        <div key={item.id} className="flex flex-col gap-3 rounded-lg border border-border px-3 py-3 text-sm md:flex-row md:items-center md:justify-between">
                           <div>
                             <p className="font-medium">{item.name}</p>
                             <p className="text-xs text-muted-foreground">{item.createdAt ? format(new Date(item.createdAt), "PPp") : "Recently created"}</p>
                           </div>
-                          <span className="rounded-full bg-muted px-2 py-1 text-xs capitalize">{item.status}</span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full bg-muted px-2 py-1 text-xs capitalize">{item.status}</span>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const nextStatus = item.status === "active" ? "disabled" : "active";
+                                  const data = await runWorkflowAction("update-custom", { id: item.id, status: nextStatus });
+                                  setSettings((current) => current ? { ...current, workflow: { ...DEFAULT_SETTINGS.workflow, ...(data.settings || current.workflow) } } : current);
+                                  if (data?.overview) setWorkflowOverview(data.overview);
+                                  batchUpdateHospitalSettings(tenant?.id || slug, { workflow: data.settings } as any);
+                                  toast.success(`Workflow ${nextStatus === "active" ? "activated" : "disabled"}`);
+                                } catch (error: any) {
+                                  toast.error(error?.message || "Failed to update workflow");
+                                }
+                              }}
+                              className="rounded border border-border px-2 py-1 text-xs hover:bg-muted"
+                            >
+                              {item.status === "active" ? "Disable" : "Activate"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const name = window.prompt("Rename workflow", item.name);
+                                if (!name || name === item.name) return;
+                                try {
+                                  const data = await runWorkflowAction("update-custom", { id: item.id, name });
+                                  setSettings((current) => current ? { ...current, workflow: { ...DEFAULT_SETTINGS.workflow, ...(data.settings || current.workflow) } } : current);
+                                  if (data?.overview) setWorkflowOverview(data.overview);
+                                  batchUpdateHospitalSettings(tenant?.id || slug, { workflow: data.settings } as any);
+                                  toast.success("Workflow renamed");
+                                } catch (error: any) {
+                                  toast.error(error?.message || "Failed to rename workflow");
+                                }
+                              }}
+                              className="rounded border border-border px-2 py-1 text-xs hover:bg-muted"
+                            >
+                              Rename
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  const data = await runWorkflowAction("duplicate-custom", { id: item.id });
+                                  setSettings((current) => current ? { ...current, workflow: { ...DEFAULT_SETTINGS.workflow, ...(data.settings || current.workflow) } } : current);
+                                  if (data?.overview) setWorkflowOverview(data.overview);
+                                  batchUpdateHospitalSettings(tenant?.id || slug, { workflow: data.settings } as any);
+                                  toast.success("Workflow duplicated");
+                                } catch (error: any) {
+                                  toast.error(error?.message || "Failed to duplicate workflow");
+                                }
+                              }}
+                              className="rounded border border-border px-2 py-1 text-xs hover:bg-muted"
+                            >
+                              Duplicate
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const confirmed = window.confirm(`Delete workflow "${item.name}"?`);
+                                if (!confirmed) return;
+                                try {
+                                  const data = await runWorkflowAction("delete-custom", { id: item.id });
+                                  setSettings((current) => current ? { ...current, workflow: { ...DEFAULT_SETTINGS.workflow, ...(data.settings || current.workflow) } } : current);
+                                  if (data?.overview) setWorkflowOverview(data.overview);
+                                  batchUpdateHospitalSettings(tenant?.id || slug, { workflow: data.settings } as any);
+                                  toast.success("Workflow deleted");
+                                } catch (error: any) {
+                                  toast.error(error?.message || "Failed to delete workflow");
+                                }
+                              }}
+                              className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -2386,6 +2812,8 @@ export default function TenantSettingsPage() {
                       try {
                         const data = await runWorkflowAction("create-custom", { name: workflowName });
                         setSettings((current) => current ? { ...current, workflow: { ...DEFAULT_SETTINGS.workflow, ...(data.settings || current.workflow) } } : current);
+                        if (data?.overview) setWorkflowOverview(data.overview);
+                        batchUpdateHospitalSettings(tenant?.id || slug, { workflow: data.settings } as any);
                         await refreshWorkflow();
                         openActionDialog("Workflow Created", "The workflow blueprint has been added to this tenant's workflow library.", [
                           `Workflow: ${workflowName}`,
@@ -2420,6 +2848,33 @@ export default function TenantSettingsPage() {
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
                   >
                     <Download className="size-4" /> Export Workflows
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await saveWorkflowSettings();
+                        const data = await runWorkflowAction("run-backup");
+                        if (data?.overview) setWorkflowOverview(data.overview);
+                        downloadJson(`${slug}-tenant-backup-${data?.manifest?.id || Date.now()}.json`, data?.backup || data);
+                        openActionDialog("Tenant Backup Created", "A tenant-scoped data backup was created, stored in backup history, and downloaded.", [
+                          `Backup ID: ${data?.manifest?.id || "generated"}`,
+                          `Tables included: ${data?.manifest?.tables || Object.keys(data?.backup?.tables || {}).length}`,
+                          `Rows included: ${Number(data?.manifest?.totalRows || 0).toLocaleString()}`,
+                          `File references indexed: ${Number(data?.manifest?.fileReferences || 0).toLocaleString()}`,
+                          `Storage providers updated: ${Array.isArray(data?.manifest?.storageDeliveries) ? data.manifest.storageDeliveries.filter((delivery: any) => delivery.ok).length : 0}`,
+                          `Backup frequency policy: ${settings.workflow.backupFrequency}`,
+                        ]);
+                        await refreshWorkflow();
+                        toast.success("Tenant backup created");
+                      } catch (error: any) {
+                        toast.error(error?.message || "Failed to create tenant backup");
+                      }
+                    }}
+                    disabled={!settings.workflow.automationEnabled || !settings.workflow.dataBackupEnabled}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 text-sm"
+                  >
+                    <Database className="size-4" /> Run Backup Now
                   </button>
                   <button
                     type="button"
@@ -2478,6 +2933,25 @@ export default function TenantSettingsPage() {
               onReset={() => setSettings({ ...settings, compliance: { ...DEFAULT_SETTINGS.compliance } })}
             >
               <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
+                    <p className="text-xs font-medium text-muted-foreground">Tenant Staff</p>
+                    <p className="mt-1 text-2xl font-semibold">{complianceOverview.staffCount}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
+                    <p className="text-xs font-medium text-muted-foreground">Compliance Events</p>
+                    <p className="mt-1 text-2xl font-semibold">{complianceOverview.recentComplianceEvents}</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
+                    <p className="text-xs font-medium text-muted-foreground">Last Score</p>
+                    <p className="mt-1 text-2xl font-semibold">{settings.compliance.lastComplianceScore || 0}%</p>
+                  </div>
+                  <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
+                    <p className="text-xs font-medium text-muted-foreground">Review Due</p>
+                    <p className="mt-1 text-sm font-semibold">{settings.compliance.nextComplianceReviewAt ? format(new Date(settings.compliance.nextComplianceReviewAt), "PP") : "Not scheduled"}</p>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-4">
                     <h4 className="text-sm font-semibold text-foreground">HIPAA & Security Safeguards</h4>
@@ -2681,6 +3155,22 @@ export default function TenantSettingsPage() {
                     onClick={async () => {
                       try {
                         await saveComplianceSettings();
+                        const data = await runComplianceAction("training-reminders");
+                        await refreshCompliance();
+                        toast.success(`Compliance reminders queued for ${data?.recipients || 0} staff`);
+                      } catch (error: any) {
+                        toast.error(error?.message || "Failed to queue training reminders");
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                  >
+                    <Bell className="size-4" /> Send Training Reminders
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await saveComplianceSettings();
                         await refreshCompliance();
                         toast.success("Compliance settings saved");
                       } catch (error: any) {
@@ -2710,6 +3200,27 @@ export default function TenantSettingsPage() {
               onReset={() => setSettings({ ...settings, billing: { ...DEFAULT_SETTINGS.billing } })}
             >
               <div className="space-y-6">
+                  <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/20 p-4 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <h4 className="text-sm font-semibold text-foreground">Billing Control Center</h4>
+                      <p className="mt-1 text-xs text-muted-foreground">Tenant billing policy, payment gateway readiness, collections, claims, and statement controls.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-medium text-muted-foreground" htmlFor="billing-period">Period</label>
+                      <select
+                        id="billing-period"
+                        value={billingPeriod}
+                        onChange={(event) => setBillingPeriod(event.target.value)}
+                        className="h-10 rounded-lg border border-border bg-background px-3 text-sm"
+                      >
+                        <option value="month">This Month</option>
+                        <option value="quarter">This Quarter</option>
+                        <option value="year">This Year</option>
+                        <option value="all">All Time</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="p-4 rounded-lg border border-border">
                       <p className="text-xs font-medium text-muted-foreground">Collected This Period</p>
@@ -2743,6 +3254,33 @@ export default function TenantSettingsPage() {
                       <p className="text-xs font-medium text-muted-foreground">Insurance vs Self Pay</p>
                       <p className="mt-2 text-2xl font-bold">${Number(billingOverview.insuranceBreakdown.insurance || 0).toLocaleString()} / ${Number(billingOverview.insuranceBreakdown.selfPay || 0).toLocaleString()}</p>
                       <p className="text-xs text-muted-foreground mt-1">Claimed versus direct-pay revenue</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <div className="rounded-lg border border-border p-4">
+                      <h4 className="text-sm font-semibold text-foreground">Payment Method Breakdown</h4>
+                      <div className="mt-3 space-y-2">
+                        {billingOverview.paymentMethods.length > 0 ? billingOverview.paymentMethods.map((method) => (
+                          <div key={method.method || "unknown"} className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2 text-sm">
+                            <span className="font-medium capitalize">{String(method.method || "unknown").replace(/_/g, " ")}</span>
+                            <span className="text-muted-foreground">{method.count} payment(s) / ${Number(method.total || 0).toLocaleString()}</span>
+                          </div>
+                        )) : (
+                          <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">No payment records found for this period.</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-border p-4">
+                      <h4 className="text-sm font-semibold text-foreground">Receivables Aging</h4>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                        {Object.entries(((billingOverview.summary as any)?.agingBuckets || { current: 0, days31To60: 0, days61To90: 0, days90Plus: 0 })).map(([label, value]) => (
+                          <div key={label} className="rounded-lg bg-muted/30 px-3 py-2">
+                            <p className="text-xs text-muted-foreground">{label === "days31To60" ? "31-60 days" : label === "days61To90" ? "61-90 days" : label === "days90Plus" ? "90+ days" : "0-30 days"}</p>
+                            <p className="mt-1 font-semibold">${Number(value || 0).toLocaleString()}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
@@ -2860,6 +3398,7 @@ export default function TenantSettingsPage() {
                     type="button"
                     onClick={async () => {
                       try {
+                        await saveBillingSettings();
                         const data = await runBillingAction("validate-setup");
                         openActionDialog("Billing Validation", "Tenant billing configuration was validated against active processors and policy controls.", [
                           `Valid: ${data.valid ? "Yes" : "No"}`,
@@ -2873,6 +3412,47 @@ export default function TenantSettingsPage() {
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
                   >
                     <CheckCircle2 className="size-4" /> Validate Billing Setup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await saveBillingSettings();
+                        const data = await runBillingAction("preview-policies", { sampleInvoiceAmount: billingOverview.revenue.billed || 1000 });
+                        openActionDialog("Billing Policy Preview", "The active financial policy was simulated against the current tenant billing settings.", [
+                          `Sample amount: $${Number(data?.sampleInvoiceAmount || 0).toLocaleString()}`,
+                          `Late fee: $${Number(data?.policyPreview?.lateFee || 0).toLocaleString()}`,
+                          `Grace period: ${data?.policyPreview?.gracePeriodDays || 0} day(s)`,
+                          `Statement cycle: ${data?.policyPreview?.statementFrequency || "monthly"}`,
+                        ]);
+                        toast.success("Billing policy preview generated");
+                      } catch (error: any) {
+                        toast.error(error?.message || "Failed to preview billing policy");
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                  >
+                    <Activity className="size-4" /> Preview Policy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const data = await runBillingAction("sync-processors");
+                        await refreshBilling();
+                        openActionDialog("Payment Processors Synced", "The tenant billing section was synced with configured payment processor integrations.", [
+                          `Processors found: ${Array.isArray(data?.processors) ? data.processors.length : 0}`,
+                          `Active processors: ${Number(data?.activeProcessors || 0)}`,
+                          `Synced at: ${data?.syncedAt ? format(new Date(data.syncedAt), "PPp") : "now"}`,
+                        ]);
+                        toast.success("Payment processors synced");
+                      } catch (error: any) {
+                        toast.error(error?.message || "Failed to sync payment processors");
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                  >
+                    <RefreshCw className="size-4" /> Sync Processors
                   </button>
                   <button
                     type="button"
@@ -2996,11 +3576,41 @@ export default function TenantSettingsPage() {
                   </button>
                   <button type="button" onClick={async () => {
                     try {
-                      const data = await runAuditAction("export");
+                      const data = await runAuditAction("anomaly-scan", { days: Math.min(settings.audit.retentionDays, 365) });
+                      openActionDialog("Audit Anomaly Scan", "Tenant audit activity was scanned for unusual event patterns.", [
+                        `Status: ${data.ok ? "No anomalies" : "Review needed"}`,
+                        `Events scanned: ${Number(data.scannedEvents || 0).toLocaleString()}`,
+                        ...(data.findings?.length ? data.findings : ["No unusual audit patterns detected."]),
+                      ]);
+                    } catch (error: any) {
+                      toast.error(error?.message || "Failed to run anomaly scan");
+                    }
+                  }} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted">
+                    <Activity className="size-4" /> Anomaly Scan
+                  </button>
+                  <button type="button" onClick={async () => {
+                    try {
+                      const data = await runAuditAction("retention-preview");
+                      openActionDialog("Audit Retention Preview", "The retention policy was evaluated before any purge operation.", [
+                        `Retention: ${data.retentionDays} days`,
+                        `Cutoff: ${data.cutoff ? format(new Date(data.cutoff), "PPp") : "Unknown"}`,
+                        `Expired audit logs: ${Number(data.expiredLogs || 0).toLocaleString()}`,
+                        `Expired provisioning runs: ${Number(data.expiredProvisioningRuns || 0).toLocaleString()}`,
+                      ]);
+                    } catch (error: any) {
+                      toast.error(error?.message || "Failed to preview audit retention");
+                    }
+                  }} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted">
+                    <Clock className="size-4" /> Retention Preview
+                  </button>
+                  <button type="button" onClick={async () => {
+                    try {
+                      const data = await runAuditAction("export", { days: Math.min(settings.audit.retentionDays, 365) });
                       downloadJson(`${slug}-audit-export.json`, data);
                       openActionDialog("Audit Export Ready", "Tenant audit evidence was exported.", [
                         `Audit events: ${Array.isArray(data.logs) ? data.logs.length : 0}`,
                         `Provisioning events: ${Array.isArray(data.provisioning) ? data.provisioning.length : 0}`,
+                        `Immutable storage deliveries: ${Array.isArray(data.storageDeliveries) ? data.storageDeliveries.filter((item: any) => item.ok).length : 0}`,
                       ]);
                     } catch (error: any) {
                       toast.error(error?.message || "Failed to export audit log");
@@ -3103,6 +3713,44 @@ export default function TenantSettingsPage() {
                 </div>
               </div>
 
+              <div className="rounded-lg border border-border p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">Archive Safeguards</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">Configure the soft-archive grace period used before super-admin hard purge is allowed.</p>
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground">Grace period days</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={settings.dangerZone.archiveGraceDays}
+                        onChange={(event) => update("dangerZone.archiveGraceDays", Number(event.target.value))}
+                        className="mt-1 h-10 w-28 rounded-lg border border-border bg-background px-3 text-sm"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const data = await runDangerAction("save-settings", { archiveGraceDays: settings.dangerZone.archiveGraceDays });
+                          setSettings((current) => current ? { ...current, dangerZone: { ...current.dangerZone, ...(data.settings || {}) } } : current);
+                          await refreshDangerZone();
+                          toast.success("Danger zone safeguards saved");
+                        } catch (error: any) {
+                          toast.error(error?.message || "Failed to save danger zone settings");
+                        }
+                      }}
+                      className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-4 text-sm hover:bg-muted"
+                    >
+                      <Save className="size-4" /> Save Safeguards
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -3113,6 +3761,8 @@ export default function TenantSettingsPage() {
                       openActionDialog("Tenant Snapshot Exported", "A pre-archive tenant snapshot was exported.", [
                         `Audit events included: ${Array.isArray(data.recentAudit) ? data.recentAudit.length : 0}`,
                         `Tenant: ${data?.tenant?.name || slug}`,
+                        `Backup rows: ${Number(data?.backup?.manifest?.totalRows || 0).toLocaleString()}`,
+                        `Storage deliveries: ${Array.isArray(data?.backup?.manifest?.storageDeliveries) ? data.backup.manifest.storageDeliveries.filter((item: any) => item.ok).length : 0}`,
                       ]);
                     } catch (error: any) {
                       toast.error(error?.message || "Failed to export tenant snapshot");
@@ -3156,8 +3806,9 @@ export default function TenantSettingsPage() {
                     </p>
                     <ul className="text-xs text-muted-foreground mt-3 space-y-1 list-disc pl-5">
                       <li>All users for this tenant will lose access immediately</li>
-                      <li>All data (patients, appointments, billing, etc.) is preserved for 30 days</li>
-                      <li>After 30 days, hard purge becomes available and is irreversible</li>
+                      <li>A full tenant backup is created in Neon and delivered to configured storage providers before archive</li>
+                      <li>All data (patients, appointments, billing, files, settings, audit, etc.) is preserved for {dangerState?.settings?.archiveGraceDays || settings.dangerZone.archiveGraceDays} days</li>
+                      <li>After the grace period, hard purge becomes available to authorized super admins and is irreversible</li>
                     </ul>
 
                     <div className="mt-5 space-y-2">
@@ -3189,6 +3840,101 @@ export default function TenantSettingsPage() {
                onReset={() => setSettings({ ...settings, communications: { ...DEFAULT_SETTINGS.communications } })}
              >
                <div className="space-y-6">
+                 <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                   <div className="rounded-lg border border-border p-4">
+                     <p className="text-xs font-medium text-muted-foreground">Configured Providers</p>
+                     <p className="mt-2 text-2xl font-bold">{integrations.length}</p>
+                   </div>
+                   <div className="rounded-lg border border-border p-4">
+                     <p className="text-xs font-medium text-muted-foreground">Active Providers</p>
+                     <p className="mt-2 text-2xl font-bold">{integrations.filter((item) => item.isActive).length}</p>
+                   </div>
+                   <div className="rounded-lg border border-border p-4">
+                     <p className="text-xs font-medium text-muted-foreground">Custom Integrations</p>
+                     <p className="mt-2 text-2xl font-bold">{customIntegrations.length}</p>
+                   </div>
+                   <div className="rounded-lg border border-border p-4">
+                     <p className="text-xs font-medium text-muted-foreground">Routing Policy</p>
+                     <p className="mt-2 text-sm font-semibold capitalize">{settings.communications.defaultChannel || "in_app"} {"->"} {settings.communications.fallbackChannel || "email"}</p>
+                   </div>
+                 </div>
+
+                 <div className="rounded-xl border border-border bg-muted/10 p-4">
+                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                     <div>
+                       <h4 className="text-sm font-semibold text-foreground">Delivery Routing Policy</h4>
+                       <p className="mt-1 text-xs text-muted-foreground">Controls how tenant messages, alerts, reminders, and workflow notifications choose primary and fallback channels.</p>
+                     </div>
+                     <button
+                       type="button"
+                       onClick={saveCommunicationPolicy}
+                       disabled={commLoading}
+                       className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                     >
+                       {commLoading ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                       Save Communication Policy
+                     </button>
+                   </div>
+                   <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                     <Select
+                       label="Default Channel"
+                       value={settings.communications.defaultChannel}
+                       options={[
+                         { v: "in_app", l: "In-app" },
+                         { v: "email", l: "Email" },
+                         { v: "sms", l: "SMS" },
+                         { v: "push", l: "Push" },
+                         { v: "whatsapp", l: "WhatsApp" },
+                       ]}
+                       onChange={(value) => update("communications.defaultChannel", value)}
+                     />
+                     <Select
+                       label="Fallback Channel"
+                       value={settings.communications.fallbackChannel}
+                       options={[
+                         { v: "email", l: "Email" },
+                         { v: "in_app", l: "In-app" },
+                         { v: "sms", l: "SMS" },
+                         { v: "push", l: "Push" },
+                         { v: "whatsapp", l: "WhatsApp" },
+                       ]}
+                       onChange={(value) => update("communications.fallbackChannel", value)}
+                     />
+                     <div>
+                       <label className="text-sm font-medium">Outbound Webhook URL</label>
+                       <input
+                         type="url"
+                         value={settings.communications.webhookUrl || ""}
+                         onChange={(event) => update("communications.webhookUrl", event.target.value)}
+                         placeholder="https://example.com/webhooks/tenant-events"
+                         className="mt-1.5 w-full h-10 px-3 rounded-lg border border-border bg-background text-sm"
+                       />
+                     </div>
+                   </div>
+                   <div className="mt-4">
+                     <p className="text-sm font-medium">Allowed Channels</p>
+                     <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                       {[
+                         ["in_app", "In-app"],
+                         ["email", "Email"],
+                         ["sms", "SMS"],
+                         ["push", "Push"],
+                         ["whatsapp", "WhatsApp"],
+                       ].map(([channel, label]) => (
+                         <label key={channel} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                           <input
+                             type="checkbox"
+                             checked={(settings.communications.allowedChannels || []).includes(channel)}
+                             onChange={(event) => toggleCommunicationChannel(channel, event.target.checked)}
+                             className="accent-orange-500"
+                           />
+                           {label}
+                         </label>
+                       ))}
+                     </div>
+                   </div>
+                 </div>
+
                  {/* Email Providers */}
                  <div className="space-y-4">
                    <h4 className="text-sm font-semibold text-foreground">Email Providers</h4>
@@ -3553,6 +4299,87 @@ export default function TenantSettingsPage() {
                    </div>
                  </div>
 
+                 <div className="rounded-xl border border-border bg-muted/10 p-4">
+                   <div className="flex items-start justify-between gap-3">
+                     <div>
+                       <h4 className="text-sm font-semibold text-foreground">Custom Tenant Integrations</h4>
+                       <p className="mt-1 text-xs text-muted-foreground">Tenant-specific endpoints used for internal systems such as PACS, HRIS, PBX, or local middleware.</p>
+                     </div>
+                     <button
+                       type="button"
+                       onClick={() => void refreshIntegrations()}
+                       className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs hover:bg-muted"
+                     >
+                       <RefreshCw className={`size-3.5 ${integrationsLoading ? "animate-spin" : ""}`} />
+                       Refresh
+                     </button>
+                   </div>
+                   <div className="mt-4 space-y-3">
+                     {customIntegrations.length === 0 ? (
+                       <p className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">No custom communication integrations have been added for this tenant.</p>
+                     ) : (
+                       customIntegrations.map((integration) => (
+                         <div key={integration.id} className="flex flex-col gap-3 rounded-lg border border-border bg-background px-3 py-3 md:flex-row md:items-center md:justify-between">
+                           <div className="min-w-0">
+                             <p className="text-sm font-semibold">{integration.name}</p>
+                             <p className="truncate text-xs text-muted-foreground">{integration.endpoint}</p>
+                             <p className="mt-1 text-[11px] text-muted-foreground">
+                               Created {integration.createdAt ? format(new Date(integration.createdAt), "PPp") : "recently"}
+                               {Array.isArray(integration.events) && integration.events.length ? ` - Events: ${integration.events.join(", ")}` : ""}
+                             </p>
+                           </div>
+                           <div className="flex flex-wrap gap-2">
+                             <button
+                               type="button"
+                               onClick={async () => {
+                                 try {
+                                   const response = await fetch(`/api/tenant/${slug}/communications/actions`, {
+                                     method: "POST",
+                                     headers: { "Content-Type": "application/json" },
+                                     credentials: "include",
+                                     body: JSON.stringify({ action: "test-custom", payload: { id: integration.id } }),
+                                   });
+                                   const data = await response.json().catch(() => ({}));
+                                   if (!response.ok) throw new Error(data?.error || "Failed to test custom integration");
+                                   toast.success(data?.message || "Custom integration endpoint checked");
+                                 } catch (error: any) {
+                                   toast.error(error?.message || "Failed to test custom integration");
+                                 }
+                               }}
+                               className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs hover:bg-muted"
+                             >
+                               <Zap className="size-3.5" /> Test
+                             </button>
+                             <button
+                               type="button"
+                               onClick={async () => {
+                                 if (!window.confirm(`Remove custom integration "${integration.name}"?`)) return;
+                                 try {
+                                   const response = await fetch(`/api/tenant/${slug}/communications/actions`, {
+                                     method: "POST",
+                                     headers: { "Content-Type": "application/json" },
+                                     credentials: "include",
+                                     body: JSON.stringify({ action: "remove-custom", payload: { id: integration.id } }),
+                                   });
+                                   const data = await response.json().catch(() => ({}));
+                                   if (!response.ok) throw new Error(data?.error || "Failed to remove custom integration");
+                                   setCustomIntegrations(Array.isArray(data.customIntegrations) ? data.customIntegrations : []);
+                                   toast.success("Custom integration removed");
+                                 } catch (error: any) {
+                                   toast.error(error?.message || "Failed to remove custom integration");
+                                 }
+                               }}
+                               className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
+                             >
+                               <Trash2 className="size-3.5" /> Remove
+                             </button>
+                           </div>
+                         </div>
+                       ))
+                     )}
+                   </div>
+                 </div>
+
                  <div className="flex gap-2 pt-4 border-t border-border">
                  <button
                      type="button"
@@ -3564,7 +4391,7 @@ export default function TenantSettingsPage() {
                            credentials: "include",
                            body: JSON.stringify({ action: "test-all" }),
                          });
-                         const data = await response.json();
+                         const data = await safeJson(response);
                          if (!response.ok) throw new Error(data?.error || "Failed to test integrations");
                          openActionDialog(
                            "Integration Test Completed",
@@ -3588,9 +4415,37 @@ export default function TenantSettingsPage() {
                            method: "POST",
                            headers: { "Content-Type": "application/json" },
                            credentials: "include",
+                           body: JSON.stringify({ action: "runtime-smoke-test" }),
+                         });
+                         const data = await response.json().catch(() => ({}));
+                         if (!response.ok) throw new Error(data?.error || "Failed to run runtime smoke test");
+                         const analyticsCount = Array.isArray(data.analytics) ? data.analytics.length : 0;
+                         const collaborationCount = Array.isArray(data.eventDispatch?.collaboration) ? data.eventDispatch.collaboration.length : 0;
+                         const customCount = Array.isArray(data.eventDispatch?.custom) ? data.eventDispatch.custom.length : 0;
+                         openActionDialog("Runtime Smoke Test Completed", "Configured tenant integration runtime adapters were exercised with a safe event dispatch.", [
+                           `Analytics adapters checked: ${analyticsCount}`,
+                           `Collaboration adapters checked: ${collaborationCount}`,
+                           `Custom endpoints checked: ${customCount}`,
+                         ]);
+                         toast.success("Runtime smoke test completed");
+                       } catch (error: any) {
+                         toast.error(error?.message || "Failed to run runtime smoke test");
+                       }
+                     }}
+                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm">
+                     <Zap className="size-4" /> Runtime Smoke Test
+                   </button>
+                   <button
+                     type="button"
+                     onClick={async () => {
+                       try {
+                         const response = await fetch(`/api/tenant/${slug}/communications/actions`, {
+                           method: "POST",
+                           headers: { "Content-Type": "application/json" },
+                           credentials: "include",
                            body: JSON.stringify({ action: "export-configuration" }),
                          });
-                         const data = await response.json();
+                         const data = await safeJson(response);
                          if (!response.ok) throw new Error(data?.error || "Failed to export configuration");
                          downloadJson(`${slug}-integration-configuration.json`, data);
                          toast.success("Integration configuration exported");
@@ -3615,12 +4470,13 @@ export default function TenantSettingsPage() {
                            credentials: "include",
                            body: JSON.stringify({ action: "add-custom", payload: { name, endpoint } }),
                          });
-                         const data = await response.json();
+                         const data = await safeJson(response);
                          if (!response.ok) throw new Error(data?.error || "Failed to add custom integration");
                          setCustomIntegrations((current) => [...current, data.integration]);
-                         openActionDialog("Custom Integration Added", "The integration placeholder is ready for credentials.", [
+                         openActionDialog("Custom Integration Added", "The custom integration was saved to tenant settings and is ready for workflow routing.", [
                            `Integration: ${data.integration.name}`,
                            `Endpoint: ${data.integration.endpoint}`,
+                           `Status: ${data.integration.status || "active"}`,
                          ]);
                          toast.success("Custom integration added");
                        } catch (error: any) {
@@ -3641,8 +4497,70 @@ export default function TenantSettingsPage() {
                title="Third-Party Integrations"
                desc="Manage third-party service integrations and API connections"
                onReset={() => {}}
-             >
-               <div className="space-y-6">
+            >
+              <div className="space-y-6">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between rounded-lg border border-border bg-muted/20 p-4">
+                  <div>
+                    <h4 className="text-sm font-semibold text-foreground">Integration Operations</h4>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Refresh runtime status, verify dispatch adapters, and export the tenant integration console.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void refreshIntegrationConsole()}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                    >
+                      <RefreshCw className={`size-4 ${integrationsLoading ? "animate-spin" : ""}`} /> Refresh Console
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const response = await fetch(`/api/tenant/${slug}/communications/actions`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            credentials: "include",
+                            body: JSON.stringify({ action: "runtime-smoke-test" }),
+                          });
+                          const data = await safeJson(response);
+                          if (!response.ok) throw new Error(data?.error || "Failed to run runtime smoke test");
+                          await refreshIntegrationConsole();
+                          openActionDialog("Runtime Smoke Test Completed", "The configured tenant integration runtime adapters were checked with a safe dispatch event.", [
+                            `Analytics adapters checked: ${Array.isArray(data.analytics) ? data.analytics.length : 0}`,
+                            `Collaboration adapters checked: ${Array.isArray(data.eventDispatch?.collaboration) ? data.eventDispatch.collaboration.length : 0}`,
+                            `Custom endpoints checked: ${Array.isArray(data.eventDispatch?.custom) ? data.eventDispatch.custom.length : 0}`,
+                          ]);
+                          toast.success("Runtime smoke test completed");
+                        } catch (error: any) {
+                          toast.error(error?.message || "Failed to run runtime smoke test");
+                        }
+                      }}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                    >
+                      <Zap className="size-4" /> Runtime Smoke Test
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        downloadJson(`${slug}-integration-console.json`, {
+                          overview: integrationOverview,
+                          services: integrations,
+                          webhooks,
+                          apiKeys,
+                          logs: integrationLogs,
+                          exportedAt: new Date().toISOString(),
+                        });
+                        toast.success("Integration console exported");
+                      }}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                    >
+                      <Download className="size-4" /> Export Console
+                    </button>
+                  </div>
+                </div>
+
                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                    <div className="p-4 rounded-lg border border-border">
                      <div className="flex items-start justify-between mb-3">
@@ -3742,6 +4660,24 @@ export default function TenantSettingsPage() {
                                {integration.testError && <p className="text-xs text-red-600">{integration.testError}</p>}
                              </div>
                              <div className="flex flex-wrap gap-2">
+                               <button
+                                 type="button"
+                                 onClick={() => openActionDialog(
+                                   "Integration Details",
+                                   `${integration.provider.replace(/[-_]/g, " ")} is configured for this tenant.`,
+                                   [
+                                     `Status: ${integration.status}`,
+                                     `Enabled: ${integration.isActive ? "Yes" : "No"}`,
+                                     `Account: ${integration.accountName || integration.accountId || "Not provided"}`,
+                                     `Last tested: ${integration.lastTestedAt ? formatDistanceToNow(new Date(integration.lastTestedAt), { addSuffix: true }) : "Never"}`,
+                                     `Last updated: ${integration.updatedAt ? formatDistanceToNow(new Date(integration.updatedAt), { addSuffix: true }) : "Unknown"}`,
+                                     integration.testError ? `Last error: ${integration.testError}` : "Last error: none",
+                                   ]
+                                 )}
+                                 className="text-xs px-3 py-1.5 rounded border border-border hover:bg-muted"
+                               >
+                                 Details
+                               </button>
                                <button
                                  type="button"
                                  onClick={() => {
@@ -3970,7 +4906,7 @@ export default function TenantSettingsPage() {
                    </div>
                  </div>
 
-                 <div className="flex gap-2">
+                 <div className="flex flex-wrap gap-2">
                    <button
                      type="button"
                      onClick={() => {
@@ -4056,11 +4992,25 @@ export default function TenantSettingsPage() {
                      <Toggle label="Telemetry enabled" desc="Allow tenant operational telemetry collection." value={settings.system.telemetryEnabled} onChange={x => update("system.telemetryEnabled", x)} />
                      <Toggle label="Health alerts enabled" desc="Create system alerts when thresholds are crossed." value={settings.system.healthAlertsEnabled} onChange={x => update("system.healthAlertsEnabled", x)} />
                    </div>
-                   <div className="space-y-3">
+                     <div className="space-y-3">
                      <div>
                        <label className="text-sm font-medium">Maintenance Message</label>
                        <input type="text" value={settings.system.maintenanceMessage} onChange={e => update("system.maintenanceMessage", e.target.value)}
                          className="mt-1.5 w-full h-10 px-3 rounded-lg border border-border bg-background text-sm" />
+                     </div>
+                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                       <div>
+                         <label className="text-xs font-medium text-muted-foreground">Alert Email</label>
+                         <input type="email" value={settings.system.alertEmail} onChange={e => update("system.alertEmail", e.target.value)}
+                           placeholder="ops@example.com"
+                           className="mt-1 w-full h-9 px-2 rounded-lg border border-border bg-background text-sm" />
+                       </div>
+                       <div>
+                         <label className="text-xs font-medium text-muted-foreground">Alert Webhook</label>
+                         <input type="url" value={settings.system.alertWebhook} onChange={e => update("system.alertWebhook", e.target.value)}
+                           placeholder="https://..."
+                           className="mt-1 w-full h-9 px-2 rounded-lg border border-border bg-background text-sm" />
+                       </div>
                      </div>
                      <div className="grid grid-cols-3 gap-3">
                        <div>
@@ -4208,15 +5158,18 @@ export default function TenantSettingsPage() {
                                  type="button"
                                  onClick={async () => {
                                    try {
-                                     await fetch(`/api/tenant/${slug}/system/alerts`, {
+                                     const response = await fetch(`/api/tenant/${slug}/system/alerts`, {
                                        method: "PUT",
                                        headers: { "Content-Type": "application/json" },
                                        credentials: "include",
                                        body: JSON.stringify({ alertId: alert.id, isResolved: true }),
                                      });
+                                     const data = await response.json().catch(() => ({}));
+                                     if (!response.ok) throw new Error(data?.error || "Failed to resolve system alert");
                                      await refreshSystemSection();
-                                   } catch {
-                                     toast.error("Failed to resolve system alert");
+                                     toast.success("System alert resolved");
+                                   } catch (error: any) {
+                                     toast.error(error?.message || "Failed to resolve system alert");
                                    }
                                  }}
                                  className="text-xs font-semibold text-orange-600 hover:underline"
@@ -4237,13 +5190,35 @@ export default function TenantSettingsPage() {
                      type="button"
                      onClick={async () => {
                        try {
+                         await saveSystemSettings();
+                         const data = await runSystemAction("run-health-check");
+                         await refreshSystemSection();
+                         openActionDialog("System Health Check", "Tenant system checks were evaluated against the saved thresholds.", [
+                           `Status: ${data?.status || "unknown"}`,
+                           `Active users: ${Number(data?.activeUsers || 0).toLocaleString()}`,
+                           `Audit events 24h: ${Number(data?.auditEvents24h || 0).toLocaleString()}`,
+                           ...(Array.isArray(data?.checks) ? data.checks.map((check: any) => `${check.label}: ${check.status} (${check.value}/${check.threshold})`) : []),
+                         ]);
+                         toast.success("System health check completed");
+                       } catch (error: any) {
+                         toast.error(error?.message || "Failed to run health check");
+                       }
+                     }}
+                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold"
+                   >
+                     <Activity className="size-4" /> Run Health Check
+                   </button>
+                   <button
+                     type="button"
+                     onClick={async () => {
+                       try {
                          await refreshSystemSection();
                          toast.success("System status refreshed");
                        } catch {
                          toast.error("Failed to refresh system status");
                        }
                      }}
-                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold"
+                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
                    >
                      <RefreshCw className={`size-4 ${systemLoading ? "animate-spin" : ""}`} /> Refresh Status
                    </button>
@@ -4263,6 +5238,42 @@ export default function TenantSettingsPage() {
                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
                    >
                      <Download className="size-4" /> Export Report
+                   </button>
+                   <button
+                     type="button"
+                     onClick={async () => {
+                       try {
+                         await saveSystemSettings();
+                         const data = await runSystemAction("test-alert");
+                         await refreshSystemSection();
+                         openActionDialog("System Alert Test", "A test alert was created and dispatched through configured alert channels.", [
+                           `Webhook: ${data?.webhookResult?.ok ? "Delivered" : data?.webhookResult?.skipped ? "Skipped" : "Failed"}`,
+                           `Email: ${data?.emailResult?.ok ? "Delivered" : data?.emailResult?.skipped ? "Skipped" : "Failed"}`,
+                           `Alert ID: ${data?.alert?.id || "created"}`,
+                         ]);
+                         toast.success("System alert test completed");
+                       } catch (error: any) {
+                         toast.error(error?.message || "Failed to test system alerts");
+                       }
+                     }}
+                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                   >
+                     <Bell className="size-4" /> Test Alerts
+                   </button>
+                   <button
+                     type="button"
+                     onClick={async () => {
+                       try {
+                         const data = await runSystemAction("clear-resolved-alerts");
+                         await refreshSystemSection();
+                         toast.success(`Cleared ${Number(data?.cleared || 0)} resolved alert(s)`);
+                       } catch (error: any) {
+                         toast.error(error?.message || "Failed to clear resolved alerts");
+                       }
+                     }}
+                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                   >
+                     <Trash2 className="size-4" /> Clear Resolved
                    </button>
                    <button
                      type="button"
@@ -4295,6 +5306,57 @@ export default function TenantSettingsPage() {
               onReset={() => setSettings({ ...settings, security: { ...DEFAULT_SETTINGS.security } })}
             >
               <div className="space-y-6">
+                <div className="rounded-lg border border-border bg-muted/20 p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <h4 className="text-sm font-semibold text-foreground">Security Operations</h4>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Tenant-admin controls for authentication policy, access protection, security audits, and incident readiness.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void refreshSecuritySection()}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                      >
+                        <RefreshCw className={`size-4 ${securityLoading ? "animate-spin" : ""}`} /> Refresh
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await saveSecurityPolicy();
+                          } catch (error: any) {
+                            toast.error(error?.message || "Failed to save security policy");
+                          }
+                        }}
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold"
+                      >
+                        <Save className="size-4" /> Save Security Policy
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div className="rounded-lg border border-border bg-background px-3 py-3">
+                      <p className="text-xs text-muted-foreground">Active Users</p>
+                      <p className="mt-1 text-xl font-bold">{Number(securitySettings.activeUsers || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="rounded-lg border border-border bg-background px-3 py-3">
+                      <p className="text-xs text-muted-foreground">Inactive Users</p>
+                      <p className="mt-1 text-xl font-bold">{Number(securitySettings.inactiveUsers || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="rounded-lg border border-border bg-background px-3 py-3">
+                      <p className="text-xs text-muted-foreground">2FA Enrolled</p>
+                      <p className="mt-1 text-xl font-bold">{Number(securitySettings.twoFactorEnrolledUsers || 0).toLocaleString()}</p>
+                    </div>
+                    <div className="rounded-lg border border-border bg-background px-3 py-3">
+                      <p className="text-xs text-muted-foreground">2FA Pending</p>
+                      <p className="mt-1 text-xl font-bold">{Number(securitySettings.twoFactorPendingUsers || 0).toLocaleString()}</p>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Authentication Settings */}
                 <div className="space-y-4">
                   <h4 className="text-sm font-semibold text-foreground">Authentication</h4>
@@ -4315,6 +5377,65 @@ export default function TenantSettingsPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Toggle label="Password expiration" desc="Require password changes every configured period" value={settings.security.passwordExpirationEnabled} onChange={x => update("security.passwordExpirationEnabled", x)} />
                     <Toggle label="Login attempt limits" desc="Lock accounts after repeated failed attempts" value={settings.security.loginAttemptLimitsEnabled} onChange={x => update("security.loginAttemptLimitsEnabled", x)} />
+                  </div>
+
+                  <div className="rounded-lg border border-border p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <h5 className="text-sm font-semibold text-foreground">Authenticator App Enrollment</h5>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          When Require 2FA is enabled, users must enroll a TOTP authenticator app before accessing dashboards.
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">
+                        {Number(securitySettings.twoFactorEnrolledUsers || 0)} enrolled
+                      </span>
+                    </div>
+                    <div className="max-h-64 space-y-2 overflow-y-auto">
+                      {Array.isArray(securitySettings.twoFactorEnrollment) && securitySettings.twoFactorEnrollment.length > 0 ? (
+                        securitySettings.twoFactorEnrollment.map((item: any) => (
+                          <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-xs">
+                            <div>
+                              <p className="font-medium">{item.name}</p>
+                              <p className="text-muted-foreground">{item.email} - {String(item.role || "staff").replace(/_/g, " ")}</p>
+                            </div>
+                            <div className="text-right">
+                              <span className={`rounded-full px-2 py-1 font-semibold ${item.enrolled ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>
+                                {item.enrolled ? "Enrolled" : "Pending"}
+                              </span>
+                              {item.enrolled && (
+                                <>
+                                  <p className="mt-1 text-muted-foreground">
+                                    {item.backupCodesRemaining} recovery code(s)
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const confirmed = window.confirm(`Reset authenticator 2FA for ${item.name}? They must enroll again on next login.`);
+                                      if (!confirmed) return;
+                                      try {
+                                        await runSecurityAction("reset-user-2fa", { userId: item.id });
+                                        await refreshSecuritySection();
+                                        toast.success("User 2FA reset");
+                                      } catch (error: any) {
+                                        toast.error(error?.message || "Failed to reset user 2FA");
+                                      }
+                                    }}
+                                    className="mt-1 text-orange-600 hover:underline"
+                                  >
+                                    Reset
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
+                          No tenant users found for 2FA enrollment tracking.
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   {settings.security.passwordExpirationEnabled && (
@@ -4470,14 +5591,24 @@ export default function TenantSettingsPage() {
                             Active
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground">Last reviewed: {settings.security.incidentResponseLastReviewedAt || "Not recorded"}</p>
-                        <button type="button" onClick={() => openActionDialog("Incident Response Plan", "Current incident response workflow", [
-                          "1. Identify and classify the incident.",
-                          "2. Notify security lead and hospital admin.",
-                          "3. Contain impact and preserve audit evidence.",
-                          "4. Communicate resolution and post-incident actions.",
-                        ])} className="text-xs font-semibold text-orange-600 hover:underline mt-2">
-                          View Plan
+                        <p className="text-xs text-muted-foreground">
+                          Last reviewed: {settings.security.incidentResponseLastReviewedAt ? format(new Date(settings.security.incidentResponseLastReviewedAt), "PPp") : "Not recorded"}
+                        </p>
+                        <button type="button" onClick={async () => {
+                          try {
+                            const data = await runSecurityAction("review-incident-plan");
+                            setSettings((current) => current ? { ...current, security: { ...current.security, ...(data.settings || {}) } } : current);
+                            openActionDialog("Incident Response Plan Reviewed", "Current incident response workflow was marked reviewed and saved.", [
+                              "Identify and classify the incident.",
+                              "Notify security lead and hospital admin.",
+                              "Contain impact and preserve audit evidence.",
+                              "Communicate resolution and post-incident actions.",
+                            ]);
+                          } catch (error: any) {
+                            toast.error(error?.message || "Failed to review incident plan");
+                          }
+                        }} className="text-xs font-semibold text-orange-600 hover:underline mt-2">
+                          Review Plan
                         </button>
                       </div>
 
@@ -4510,7 +5641,9 @@ export default function TenantSettingsPage() {
                           {settings.security.lastPenetrationTestStatus || "Passed"}
                         </span>
                       </div>
-                      <p className="text-xs text-muted-foreground">Completed on {settings.security.lastPenetrationTestAt || "Oct 15, 2024"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Completed on {settings.security.lastPenetrationTestAt ? format(new Date(settings.security.lastPenetrationTestAt), "PP") : "Not recorded"}
+                      </p>
                       <button type="button" onClick={() => openActionDialog("Penetration Test Report", "Most recent external security review summary", [
                         "Overall outcome: Passed",
                         "Critical findings: 0",
@@ -4527,7 +5660,9 @@ export default function TenantSettingsPage() {
                           {settings.security.nextSecurityAuditStatus || "Scheduled"}
                         </span>
                       </div>
-                      <p className="text-xs text-muted-foreground">Due on {settings.security.nextSecurityAuditAt || "Apr 15, 2025"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Due on {settings.security.nextSecurityAuditAt ? format(new Date(settings.security.nextSecurityAuditAt), "PP") : "Not scheduled"}
+                      </p>
                       <button type="button" onClick={async () => {
                         try {
                           const data = await runSecurityAction("schedule-audit");
@@ -4623,6 +5758,27 @@ export default function TenantSettingsPage() {
                     className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
                   >
                     <Download className="size-4" /> Export Security Report
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const data = await runSecurityAction("run-vulnerability-scan");
+                        openActionDialog("Vulnerability Scan Completed", "A tenant security scan was completed against the active security policy.", [
+                          `Critical: ${data?.result?.critical ?? 0}`,
+                          `High: ${data?.result?.high ?? 0}`,
+                          `Medium: ${data?.result?.medium ?? 0}`,
+                          `Low: ${data?.result?.low ?? 0}`,
+                        ]);
+                        await refreshSecuritySection();
+                        toast.success("Vulnerability scan completed");
+                      } catch (error: any) {
+                        toast.error(error?.message || "Vulnerability scan failed");
+                      }
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border hover:bg-muted text-sm"
+                  >
+                    <Activity className="size-4" /> Run Vulnerability Scan
                   </button>
                   <button
                     type="button"
@@ -5078,6 +6234,15 @@ function cap(str: string) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+function moduleLabel(key: string) {
+  const labels: Record<string, string> = {
+    patientPortal: "Patient Portal",
+    carePlans: "Care Plans",
+    qualityControl: "Quality Control",
+  };
+  return labels[key] || cap(key);
+}
+
 function moduleHint(key: string) {
   const hints: { [key: string]: string } = {
     appointments: "Booking, rescheduling, and check-in workflows across the tenant",
@@ -5130,6 +6295,7 @@ function IntegrationCard({ name, desc, icon: Icon, color, provider, configFields
   const [isPreferred, setIsPreferred] = useState(preferredBySettings);
   const [savingConfig, setSavingConfig] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     setEnabled(Boolean(existing?.isActive));
@@ -5191,12 +6357,13 @@ function IntegrationCard({ name, desc, icon: Icon, color, provider, configFields
           isActive: enabled,
         }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || "Failed to save configuration");
       if (enabled && isPreferred) {
         await applyPreferredProvider();
       }
       await refreshIntegrations();
+      setExpanded(false);
       toast.success(`${name} configuration saved`);
     } catch (error: any) {
       toast.error(error?.message || `Failed to save ${name} configuration`);
@@ -5220,7 +6387,7 @@ function IntegrationCard({ name, desc, icon: Icon, color, provider, configFields
             isActive: enabled,
           }),
         });
-        const saveData = await saveResponse.json();
+        const saveData = await saveResponse.json().catch(() => ({}));
         if (!saveResponse.ok) throw new Error(saveData?.error || "Save configuration before testing");
         integrationId = saveData?.integration?.id;
       }
@@ -5228,7 +6395,7 @@ function IntegrationCard({ name, desc, icon: Icon, color, provider, configFields
         method: "POST",
         credentials: "include",
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || data?.message || "Integration test failed");
       await refreshIntegrations();
       toast.success(data?.message || `${name} test passed`);
@@ -5240,7 +6407,18 @@ function IntegrationCard({ name, desc, icon: Icon, color, provider, configFields
   };
 
   return (
-    <div className={`p-4 rounded-lg border border-border transition-all ${enabled ? "bg-muted/30" : "bg-background"} hover:bg-muted`}>
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => setExpanded((current) => !current)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          setExpanded((current) => !current);
+        }
+      }}
+      className={`p-4 rounded-lg border border-border transition-all ${enabled ? "bg-muted/30" : "bg-background"} hover:bg-muted cursor-pointer focus:outline-none focus:ring-2 focus:ring-orange-500/40`}
+    >
       <div className="flex items-center justify-between mb-3 gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="size-8 rounded-full flex items-center justify-center text-white relative shrink-0 bg-orange-500">
@@ -5260,17 +6438,32 @@ function IntegrationCard({ name, desc, icon: Icon, color, provider, configFields
                 {existing.lastTestedAt ? ` • Last tested ${new Date(existing.lastTestedAt).toLocaleString()}` : ""}
               </p>
             )}
+            {!expanded && (
+              <p className="text-[11px] text-orange-600 mt-1 font-medium">
+                Click to {existing ? "view details or update configuration" : "configure this provider"}
+              </p>
+            )}
+            {expanded && (
+              <p className="text-[11px] text-orange-600 mt-1 font-medium">
+                Click the card header to collapse
+              </p>
+            )}
           </div>
         </div>
-        <Toggle
-          label="Enable integration"
-          value={enabled}
-          onChange={setEnabled}
-          className="transition-all"
-        />
+        <div onClick={(event) => event.stopPropagation()}>
+          <Toggle
+            label="Enable integration"
+            value={enabled}
+            onChange={(value) => {
+              setEnabled(value);
+              if (value) setExpanded(true);
+            }}
+            className="transition-all"
+          />
+        </div>
       </div>
-      {enabled && (
-        <div className="space-y-4">
+      {enabled && expanded && (
+        <div className="space-y-4" onClick={(event) => event.stopPropagation()}>
           {configFields.map(field => {
             if (field.type === "select") {
               return (

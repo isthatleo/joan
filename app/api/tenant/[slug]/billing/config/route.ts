@@ -23,6 +23,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (!slug) {
       return NextResponse.json({ error: "Tenant slug required" }, { status: 400 });
     }
+    const access = await getTenantAccess(request, slug);
+    if (!access.ok || !access.tenant) return tenantAccessResponse(access);
 
     const [
       settings,
@@ -126,7 +128,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
     const body = await request.json().catch(() => ({}));
     const settings = normalizeBillingSettings(body);
-    await upsertBillingSettings(slug, settings);
+    await upsertBillingSettings(slug, settings, access.user?.id || null);
     await db.insert(auditLogs).values({
       tenantId: access.tenant.id,
       userId: access.user?.id || null,

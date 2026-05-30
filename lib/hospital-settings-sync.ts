@@ -6,9 +6,10 @@
  */
 
 import { useEffect, useCallback } from 'react';
+import { applyTenantPreferences } from "@/lib/tenant-preferences";
 
 export interface TenantBrandingUpdate {
-  type: 'branding' | 'name' | 'logo' | 'colors' | 'modules' | 'communication' | 'preferences';
+  type: 'branding' | 'name' | 'logo' | 'colors' | 'modules' | 'communication' | 'preferences' | 'workflow';
   tenantId: string;
   data: Record<string, any>;
   timestamp: number;
@@ -239,6 +240,7 @@ export function batchUpdateHospitalSettings(
     accentColor?: string;
     modules?: Record<string, boolean>;
     preferences?: Record<string, any>;
+    workflow?: Record<string, any>;
   }
 ) {
   if (typeof window === 'undefined') return;
@@ -261,6 +263,11 @@ export function batchUpdateHospitalSettings(
 
   if (updates.preferences) {
     sessionStorage.setItem("active_tenant_preferences", JSON.stringify(updates.preferences));
+    applyTenantPreferences(updates.preferences as any);
+  }
+
+  if (updates.workflow) {
+    sessionStorage.setItem("active_tenant_workflow", JSON.stringify(updates.workflow));
   }
 
   window.dispatchEvent(new CustomEvent(TENANT_SETTINGS_EVENT, {

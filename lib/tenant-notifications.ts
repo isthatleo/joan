@@ -87,6 +87,7 @@ export function isWithinQuietHours(settings: TenantNotificationSettings, now = n
 
 export async function getTenantNotificationOverview(tenantId: string) {
   const since = new Date(Date.now() - 1000 * 60 * 60 * 24 * 7);
+  const auditSince = new Date(Date.now() - 1000 * 60 * 60 * 24 * 30);
   const recentNotifications = await db.query.notifications.findMany({
     where: and(eq(notifications.tenantId, tenantId), gte(notifications.createdAt, since)),
     orderBy: desc(notifications.createdAt),
@@ -96,7 +97,7 @@ export async function getTenantNotificationOverview(tenantId: string) {
   const recentAuditEvents = await db
     .select()
     .from(auditLogs)
-    .where(and(eq(auditLogs.tenantId, tenantId), gte(auditLogs.createdAt, since)))
+    .where(and(eq(auditLogs.tenantId, tenantId), gte(auditLogs.createdAt, auditSince)))
     .orderBy(desc(auditLogs.createdAt))
     .limit(20);
 

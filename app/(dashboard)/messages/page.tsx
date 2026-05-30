@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuthStore } from "@/stores/auth";
-import { useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { socket } from "@/lib/socket";
 import {
   Button,
@@ -108,7 +108,10 @@ function getInitial(user?: User | null) {
 
 export default function MessagesPage() {
   const { user } = useAuthStore();
+  const params = useParams<{ slug?: string }>();
   const searchParams = useSearchParams();
+  const tenantSlug = typeof params?.slug === "string" ? params.slug : "";
+  const messagesApiBase = tenantSlug ? `/api/tenant/${tenantSlug}/messages` : "/api/messages";
   const userIdFromQuery = searchParams.get("userId");
   const queryClient = useQueryClient();
   const [selectedChat, setSelectedChat] = useState<string | null>(userIdFromQuery);
@@ -154,7 +157,7 @@ export default function MessagesPage() {
 
   const endCallCleanup = (emitSignal = false) => {
     if (emitSignal && activeCall?.callId) {
-      void fetch(`/api/messages/calls/${activeCall.callId}`, {
+      void fetch(`${messagesApiBase}/calls/${activeCall.callId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
@@ -175,7 +178,7 @@ export default function MessagesPage() {
     queryFn: async () => {
       const params = new URLSearchParams({ type: "self" });
       if (user?.id) params.set("userId", user.id);
-      const response = await fetch(`/api/messages?${params.toString()}`, { cache: "no-store", credentials: "include" });
+      const response = await fetch(`${messagesApiBase}?${params.toString()}`, { cache: "no-store", credentials: "include" });
       if (!response.ok) throw new Error("Failed to resolve messaging user");
       return response.json();
     },
@@ -186,7 +189,7 @@ export default function MessagesPage() {
   const messagingTenantId = selfData?.currentUser?.tenantId ?? null;
 
   const updateTypingState = async (receiverId: string, isTyping: boolean) => {
-    await fetch("/api/messages/typing", {
+    await fetch(`${messagesApiBase}/typing`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
@@ -323,7 +326,7 @@ export default function MessagesPage() {
   const { data: usersData, isLoading: usersLoading } = useQuery({
     queryKey: ["users-search", userSearchQuery, messagingUserId],
     queryFn: async () => {
-      const response = await fetch(`/api/messages?type=available-users&search=${encodeURIComponent(userSearchQuery)}`, { cache: "no-store" });
+      const response = await fetch(`${messagesApiBase}?type=available-users&search=${encodeURIComponent(userSearchQuery)}`, { cache: "no-store", credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch users");
       return response.json();
     },
@@ -333,7 +336,7 @@ export default function MessagesPage() {
   const { data: conversationsData, isLoading: conversationsLoading, refetch: refetchConversations } = useQuery({
     queryKey: ["conversations", messagingUserId],
     queryFn: async () => {
-      const response = await fetch(`/api/messages?type=conversations`, { cache: "no-store" });
+      const response = await fetch(`${messagesApiBase}?type=conversations`, { cache: "no-store", credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch conversations");
       return response.json();
     },
@@ -346,7 +349,7 @@ export default function MessagesPage() {
   const { data: chatData, isLoading: chatLoading, refetch: refetchChat } = useQuery({
     queryKey: ["chat", messagingUserId, selectedChat],
     queryFn: async () => {
-      const response = await fetch(`/api/messages?type=chat&otherUserId=${selectedChat}`, { cache: "no-store" });
+      const response = await fetch(`${messagesApiBase}?type=chat&otherUserId=${selectedChat}`, { cache: "no-store", credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch messages");
       return response.json();
     },
@@ -360,7 +363,7 @@ export default function MessagesPage() {
     if (!messagingUserId) return;
 
     const sendHeartbeat = () =>
-      fetch("/api/messages/presence", {
+      fetch(`${messagesApiBase}/presence`, {
         method: "POST",
         cache: "no-store",
         keepalive: true,
@@ -374,7 +377,7 @@ export default function MessagesPage() {
   const { data: presenceData } = useQuery({
     queryKey: ["messaging-presence", messagingUserId],
     queryFn: async () => {
-      const response = await fetch("/api/messages/presence", { cache: "no-store" });
+      const response = await fetch(`${messagesApiBase}/presence`, { cache: "no-store", credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch presence");
       return response.json();
     },
@@ -387,7 +390,7 @@ export default function MessagesPage() {
   const { data: typingData } = useQuery({
     queryKey: ["messaging-typing", messagingUserId, selectedChat],
     queryFn: async () => {
-      const response = await fetch(`/api/messages/typing?otherUserId=${selectedChat}`, { cache: "no-store" });
+      const response = await fetch(`${messagesApiBase}/typing?otherUserId=${selectedChat}`, { cache: "no-store", credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch typing state");
       return response.json();
     },
@@ -400,7 +403,7 @@ export default function MessagesPage() {
   const { data: incomingCallData } = useQuery({
     queryKey: ["messaging-incoming-call", messagingUserId],
     queryFn: async () => {
-      const response = await fetch("/api/messages/calls?type=incoming", { cache: "no-store" });
+      const response = await fetch(`${messagesApiBase}/calls?type=incoming`, { cache: "no-store", credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch incoming call");
       return response.json();
     },
@@ -414,7 +417,7 @@ export default function MessagesPage() {
   const { data: activeCallData } = useQuery({
     queryKey: ["messaging-active-call", messagingUserId, activePeerUserId],
     queryFn: async () => {
-      const response = await fetch(`/api/messages/calls?type=conversation&otherUserId=${activePeerUserId}`, { cache: "no-store" });
+      const response = await fetch(`${messagesApiBase}/calls?type=conversation&otherUserId=${activePeerUserId}`, { cache: "no-store", credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch active call");
       return response.json();
     },
@@ -515,7 +518,7 @@ export default function MessagesPage() {
 
   const sendMessageMutation = useMutation({
     mutationFn: async (message: string) => {
-      const response = await fetch(`/api/messages`, {
+      const response = await fetch(messagesApiBase, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -602,7 +605,7 @@ export default function MessagesPage() {
 
   const deleteMessageMutation = useMutation({
     mutationFn: async (messageId: string) => {
-      const response = await fetch(`/api/messages/${messageId}`, {
+      const response = await fetch(`${messagesApiBase}/${messageId}`, {
         method: "DELETE",
       });
       const payload = await response.json();
@@ -627,7 +630,7 @@ export default function MessagesPage() {
   const clearChatMutation = useMutation({
     mutationFn: async () => {
       if (!selectedChat) throw new Error("No conversation selected");
-      const response = await fetch(`/api/messages/chat/${selectedChat}`, {
+      const response = await fetch(`${messagesApiBase}/chat/${selectedChat}`, {
         method: "DELETE",
       });
       const payload = await response.json();
@@ -660,7 +663,7 @@ export default function MessagesPage() {
     if (unreadIncoming.length === 0) return;
 
     const messageIds = unreadIncoming.map((entry: Message) => entry.id);
-    void fetch("/api/messages/read", {
+    void fetch(`${messagesApiBase}/read`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
@@ -817,7 +820,7 @@ export default function MessagesPage() {
   };
 
   const sendCallCandidate = (callId: string, candidate: RTCIceCandidateInit) =>
-    fetch(`/api/messages/calls/${callId}`, {
+    fetch(`${messagesApiBase}/calls/${callId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
@@ -873,7 +876,7 @@ export default function MessagesPage() {
       stream.getTracks().forEach((track) => peer.addTrack(track, stream));
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
-      const response = await fetch(`/api/messages/calls`, {
+      const response = await fetch(`${messagesApiBase}/calls`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
@@ -919,7 +922,7 @@ export default function MessagesPage() {
       await peer.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
-      const response = await fetch(`/api/messages/calls/${incomingCall.callId}`, {
+      const response = await fetch(`${messagesApiBase}/calls/${incomingCall.callId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
@@ -949,7 +952,7 @@ export default function MessagesPage() {
 
   const rejectCall = () => {
     if (!incomingCall) return;
-    void fetch(`/api/messages/calls/${incomingCall.callId}`, {
+    void fetch(`${messagesApiBase}/calls/${incomingCall.callId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",

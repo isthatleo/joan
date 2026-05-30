@@ -117,6 +117,14 @@ function AuthenticatedShell({
       } catch {}
     };
 
+    const applyIncomingPreferences = (preferences: unknown) => {
+      if (!preferences || typeof preferences !== "object") return;
+      try {
+        sessionStorage.setItem("active_tenant_preferences", JSON.stringify(preferences));
+        applyTenantPreferences(preferences as any);
+      } catch {}
+    };
+
     const refreshPreferences = async () => {
       if (sessionStorage.getItem("active_tenant_preferences")) return;
 
@@ -136,14 +144,27 @@ function AuthenticatedShell({
 
     const handleStorage = (event: StorageEvent) => {
       if (event.key && event.key !== "active_tenant_preferences" && !event.key.startsWith("hospital_settings_")) return;
+      if (event.key?.startsWith("hospital_settings_") && event.newValue) {
+        try {
+          const update = JSON.parse(event.newValue);
+          if (update?.preferences) {
+            applyIncomingPreferences(update.preferences);
+            return;
+          }
+        } catch {}
+      }
       applyStoredPreferences();
     };
 
     const handleTenantSettingsEvent = (event: Event) => {
       const detail = (event as CustomEvent).detail;
       if (detail?.preferences) {
+        applyIncomingPreferences(detail.preferences);
+        return;
+      }
+      if (detail?.workflow) {
         try {
-          sessionStorage.setItem("active_tenant_preferences", JSON.stringify(detail.preferences));
+          sessionStorage.setItem("active_tenant_workflow", JSON.stringify(detail.workflow));
         } catch {}
       }
       applyStoredPreferences();
@@ -153,12 +174,26 @@ function AuthenticatedShell({
     void refreshPreferences();
     window.addEventListener("storage", handleStorage);
     window.addEventListener(getTenantSettingsSyncEventName(), handleTenantSettingsEvent as EventListener);
+    const channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(`hospital_settings_${tenant.id}`) : null;
+    if (channel) {
+      channel.onmessage = (event) => {
+        const preferences = event.data?.data?.preferences || event.data?.preferences;
+        if (preferences) applyIncomingPreferences(preferences);
+        const workflow = event.data?.data?.workflow || event.data?.workflow;
+        if (workflow) {
+          try {
+            sessionStorage.setItem("active_tenant_workflow", JSON.stringify(workflow));
+          } catch {}
+        }
+      };
+    }
 
     return () => {
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener(getTenantSettingsSyncEventName(), handleTenantSettingsEvent as EventListener);
+      channel?.close();
     };
-  }, [tenant.slug]);
+  }, [tenant.id, tenant.slug]);
 
   useEffect(() => {
     if (!user || typeof window === "undefined" || isTenantLoginPath(pathname) || pathname.includes("/verify-2fa")) {

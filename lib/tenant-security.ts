@@ -63,6 +63,49 @@ export async function getTenantSecuritySettings(tenantId: string) {
   } satisfies TenantSecuritySettings;
 }
 
+export function normalizeTenantSecuritySettings(value: Record<string, any> | null | undefined) {
+  const source = value || {};
+  const numberInRange = (input: unknown, fallback: number, min: number, max: number) => {
+    const next = Number(input);
+    if (!Number.isFinite(next)) return fallback;
+    return Math.min(max, Math.max(min, Math.trunc(next)));
+  };
+
+  return {
+    ...DEFAULT_TENANT_SECURITY_SETTINGS,
+    ...source,
+    sessionTimeout: numberInRange(source.sessionTimeout, DEFAULT_TENANT_SECURITY_SETTINGS.sessionTimeout, 15, 480),
+    passwordExpirationDays: numberInRange(source.passwordExpirationDays, DEFAULT_TENANT_SECURITY_SETTINGS.passwordExpirationDays, 30, 365),
+    maxFailedLoginAttempts: numberInRange(source.maxFailedLoginAttempts, DEFAULT_TENANT_SECURITY_SETTINGS.maxFailedLoginAttempts, 3, 20),
+    passwordMinLength: numberInRange(source.passwordMinLength, DEFAULT_TENANT_SECURITY_SETTINGS.passwordMinLength, 6, 128),
+    dbKeyRotationDays: numberInRange(source.dbKeyRotationDays, DEFAULT_TENANT_SECURITY_SETTINGS.dbKeyRotationDays, 30, 365),
+    apiKeyRotationDays: numberInRange(source.apiKeyRotationDays, DEFAULT_TENANT_SECURITY_SETTINGS.apiKeyRotationDays, 0, 365),
+    fileKeyRotationDays: numberInRange(source.fileKeyRotationDays, DEFAULT_TENANT_SECURITY_SETTINGS.fileKeyRotationDays, 30, 365),
+    ipWhitelist: Array.isArray(source.ipWhitelist) ? source.ipWhitelist.map(String).map((item) => item.trim()).filter(Boolean) : [],
+    generatedSecurityKeys: Array.isArray(source.generatedSecurityKeys) ? source.generatedSecurityKeys.slice(0, 10) : [],
+  } satisfies TenantSecuritySettings;
+}
+
+export async function saveTenantSecuritySettings(tenantId: string, value: Record<string, any>, updatedBy?: string | null) {
+  const settings = normalizeTenantSecuritySettings(value);
+  const existing = await db
+    .select()
+    .from(tenantSettings)
+    .where(and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, "security")))
+    .limit(1);
+
+  if (existing[0]) {
+    await db
+      .update(tenantSettings)
+      .set({ value: settings, updatedAt: new Date(), updatedBy: updatedBy || null })
+      .where(eq(tenantSettings.id, existing[0].id));
+  } else {
+    await db.insert(tenantSettings).values({ tenantId, key: "security", value: settings, updatedBy: updatedBy || null });
+  }
+
+  return settings;
+}
+
 function ipv4ToInt(ip: string) {
   const parts = ip.split(".").map((segment) => Number.parseInt(segment, 10));
   if (parts.length !== 4 || parts.some((segment) => Number.isNaN(segment) || segment < 0 || segment > 255)) {

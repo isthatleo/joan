@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { integrations, tenants } from "@/lib/db/schema";
+import { auditLogs, integrations, tenants } from "@/lib/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { encryptSecret, decryptSecret, maskSecret } from "@/lib/crypto";
 import { INTEGRATION_PROVIDERS, getProvider, providerPublicShape } from "@/lib/integrations/providers";
 import { syncTenantCommunicationProviders } from "@/lib/integrations/server";
 import { z } from "zod";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
 const integrationUpsertSchema = z.object({
   provider: z.string().trim().min(1),
@@ -57,6 +58,8 @@ export async function GET(
   const { slug } = await params;
   const tenant = await getTenant(slug);
   if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+  const admin = await requireTenantAdmin(request.headers, tenant.id);
+  if (!admin.ok) return NextResponse.json({ error: admin.error || "Forbidden" }, { status: admin.status || 403 });
 
   const rows = await db
     .select()
@@ -73,101 +76,124 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { slug } = await params;
-  const tenant = await getTenant(slug);
-  if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
-
-  let json: unknown;
   try {
-    json = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Request body must be valid JSON" }, { status: 400 });
-  }
-  const parsedBody = integrationUpsertSchema.safeParse(json);
-  if (!parsedBody.success) {
-    return NextResponse.json(
-      { error: "Validation failed", details: parsedBody.error.flatten() },
-      { status: 422 }
-    );
-  }
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { slug } = await params;
+    const tenant = await getTenant(slug);
+    if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error || "Forbidden" }, { status: admin.status || 403 });
 
-  const { provider: providerId, fields = {}, isActive = true } = parsedBody.data;
-  const provider = getProvider(providerId);
-  if (!provider) return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
-
-  for (const f of provider.fields) {
-    if (f.required && !fields[f.key]) {
-      return NextResponse.json({ error: `Missing required field: ${f.label}` }, { status: 400 });
+    let json: unknown;
+    try {
+      json = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Request body must be valid JSON" }, { status: 400 });
     }
-  }
+    const parsedBody = integrationUpsertSchema.safeParse(json);
+    if (!parsedBody.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parsedBody.error.flatten() },
+        { status: 422 }
+      );
+    }
 
-  // Separate sensitive fields into encrypted storage; keep public ones in config
-  let apiKeyEncrypted: string | null = null;
-  let apiSecretEncrypted: string | null = null;
-  // Upsert
-  const [existing] = await db
-    .select()
-    .from(integrations)
-    .where(
-      and(
-        eq(integrations.tenantId, tenant.id),
-        eq(integrations.provider, providerId),
-        isNull(integrations.deletedAt)
-      )
-    )
-    .limit(1);
+    const { provider: providerId, fields = {}, isActive = true } = parsedBody.data;
+    const provider = getProvider(providerId);
+    if (!provider) return NextResponse.json({ error: "Unknown provider" }, { status: 400 });
 
-  const config: Record<string, any> = { ...((existing?.config as Record<string, any>) || {}) };
-  for (const f of provider.fields) {
-    const value = fields[f.key];
-    if (value === undefined || value === null || value === "") {
-      if (!existing && f.type !== "password") {
-        delete config[f.key];
+    for (const f of provider.fields) {
+      if (f.required && !fields[f.key]) {
+        return NextResponse.json({ error: `Missing required field: ${f.label}` }, { status: 400 });
       }
-      continue;
     }
 
-    if (f.type === "password") {
-      const enc = encryptSecret(String(value));
-      if (!apiKeyEncrypted) apiKeyEncrypted = enc;
-      else if (!apiSecretEncrypted) apiSecretEncrypted = enc;
-      config[f.key] = enc;
-    } else {
-      config[f.key] = String(value).trim();
-    }
-  }
+    // Separate sensitive fields into encrypted storage; keep public ones in config
+    let apiKeyEncrypted: string | null = null;
+    let apiSecretEncrypted: string | null = null;
+    // Upsert
+    const [existing] = await db
+      .select()
+      .from(integrations)
+      .where(
+        and(
+          eq(integrations.tenantId, tenant.id),
+          eq(integrations.provider, providerId),
+          isNull(integrations.deletedAt)
+        )
+      )
+      .limit(1);
 
-  if (existing) {
-    const [updated] = await db
-      .update(integrations)
-      .set({
-        config,
-        apiKeyEncrypted: apiKeyEncrypted ?? existing.apiKeyEncrypted,
-        apiSecretEncrypted: apiSecretEncrypted ?? existing.apiSecretEncrypted,
+    const config: Record<string, any> = { ...((existing?.config as Record<string, any>) || {}) };
+    for (const f of provider.fields) {
+      const value = fields[f.key];
+      if (value === undefined || value === null || value === "") {
+        if (!existing && f.type !== "password") {
+          delete config[f.key];
+        }
+        continue;
+      }
+
+      if (f.type === "password") {
+        const enc = encryptSecret(String(value));
+        if (!apiKeyEncrypted) apiKeyEncrypted = enc;
+        else if (!apiSecretEncrypted) apiSecretEncrypted = enc;
+        config[f.key] = enc;
+      } else {
+        config[f.key] = String(value).trim();
+      }
+    }
+
+    if (existing) {
+      const [updated] = await db
+        .update(integrations)
+        .set({
+          config,
+          apiKeyEncrypted: apiKeyEncrypted ?? existing.apiKeyEncrypted,
+          apiSecretEncrypted: apiSecretEncrypted ?? existing.apiSecretEncrypted,
+          isActive,
+          status: "pending",
+          updatedAt: new Date(),
+        })
+        .where(eq(integrations.id, existing.id))
+        .returning();
+      await syncTenantCommunicationProviders(tenant.id);
+      await db.insert(auditLogs).values({
+        tenantId: tenant.id,
+        userId: admin.user?.id || null,
+        action: "tenant.integration_updated",
+        entity: "integration",
+        entityId: updated.id,
+        metadata: { provider: providerId, isActive },
+      });
+      return NextResponse.json({ integration: sanitize(updated) });
+    }
+
+    const [created] = await db
+      .insert(integrations)
+      .values({
+        tenantId: tenant.id,
+        provider: providerId,
         isActive,
+        apiKeyEncrypted,
+        apiSecretEncrypted,
+        config,
         status: "pending",
-        updatedAt: new Date(),
       })
-      .where(eq(integrations.id, existing.id))
       .returning();
     await syncTenantCommunicationProviders(tenant.id);
-    return NextResponse.json({ integration: sanitize(updated) });
-  }
-
-  const [created] = await db
-    .insert(integrations)
-    .values({
+    await db.insert(auditLogs).values({
       tenantId: tenant.id,
-      provider: providerId,
-      isActive,
-      apiKeyEncrypted,
-      apiSecretEncrypted,
-      config,
-      status: "pending",
-    })
-    .returning();
-  await syncTenantCommunicationProviders(tenant.id);
-  return NextResponse.json({ integration: sanitize(created) }, { status: 201 });
+      userId: admin.user?.id || null,
+      action: "tenant.integration_created",
+      entity: "integration",
+      entityId: created.id,
+      metadata: { provider: providerId, isActive },
+    });
+    return NextResponse.json({ integration: sanitize(created) }, { status: 201 });
+  } catch (error: any) {
+    console.error("[tenant integrations POST]", error);
+    return NextResponse.json({ error: error?.message || "Failed to save integration" }, { status: 500 });
+  }
 }
