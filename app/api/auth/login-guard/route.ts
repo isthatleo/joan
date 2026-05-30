@@ -13,7 +13,7 @@ async function getTenantBySlug(slug?: string | null) {
 async function findUserByEmail(email: string) {
   return db.query.users.findFirst({
     where: and(ilike(users.email, email), isNull(users.deletedAt)),
-    columns: { id: true, email: true, tenantId: true, role: true, fullName: true },
+    columns: { id: true, email: true, tenantId: true, role: true, fullName: true, isActive: true },
   });
 }
 
@@ -87,6 +87,13 @@ export async function POST(request: NextRequest) {
   );
 
   if (action === "precheck") {
+    if (user.isActive === false) {
+      return NextResponse.json({
+        allowed: false,
+        reason: "inactive",
+      });
+    }
+
     if (isLocked) {
       return NextResponse.json({
         allowed: false,
@@ -105,7 +112,7 @@ export async function POST(request: NextRequest) {
   if (action === "record-failure") {
     const currentAttempts = Number(mergedSettings.security.failedLoginAttempts || 0) + 1;
     const maxAttempts = Number(tenantSecurity?.maxFailedLoginAttempts || 5);
-    const loginLimitsEnabled = tenantSecurity?.loginAttemptLimitsEnabled !== false;
+    const loginLimitsEnabled = (tenantSecurity as any)?.loginAttemptLimitsEnabled === false ? false : true;
     const nextSettings = mergeUserSettings({
       ...mergedSettings,
       security: {
@@ -140,6 +147,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       passwordExpired: expiry.expired,
+      forcePasswordChange: nextSettings.security.forcePasswordChange,
       passwordExpiresAt: expiry.expiresAt,
       userId: user.id,
       tenantSlug: tenant?.slug || tenantSlug,

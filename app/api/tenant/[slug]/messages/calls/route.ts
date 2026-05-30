@@ -2,23 +2,55 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, eq, ilike, isNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
+import { tenants, users } from "@/lib/db/schema";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
 import { MessagingCallService } from "@/lib/services/messaging-call.service";
+import { MessagingService } from "@/lib/services/messaging.service";
+import { getTenantSubdomain } from "@/lib/tenant-routing";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const callService = new MessagingCallService();
+const messagingService = new MessagingService();
 
-async function resolveTenantUser(sessionEmail: string, slug: string) {
-  const tenantId = await getTenantIdBySlug(slug);
-  if (!tenantId) return null;
+async function resolveTenantId(request: NextRequest, slug: string, sessionEmail: string) {
+  const directTenantId = await getTenantIdBySlug(slug);
+  if (directTenantId) return directTenantId;
 
-  return db.query.users.findFirst({
-    where: and(eq(users.tenantId, tenantId), ilike(users.email, sessionEmail), isNull(users.deletedAt)),
+  const hostSlug = getTenantSubdomain(request.headers.get("host"));
+  if (hostSlug && hostSlug !== slug) {
+    const hostTenantId = await getTenantIdBySlug(hostSlug);
+    if (hostTenantId) return hostTenantId;
+  }
+
+  const appUser = await db.query.users.findFirst({
+    where: and(ilike(users.email, sessionEmail), eq(users.isActive, true), isNull(users.deletedAt)),
     columns: { id: true, tenantId: true },
   });
+  if (appUser?.tenantId) return appUser.tenantId;
+
+  if (appUser?.id) {
+    const adminTenant = await db.query.tenants.findFirst({
+      where: eq(tenants.adminUserId, appUser.id),
+      columns: { id: true },
+    });
+    if (adminTenant?.id) return adminTenant.id;
+  }
+
+  return null;
+}
+
+async function resolveTenantUser(request: NextRequest, sessionEmail: string, slug: string) {
+  const tenantId = await resolveTenantId(request, slug, sessionEmail);
+  if (!tenantId) return null;
+
+  const user = await db.query.users.findFirst({
+    where: and(ilike(users.email, sessionEmail), eq(users.isActive, true), isNull(users.deletedAt)),
+    columns: { id: true, tenantId: true },
+  });
+  if (!user) return null;
+  return { id: user.id, tenantId };
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
@@ -29,10 +61,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     const { slug } = await params;
-    const currentUser = await resolveTenantUser(session.user.email, slug);
-    if (!currentUser) {
+    const currentUser = await resolveTenantUser(request, session.user.email, slug);
+    if (!currentUser?.tenantId) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
+    const tenantId = currentUser.tenantId;
 
     const { searchParams } = new URL(request.url);
     const type = searchParams.get("type") || "incoming";
@@ -63,26 +96,35 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const { slug } = await params;
-    const currentUser = await resolveTenantUser(session.user.email, slug);
-    if (!currentUser) {
+    const currentUser = await resolveTenantUser(request, session.user.email, slug);
+    if (!currentUser?.tenantId) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
+    const tenantId = currentUser.tenantId;
 
-    const { calleeId, callType, offer } = await request.json();
-    if (!calleeId || !callType || !offer) {
+    const body = await request.json().catch(() => ({}));
+    const calleeId = String(body.calleeId || "").trim();
+    const callType = String(body.callType || "").trim();
+    const offer = body.offer;
+    if (!calleeId || (callType !== "audio" && callType !== "video") || !offer) {
       return NextResponse.json({ error: "calleeId, callType, and offer are required" }, { status: 400 });
     }
 
     const callee = await db.query.users.findFirst({
-      where: and(eq(users.id, calleeId), eq(users.tenantId, currentUser.tenantId), isNull(users.deletedAt)),
+      where: and(eq(users.id, calleeId), eq(users.isActive, true), isNull(users.deletedAt)),
       columns: { id: true },
     });
     if (!callee) {
       return NextResponse.json({ error: "Callee not found" }, { status: 404 });
     }
 
+    const canCall = await messagingService.canMessage(currentUser.id, calleeId, tenantId);
+    if (!canCall) {
+      return NextResponse.json({ error: "Insufficient permissions to call this user" }, { status: 403 });
+    }
+
     const call = await callService.createCall({
-      tenantId: currentUser.tenantId,
+      tenantId,
       callerId: currentUser.id,
       calleeId,
       callType,

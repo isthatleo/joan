@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import { toPng } from "html-to-image";
+import { toJpeg, toPng } from "html-to-image";
 
 const EXPORT_PADDING = 48;
 const EXPORT_CARD_RADIUS = 28;
@@ -76,6 +76,26 @@ async function renderElementToPng(element: HTMLElement) {
   }
 }
 
+async function renderElementToJpeg(element: HTMLElement) {
+  const exportScene = buildExportScene(element);
+
+  try {
+    return await toJpeg(exportScene.scene, {
+      cacheBust: true,
+      pixelRatio: 2,
+      backgroundColor: "#ffffff",
+      quality: 0.95,
+      width: exportScene.width,
+      height: exportScene.height,
+      skipFonts: true,
+      fontEmbedCSS: "",
+      preferredFontFormat: "woff2",
+    });
+  } finally {
+    exportScene.scene.remove();
+  }
+}
+
 function triggerDownload(dataUrl: string, filename: string) {
   const link = document.createElement("a");
   link.href = dataUrl;
@@ -85,6 +105,11 @@ function triggerDownload(dataUrl: string, filename: string) {
 
 export async function exportElementAsPng(element: HTMLElement, filename: string) {
   const dataUrl = await renderElementToPng(element);
+  triggerDownload(dataUrl, filename);
+}
+
+export async function exportElementAsJpeg(element: HTMLElement, filename: string) {
+  const dataUrl = await renderElementToJpeg(element);
   triggerDownload(dataUrl, filename);
 }
 

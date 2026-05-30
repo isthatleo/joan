@@ -16,6 +16,7 @@ async function resolveTenantUser(sessionEmail: string, slug: string) {
     where: and(
       eq(users.tenantId, tenantId),
       ilike(users.email, sessionEmail),
+      eq(users.isActive, true),
       isNull(users.deletedAt)
     ),
     columns: { id: true, tenantId: true },

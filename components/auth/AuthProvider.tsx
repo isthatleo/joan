@@ -93,7 +93,7 @@ async function fetchUserSettings() {
 }
 
 function shouldRedirectAuthenticatedUser(pathname: string, role: AppRole | null | undefined) {
-  if (!role || role === "super_admin" || role === "hospital_admin") {
+  if (!role || role === "super_admin") {
     return false;
   }
 
@@ -152,6 +152,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const hostname = typeof window !== "undefined" ? window.location.hostname : null;
     const storedSlug = typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null;
     const resolvedSlug = resolveTenantSlug(pathname, hostname, storedSlug);
+
+    if (resolvedSlug && role === "hospital_admin") {
+      return getTenantDashboardPath(resolvedSlug, "hospital_admin", hostname);
+    }
 
     return resolvedSlug ? getTenantDashboardPath(resolvedSlug, role, hostname) : (ROLE_HOME[role] ?? "/");
   }

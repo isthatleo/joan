@@ -1,209 +1,185 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
-  Building2, Search, Plus, Users, Activity, TrendingUp,
-  BarChart3, PieChart, Clock, CheckCircle, AlertTriangle,
-  RefreshCw, Eye, Edit, Settings, UserPlus, Stethoscope,
-  Bed, TestTube, Pill, DollarSign, Loader2, Filter
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  Bed,
+  Building2,
+  CheckCircle,
+  Eye,
+  Filter,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+  Stethoscope,
+  TestTube,
+  Users,
 } from "lucide-react";
-import Link from "next/link";
+import { useTenantPath } from "@/hooks/useTenantPath";
 
 const orange = "#F97316";
 
-interface Department {
+type Department = {
   id: string;
   name: string;
   description: string;
+  category: string;
+  level: "major" | "minor" | "support";
   headOfDepartment: string;
   totalStaff: number;
   activeStaff: number;
-  beds?: number;
-  occupiedBeds?: number;
+  beds: number;
+  occupiedBeds: number;
   patients: number;
   utilization: number;
   status: "excellent" | "good" | "warning" | "critical";
-  avgWaitTime: number;
-  revenue: number;
   budget: number;
   equipmentCount: number;
   lastMaintenance: string;
-}
+};
 
-interface DepartmentStats {
+type DepartmentStats = {
   totalDepartments: number;
   totalStaff: number;
+  activeStaff: number;
   totalBeds: number;
   occupiedBeds: number;
   totalPatients: number;
   averageUtilization: number;
   totalRevenue: number;
-}
+};
+
+const EMPTY_STATS: DepartmentStats = {
+  totalDepartments: 0,
+  totalStaff: 0,
+  activeStaff: 0,
+  totalBeds: 0,
+  occupiedBeds: 0,
+  totalPatients: 0,
+  averageUtilization: 0,
+  totalRevenue: 0,
+};
 
 export default function DepartmentsPage() {
   const params = useParams();
-  const slug = params?.slug as string;
+  const slug = String(params?.slug || "");
+  const tenantPath = useTenantPath();
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [stats, setStats] = useState<DepartmentStats | null>(null);
+  const [stats, setStats] = useState<DepartmentStats>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [activeTab, setActiveTab] = useState<"overview" | "management" | "analytics">("overview");
 
-  useEffect(() => {
-    fetchDepartmentData();
-  }, []);
-
-  const fetchDepartmentData = async () => {
-    setLoading(true);
+  const fetchDepartments = async (mode: "initial" | "refresh" = "refresh") => {
+    if (!slug) return;
+    if (mode === "initial") setLoading(true);
+    setRefreshing(true);
+    setError(null);
     try {
-      const [departmentsRes, statsRes] = await Promise.all([
-        fetch('/api/departments'),
-        fetch('/api/departments/stats')
-      ]);
-
-      if (departmentsRes.ok) setDepartments(await departmentsRes.json());
-      if (statsRes.ok) setStats(await statsRes.json());
-    } catch (error) {
-      console.error('Failed to fetch department data:', error);
+      const response = await fetch(`/api/tenant/${slug}/departments`, { credentials: "include", cache: "no-store" });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || "Failed to fetch departments");
+      setDepartments(Array.isArray(data?.departments) ? data.departments : []);
+      setStats(data?.stats || EMPTY_STATS);
+    } catch (fetchError: any) {
+      setError(fetchError?.message || "Failed to fetch departments");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const filteredDepartments = departments.filter(dept => {
-    const matchesSearch = dept.name.toLowerCase().includes(search.toLowerCase()) ||
-                         dept.description.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === "all" || dept.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  useEffect(() => {
+    fetchDepartments("initial");
+  }, [slug]);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "excellent": return "bg-green-50 text-green-700 border-green-100";
-      case "good": return "bg-blue-50 text-blue-700 border-blue-100";
-      case "warning": return "bg-yellow-50 text-yellow-700 border-yellow-100";
-      case "critical": return "bg-red-50 text-red-700 border-red-100";
-      default: return "bg-muted text-muted-foreground border-border";
+  const syncDefaults = async () => {
+    setSyncing(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/tenant/${slug}/departments/sync`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || "Failed to sync departments");
+      await fetchDepartments();
+    } catch (syncError: any) {
+      setError(syncError?.message || "Failed to sync departments");
+    } finally {
+      setSyncing(false);
     }
   };
 
-  const getDepartmentIcon = (name: string) => {
-    const iconMap: Record<string, React.ReactNode> = {
-      "Emergency": <AlertTriangle className="size-5" />,
-      "Cardiology": <Activity className="size-5" />,
-      "Surgery": <Stethoscope className="size-5" />,
-      "Pediatrics": <Users className="size-5" />,
-      "Radiology": <Activity className="size-5" />,
-      "Laboratory": <TestTube className="size-5" />,
-      "Pharmacy": <Pill className="size-5" />,
-      "ICU": <Bed className="size-5" />,
-    };
-    return iconMap[name] || <Building2 className="size-5" />;
-  };
+  const categories = useMemo(() => {
+    return Array.from(new Set(departments.map((department) => department.category).filter(Boolean))).sort();
+  }, [departments]);
 
-  const StatCard = ({ title, value, subtitle, icon: Icon, trend, color }: {
-    title: string;
-    value: string | number;
-    subtitle: string;
-    icon: React.ReactNode;
-    trend?: string;
-    color: string;
-  }) => (
-    <div className="bg-card border border-border rounded-xl p-4">
-      <div className="flex items-center gap-3">
-        <div className={`size-10 rounded-full ${color} flex items-center justify-center`}>
-          {Icon}
-        </div>
-        <div className="flex-1">
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{title}</p>
-          <p className="text-2xl font-semibold text-foreground">{value}</p>
-          <p className="text-xs text-muted-foreground">{subtitle}</p>
-        </div>
-        {trend && (
-          <div className="text-xs font-semibold text-green-600">
-            {trend}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  const filteredDepartments = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return departments.filter((department) => {
+      const matchesSearch = !query || [department.name, department.description, department.category, department.headOfDepartment].some((value) => String(value || "").toLowerCase().includes(query));
+      const matchesStatus = statusFilter === "all" || department.status === statusFilter;
+      const matchesCategory = categoryFilter === "all" || department.category === categoryFilter;
+      return matchesSearch && matchesStatus && matchesCategory;
+    });
+  }, [departments, search, statusFilter, categoryFilter]);
+
+  const criticalDepartments = departments.filter((department) => department.status === "critical" || department.utilization >= 90);
+  const underStaffedDepartments = departments.filter((department) => department.totalStaff === 0);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Department Management</p>
-          <h1 className="text-3xl font-bold text-foreground mt-1">Departments</h1>
-          <p className="text-sm text-muted-foreground mt-1">Manage hospital departments, staffing, and performance.</p>
+          <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Department Management</p>
+          <h1 className="mt-1 text-3xl font-bold text-foreground">Departments</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Manage tenant departments, staffing coverage, beds, and operational readiness.</p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={fetchDepartmentData}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
-          >
-            <RefreshCw className="size-4" />
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => fetchDepartments()} disabled={refreshing} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-60">
+            <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
             Refresh
           </button>
-          <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-sm hover:opacity-90" style={{ backgroundColor: orange }}>
+          <button onClick={syncDefaults} disabled={syncing} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted disabled:opacity-60">
+            {syncing ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle className="size-4" />}
+            Sync Hospital Departments
+          </button>
+          <Link href={tenantPath("/departments/new")} className="inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90" style={{ backgroundColor: orange }}>
             <Plus className="size-4" />
             Add Department
-          </button>
+          </Link>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Total Departments"
-          value={stats?.totalDepartments || 0}
-          subtitle="Active units"
-          icon={<Building2 className="size-5" />}
-          color="bg-blue-50 text-blue-600"
-        />
-        <StatCard
-          title="Total Staff"
-          value={stats?.totalStaff || 0}
-          subtitle="Across all departments"
-          icon={<Users className="size-5" />}
-          color="bg-green-50 text-green-600"
-        />
-        <StatCard
-          title="Bed Utilization"
-          value={`${stats?.averageUtilization || 0}%`}
-          subtitle={`${stats?.occupiedBeds || 0}/${stats?.totalBeds || 0} beds occupied`}
-          icon={<Bed className="size-5" />}
-          color="bg-orange-50 text-orange-600"
-        />
-        <StatCard
-          title="Revenue"
-          value={`$${(stats?.totalRevenue || 0).toLocaleString()}`}
-          subtitle="This month"
-          icon={<DollarSign className="size-5" />}
-          color="bg-purple-50 text-purple-600"
-          trend="+12%"
-        />
+      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">{error}</div> : null}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard title="Departments" value={stats.totalDepartments} subtitle={`${criticalDepartments.length} need attention`} icon={<Building2 className="size-5" />} color="bg-blue-50 text-blue-600" />
+        <StatCard title="Staff Coverage" value={stats.totalStaff} subtitle={`${stats.activeStaff} active staff assigned`} icon={<Users className="size-5" />} color="bg-green-50 text-green-600" />
+        <StatCard title="Bed Utilization" value={`${stats.averageUtilization}%`} subtitle={`${stats.occupiedBeds}/${stats.totalBeds} beds occupied`} icon={<Bed className="size-5" />} color="bg-orange-50 text-orange-600" />
+        <StatCard title="Unstaffed Units" value={underStaffedDepartments.length} subtitle="Assign staff from staff registration" icon={<AlertTriangle className="size-5" />} color="bg-red-50 text-red-600" />
       </div>
 
-      {/* Tabs */}
       <div className="border-b border-border">
-        <nav className="flex space-x-8">
+        <nav className="flex gap-8 overflow-x-auto">
           {[
             { id: "overview", label: "Overview", icon: Building2 },
             { id: "management", label: "Management", icon: Settings },
-            { id: "analytics", label: "Analytics", icon: BarChart3 }
+            { id: "analytics", label: "Analytics", icon: BarChart3 },
           ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === tab.id
-                  ? "border-orange-500 text-orange-600"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
+            <button key={tab.id} onClick={() => setActiveTab(tab.id as typeof activeTab)} className={`flex items-center gap-2 border-b-2 px-1 py-4 text-sm font-medium transition-colors ${activeTab === tab.id ? "border-orange-500 text-orange-600" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
               <tab.icon className="size-4" />
               {tab.label}
             </button>
@@ -211,228 +187,173 @@ export default function DepartmentsPage() {
         </nav>
       </div>
 
-      {/* Tab Content */}
-      {activeTab === "overview" && (
+      {activeTab === "overview" ? (
         <>
-          {/* Search and Filters */}
-          <div className="bg-card border border-border rounded-xl p-4">
-            <div className="flex flex-col sm:flex-row gap-3">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  placeholder="Search departments by name or description..."
-                  className="w-full h-10 pl-10 pr-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
-                />
+          <div className="rounded-xl border border-border bg-card p-4">
+            <div className="grid gap-3 md:grid-cols-[1fr_180px_180px]">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search departments, category, head of department..." className="h-10 w-full rounded-lg border border-border bg-background pl-10 pr-3 text-sm text-foreground focus:border-orange-300 focus:outline-none focus:ring-2 focus:ring-orange-100" />
               </div>
-              <select
-                value={statusFilter}
-                onChange={e => setStatusFilter(e.target.value)}
-                className="h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300"
-              >
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground focus:border-orange-300 focus:outline-none">
                 <option value="all">All Status</option>
                 <option value="excellent">Excellent</option>
                 <option value="good">Good</option>
                 <option value="warning">Warning</option>
                 <option value="critical">Critical</option>
               </select>
+              <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground focus:border-orange-300 focus:outline-none">
+                <option value="all">All Categories</option>
+                {categories.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
             </div>
           </div>
 
-          {/* Departments Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {loading ? (
-              <div className="col-span-full flex items-center justify-center py-16">
-                <Loader2 className="size-6 text-orange-500 animate-spin mx-auto" />
-              </div>
+              <div className="col-span-full flex items-center justify-center py-16"><Loader2 className="size-6 animate-spin text-orange-500" /></div>
             ) : filteredDepartments.length === 0 ? (
-              <div className="col-span-full text-center py-16">
-                <Building2 className="size-10 text-muted mx-auto mb-2" />
-                <p className="text-muted-foreground font-medium">No departments found</p>
-                <p className="text-xs text-muted-foreground mt-1">Try adjusting your search criteria</p>
+              <div className="col-span-full rounded-xl border border-border bg-card py-16 text-center">
+                <Building2 className="mx-auto mb-2 size-10 text-muted-foreground" />
+                <p className="font-medium text-muted-foreground">No departments found</p>
+                <p className="mt-1 text-xs text-muted-foreground">Adjust filters or sync hospital departments.</p>
               </div>
-            ) : (
-              filteredDepartments.map(dept => (
-                <div key={dept.id} className="bg-card border border-border rounded-xl p-6 hover:shadow-md transition-all">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="size-12 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
-                        {getDepartmentIcon(dept.name)}
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-foreground">{dept.name}</h3>
-                        <p className="text-xs text-muted-foreground">{dept.description}</p>
-                      </div>
-                    </div>
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold border ${getStatusColor(dept.status)}`}>
-                      {dept.status.toUpperCase()}
-                    </span>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Head:</span>
-                      <span className="font-medium">{dept.headOfDepartment}</span>
-                    </div>
-
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Staff:</span>
-                      <span className="font-medium">{dept.activeStaff}/{dept.totalStaff}</span>
-                    </div>
-
-                    {dept.beds && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Beds:</span>
-                        <span className="font-medium">{dept.occupiedBeds}/{dept.beds}</span>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Patients:</span>
-                      <span className="font-medium">{dept.patients}</span>
-                    </div>
-
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Utilization:</span>
-                      <span className="font-medium">{dept.utilization}%</span>
-                    </div>
-
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Avg Wait:</span>
-                      <span className="font-medium">{dept.avgWaitTime}min</span>
-                    </div>
-
-                    <div className="w-full bg-gray-200 rounded-full h-2 mt-3">
-                      <div
-                        className={`h-2 rounded-full transition-all ${
-                          dept.utilization > 85 ? "bg-red-500" :
-                          dept.utilization > 70 ? "bg-yellow-500" : "bg-green-500"
-                        }`}
-                        style={{ width: `${dept.utilization}%` }}
-                      />
-                    </div>
-
-                    <div className="flex gap-2 mt-4">
-                      <button className="flex-1 px-3 py-2 rounded-lg bg-orange-50 text-orange-600 text-xs font-semibold hover:bg-orange-100 transition-colors">
-                        View Details
-                      </button>
-                      <button className="px-3 py-2 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors">
-                        <Settings className="size-3" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
+            ) : filteredDepartments.map((department) => (
+              <DepartmentCard key={department.id} department={department} href={tenantPath(`/departments/${department.id}`)} />
+            ))}
           </div>
         </>
-      )}
+      ) : null}
 
-      {activeTab === "management" && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-card border border-border rounded-xl p-6">
-              <h3 className="text-lg font-semibold mb-4">Staff Allocation</h3>
-              <div className="space-y-4">
-                {departments.slice(0, 5).map(dept => (
-                  <div key={dept.id} className="flex items-center justify-between p-3 rounded-lg border border-border">
-                    <div className="flex items-center gap-3">
-                      <div className="size-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
-                        {getDepartmentIcon(dept.name)}
-                      </div>
-                      <div>
-                        <p className="font-medium text-sm">{dept.name}</p>
-                        <p className="text-xs text-muted-foreground">{dept.activeStaff}/{dept.totalStaff} staff</p>
-                      </div>
-                    </div>
-                    <button className="px-3 py-1 rounded-lg bg-orange-500 text-white text-xs font-semibold hover:bg-orange-600">
-                      Manage
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-card border border-border rounded-xl p-6">
-              <h3 className="text-lg font-semibold mb-4">Resource Management</h3>
-              <div className="space-y-4">
-                <div className="p-4 rounded-lg border border-border">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="font-medium">Equipment Maintenance</p>
-                    <span className="text-xs text-muted-foreground">Due in 3 days</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground">MRI Scanner maintenance scheduled</p>
-                </div>
-
-                <div className="p-4 rounded-lg border border-border">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="font-medium">Supply Orders</p>
-                    <span className="text-xs text-green-600">2 pending</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground">Medical supplies restocking</p>
-                </div>
-
-                <div className="p-4 rounded-lg border border-border">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="font-medium">Budget Review</p>
-                    <span className="text-xs text-orange-600">Q4 2026</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground">Department budget planning</p>
-                </div>
-              </div>
-            </div>
-          </div>
+      {activeTab === "management" ? (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Panel title="Staff Allocation" subtitle="Departments with the lowest active coverage appear first.">
+            {[...departments].sort((a, b) => a.activeStaff - b.activeStaff).slice(0, 8).map((department) => (
+              <DepartmentRow key={department.id} department={department} href={tenantPath(`/departments/${department.id}`)} metric={`${department.activeStaff}/${department.totalStaff} active`} />
+            ))}
+          </Panel>
+          <Panel title="Resource Readiness" subtitle="Bed and equipment visibility by department.">
+            {[...departments].filter((department) => department.beds > 0 || department.equipmentCount > 0).slice(0, 8).map((department) => (
+              <DepartmentRow key={department.id} department={department} href={tenantPath(`/departments/${department.id}`)} metric={`${department.occupiedBeds}/${department.beds} beds, ${department.equipmentCount} assets`} />
+            ))}
+          </Panel>
         </div>
-      )}
+      ) : null}
 
-      {activeTab === "analytics" && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-card border border-border rounded-xl p-6">
-              <h3 className="text-lg font-semibold mb-4">Department Performance</h3>
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                <div className="text-center">
-                  <BarChart3 className="size-12 mx-auto mb-2" />
-                  <p>Performance charts coming soon</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-card border border-border rounded-xl p-6">
-              <h3 className="text-lg font-semibold mb-4">Utilization Trends</h3>
-              <div className="h-64 flex items-center justify-center text-muted-foreground">
-                <div className="text-center">
-                  <PieChart className="size-12 mx-auto mb-2" />
-                  <p>Utilization charts coming soon</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-card border border-border rounded-xl p-6">
-            <h3 className="text-lg font-semibold mb-4">Key Performance Indicators</h3>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="text-center p-4 rounded-lg bg-green-50">
-                <p className="text-2xl font-bold text-green-600">94%</p>
-                <p className="text-sm text-green-700">Patient Satisfaction</p>
-              </div>
-              <div className="text-center p-4 rounded-lg bg-blue-50">
-                <p className="text-2xl font-bold text-blue-600">23min</p>
-                <p className="text-sm text-blue-700">Avg Treatment Time</p>
-              </div>
-              <div className="text-center p-4 rounded-lg bg-purple-50">
-                <p className="text-2xl font-bold text-purple-600">98.5%</p>
-                <p className="text-sm text-purple-700">Equipment Uptime</p>
-              </div>
-              <div className="text-center p-4 rounded-lg bg-orange-50">
-                <p className="text-2xl font-bold text-orange-600">$2.4M</p>
-                <p className="text-sm text-orange-700">Monthly Revenue</p>
-              </div>
-            </div>
-          </div>
+      {activeTab === "analytics" ? (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Panel title="Utilization Leaders" subtitle="Highest bed utilization across departments.">
+            {[...departments].sort((a, b) => b.utilization - a.utilization).slice(0, 8).map((department) => (
+              <DepartmentRow key={department.id} department={department} href={tenantPath(`/departments/${department.id}`)} metric={`${department.utilization}% utilization`} />
+            ))}
+          </Panel>
+          <Panel title="Department Mix" subtitle="Major, minor, and support department coverage.">
+            {["major", "minor", "support"].map((level) => {
+              const count = departments.filter((department) => department.level === level).length;
+              return <div key={level} className="rounded-xl border border-border bg-background/70 p-4"><p className="text-xs uppercase tracking-wide text-muted-foreground">{level}</p><p className="mt-1 text-2xl font-semibold text-foreground">{count}</p></div>;
+            })}
+          </Panel>
         </div>
-      )}
+      ) : null}
     </div>
   );
+}
+
+function StatCard({ title, value, subtitle, icon, color }: { title: string; value: string | number; subtitle: string; icon: React.ReactNode; color: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex items-center gap-3">
+        <div className={`flex size-10 items-center justify-center rounded-full ${color}`}>{icon}</div>
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+          <p className="text-2xl font-semibold text-foreground">{value}</p>
+          <p className="text-xs text-muted-foreground">{subtitle}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DepartmentCard({ department, href }: { department: Department; href: string }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-6 transition-all hover:shadow-md">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex size-12 items-center justify-center rounded-xl bg-orange-50 text-orange-600">{getDepartmentIcon(department.name)}</div>
+          <div>
+            <h3 className="font-semibold text-foreground">{department.name}</h3>
+            <p className="line-clamp-2 text-xs text-muted-foreground">{department.description}</p>
+          </div>
+        </div>
+        <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${getStatusColor(department.status)}`}>{department.status.toUpperCase()}</span>
+      </div>
+      <div className="space-y-3 text-sm">
+        <Info label="Category" value={`${department.category} / ${department.level}`} />
+        <Info label="Head" value={department.headOfDepartment} />
+        <Info label="Staff" value={`${department.activeStaff}/${department.totalStaff}`} />
+        <Info label="Beds" value={`${department.occupiedBeds}/${department.beds}`} />
+        <Info label="Equipment" value={department.equipmentCount.toLocaleString()} />
+        <div>
+          <div className="mb-1 flex justify-between"><span className="text-muted-foreground">Utilization</span><span className="font-medium">{department.utilization}%</span></div>
+          <div className="h-2 rounded-full bg-muted"><div className={`h-2 rounded-full ${department.utilization >= 90 ? "bg-red-500" : department.utilization >= 75 ? "bg-yellow-500" : "bg-green-500"}`} style={{ width: `${Math.min(100, department.utilization)}%` }} /></div>
+        </div>
+      </div>
+      <div className="mt-4 flex gap-2">
+        <Link href={href} className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-600 hover:bg-orange-100"><Eye className="size-3" /> View Details</Link>
+        <Link href={href} className="inline-flex items-center justify-center rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted"><Settings className="size-3" /></Link>
+      </div>
+    </div>
+  );
+}
+
+function DepartmentRow({ department, href, metric }: { department: Department; href: string; metric: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background/70 p-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex size-9 items-center justify-center rounded-lg bg-orange-50 text-orange-600">{getDepartmentIcon(department.name)}</div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-foreground">{department.name}</p>
+          <p className="text-xs text-muted-foreground">{metric}</p>
+        </div>
+      </div>
+      <Link href={href} className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold hover:bg-muted">Manage</Link>
+    </div>
+  );
+}
+
+function Panel({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-6">
+      <div className="mb-4 flex items-start gap-2">
+        <Filter className="mt-0.5 size-4 text-orange-500" />
+        <div>
+          <h3 className="font-semibold text-foreground">{title}</h3>
+          <p className="text-xs text-muted-foreground">{subtitle}</p>
+        </div>
+      </div>
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string | number }) {
+  return <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">{label}</span><span className="truncate font-medium text-foreground">{value}</span></div>;
+}
+
+function getStatusColor(status: string) {
+  if (status === "excellent") return "border-green-100 bg-green-50 text-green-700";
+  if (status === "good") return "border-blue-100 bg-blue-50 text-blue-700";
+  if (status === "warning") return "border-yellow-100 bg-yellow-50 text-yellow-700";
+  if (status === "critical") return "border-red-100 bg-red-50 text-red-700";
+  return "border-border bg-muted text-muted-foreground";
+}
+
+function getDepartmentIcon(name: string) {
+  const normalized = name.toLowerCase();
+  if (normalized.includes("emergency")) return <AlertTriangle className="size-5" />;
+  if (normalized.includes("cardio")) return <Activity className="size-5" />;
+  if (normalized.includes("surgery")) return <Stethoscope className="size-5" />;
+  if (normalized.includes("laboratory")) return <TestTube className="size-5" />;
+  if (normalized.includes("intensive") || normalized.includes("icu")) return <Bed className="size-5" />;
+  return <Building2 className="size-5" />;
 }

@@ -214,7 +214,7 @@ export default function PatientFeedbackPage() {
     <div className="space-y-6">
       <PageHeader
         title="Patient Feedback Management"
-        description="Review and manage feedback from patients about services, staff, and their experience"
+        subtitle="Review and manage feedback from patients about services, staff, and their experience"
       />
 
       {/* Filters */}

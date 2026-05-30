@@ -5,19 +5,24 @@ import { ensureRedisConnection, redis } from "@/lib/redis";
 
 const MESSAGE_PERMISSION_MATRIX: Record<string, string[]> = {
   super_admin: ["hospital_admin"],
-  hospital_admin: ["super_admin", "doctor", "nurse", "lab_technician", "pharmacist", "accountant", "receptionist", "patient", "guardian"],
-  doctor: ["hospital_admin", "nurse", "lab_technician", "pharmacist", "accountant", "receptionist", "patient", "guardian"],
-  nurse: ["hospital_admin", "doctor", "lab_technician", "pharmacist", "accountant", "receptionist"],
-  lab_technician: ["hospital_admin", "doctor", "nurse", "pharmacist", "accountant"],
-  pharmacist: ["hospital_admin", "doctor", "nurse", "lab_technician", "accountant"],
-  accountant: ["hospital_admin", "doctor", "nurse", "lab_technician", "pharmacist", "receptionist"],
-  receptionist: ["hospital_admin", "doctor", "nurse", "accountant"],
+  hospital_admin: ["super_admin", "doctor", "nurse", "lab_technician", "pharmacist", "accountant", "receptionist"],
+  doctor: ["nurse", "lab_technician", "pharmacist", "accountant", "receptionist", "patient", "guardian"],
+  nurse: ["doctor", "lab_technician", "pharmacist", "accountant", "receptionist"],
+  lab_technician: ["doctor", "nurse", "pharmacist", "accountant"],
+  pharmacist: ["doctor", "nurse", "lab_technician", "accountant"],
+  accountant: ["doctor", "nurse", "lab_technician", "pharmacist", "receptionist"],
+  receptionist: ["doctor", "nurse", "accountant"],
   patient: ["doctor"],
   guardian: ["doctor"],
 };
 
 function normalizeRole(role: string | null | undefined) {
-  return (role || "patient").toLowerCase();
+  const normalized = (role || "patient").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (normalized === "admin" || normalized === "hospital" || normalized === "hospitaladmin") return "hospital_admin";
+  if (normalized === "lab" || normalized === "laboratory" || normalized === "lab_tech") return "lab_technician";
+  if (normalized === "reception") return "receptionist";
+  if (normalized === "accounts" || normalized === "accounting") return "accountant";
+  return normalized;
 }
 
 function pickPrimaryRole(roleList: string[], fallbackRole?: string | null) {
@@ -71,8 +76,16 @@ export class MessagingService {
     patientId?: string;
     message: string;
     type?: string;
+    tenantId?: string;
   }) {
-    const canSend = await this.checkMessagePermissions(data.senderId, data.receiverId);
+    if (!data.receiverId) {
+      throw new Error("Receiver is required");
+    }
+    if (!data.message?.trim()) {
+      throw new Error("Message cannot be empty");
+    }
+
+    const canSend = await this.checkMessagePermissions(data.senderId, data.receiverId, data.tenantId);
     if (!canSend) {
       throw new Error("Insufficient permissions to send message");
     }
@@ -249,7 +262,12 @@ export class MessagingService {
     );
   }
 
-  async getChatMessages(userId: string, otherUserId: string) {
+  async getChatMessages(userId: string, otherUserId: string, tenantId?: string) {
+    const canRead = await this.checkMessagePermissions(userId, otherUserId, tenantId);
+    if (!canRead) {
+      throw new Error("Insufficient permissions to view this conversation");
+    }
+
     const [chatMessages, callSessions, participants] = await Promise.all([
       db.query.messages.findMany({
         where: or(
@@ -432,8 +450,9 @@ export class MessagingService {
     return sentMessages;
   }
 
-  async getAvailableContacts(userId: string, search?: string) {
+  async getAvailableContacts(userId: string, search?: string, tenantId?: string) {
     const currentUser = await this.getMessagingUser(userId);
+    const currentTenantId = tenantId || currentUser.tenantId;
     const allowedRoles = MESSAGE_PERMISSION_MATRIX[currentUser.role] || [];
     if (allowedRoles.length === 0) return [];
 
@@ -453,7 +472,17 @@ export class MessagingService {
       LEFT JOIN roles r ON r.id = ur.role_id
       WHERE u.deleted_at IS NULL
         AND u.is_active = true
-        AND (${currentUser.role === "super_admin" || !currentUser.tenantId} OR u.tenant_id = ${currentUser.tenantId})
+        AND (
+          ${currentUser.role === "super_admin" || !currentTenantId}
+          OR u.tenant_id = ${currentTenantId}
+          OR EXISTS (
+            SELECT 1
+            FROM user_roles sur
+            INNER JOIN roles sr ON sr.id = sur.role_id
+            WHERE sur.user_id = u.id
+              AND LOWER(sr.name) = 'super_admin'
+          )
+        )
       GROUP BY u.id, u.full_name, u.email, u.avatar, u.role
       ORDER BY COALESCE(u.full_name, u.email) ASC
     `;
@@ -489,6 +518,10 @@ export class MessagingService {
       .sort((a, b) => (a.fullName || a.email).localeCompare(b.fullName || b.email));
   }
 
+  async canMessage(senderId: string, receiverId: string, tenantId?: string) {
+    return this.checkMessagePermissions(senderId, receiverId, tenantId);
+  }
+
   private async getMessagingUser(userId: string) {
     const rows = await db.$queryRaw`
       SELECT
@@ -506,6 +539,7 @@ export class MessagingService {
       LEFT JOIN roles r ON r.id = ur.role_id
       WHERE u.id = ${userId}
         AND u.deleted_at IS NULL
+        AND u.is_active = true
       GROUP BY u.id, u.tenant_id, u.role, u.email, u.full_name
       LIMIT 1
     `;
@@ -524,20 +558,44 @@ export class MessagingService {
     };
   }
 
-  private async checkMessagePermissions(senderId: string, receiverId: string): Promise<boolean> {
+  private async checkMessagePermissions(senderId: string, receiverId: string, tenantId?: string): Promise<boolean> {
     const [sender, receiver] = await Promise.all([
       this.getMessagingUser(senderId),
       this.getMessagingUser(receiverId),
     ]);
 
     const allowedRoles = MESSAGE_PERMISSION_MATRIX[sender.role] || [];
-    const sameTenant = !sender.tenantId || !receiver.tenantId || sender.tenantId === receiver.tenantId;
+    const senderTenantId = tenantId || sender.tenantId;
+    const sameTenant = !senderTenantId || !receiver.tenantId || senderTenantId === receiver.tenantId;
 
     if (sender.role === "super_admin") {
       return allowedRoles.includes(receiver.role);
     }
 
-    return sameTenant && allowedRoles.includes(receiver.role);
+    if (sameTenant && allowedRoles.includes(receiver.role)) {
+      return true;
+    }
+
+    if (sameTenant && receiver.role === "hospital_admin" && sender.role !== "patient" && sender.role !== "guardian") {
+      return this.hasExistingConversation(senderId, receiverId);
+    }
+
+    return false;
+  }
+
+  private async hasExistingConversation(userId: string, otherUserId: string) {
+    const existing = await db.query.messages.findFirst({
+      where: and(
+        isNull(messages.deletedAt),
+        or(
+          and(eq(messages.senderId, userId), eq(messages.receiverId, otherUserId)),
+          and(eq(messages.senderId, otherUserId), eq(messages.receiverId, userId))
+        )
+      ),
+      columns: { id: true },
+    });
+
+    return Boolean(existing);
   }
 
   async getInboxCount(userId: string): Promise<number> {

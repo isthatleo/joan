@@ -1,563 +1,214 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import {
-  BarChart3, TrendingUp, TrendingDown, PieChart, Activity,
-  Users, DollarSign, Calendar, Clock, RefreshCw, Download,
-  Filter, Eye, Settings, AlertTriangle, CheckCircle,
-  ArrowUpRight, ArrowDownRight, Minus, Loader2
-} from "lucide-react";
-import Link from "next/link";
+import { Activity, AlertTriangle, BarChart3, CheckCircle, Download, DollarSign, FileText, Loader2, RefreshCw, Search, ShieldCheck, TrendingUp, Users } from "lucide-react";
+import { exportElementAsJpeg, exportElementAsPdf, exportElementAsPng } from "@/lib/export/page-export";
 
-const orange = "#F97316";
+type AnalyticsPayload = {
+  range: string;
+  generatedAt: string;
+  metrics: Record<string, number>;
+  trends: Array<{ label: string; patients: number; appointments: number; revenue: number }>;
+  appointmentStatus: Array<{ status: string; count: number }>;
+  roleMix: Array<{ role: string; count: number }>;
+  financial: Record<string, number>;
+  insights: Array<{ title: string; value: string; detail: string }>;
+};
 
-interface AnalyticsData {
-  patientMetrics: {
-    totalPatients: number;
-    newPatientsThisMonth: number;
-    patientGrowth: number;
-    avgLengthOfStay: number;
-    readmissionRate: number;
-  };
-  financialMetrics: {
-    totalRevenue: number;
-    monthlyRevenue: number;
-    revenueGrowth: number;
-    averageRevenuePerPatient: number;
-    outstandingInvoices: number;
-  };
-  operationalMetrics: {
-    averageWaitTime: number;
-    bedOccupancyRate: number;
-    staffUtilization: number;
-    appointmentFillRate: number;
-    emergencyResponseTime: number;
-  };
-  qualityMetrics: {
-    patientSatisfaction: number;
-    infectionRate: number;
-    medicationErrorRate: number;
-    mortalityRate: number;
-  };
+const EMPTY: AnalyticsPayload = { range: "30d", generatedAt: "", metrics: {}, trends: [], appointmentStatus: [], roleMix: [], financial: {}, insights: [] };
+
+function money(value: number) {
+  return `$${Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-interface ChartData {
-  labels: string[];
-  datasets: Array<{
-    label: string;
-    data: number[];
-    backgroundColor?: string;
-    borderColor?: string;
-  }>;
+function csvEscape(value: unknown) {
+  const text = value == null ? "" : String(value);
+  return text.includes(",") || text.includes('"') || text.includes("\n") ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 export default function AnalyticsPage() {
   const params = useParams();
   const slug = params?.slug as string;
-  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+  const exportRef = useRef<HTMLDivElement | null>(null);
+  const [data, setData] = useState<AnalyticsPayload>(EMPTY);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [timeRange, setTimeRange] = useState("30d");
-  const [activeTab, setActiveTab] = useState<"overview" | "patients" | "financial" | "operations" | "quality">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "patients" | "financial" | "operations" | "risk">("overview");
+  const [query, setQuery] = useState("");
+  const [trendPage, setTrendPage] = useState(0);
+  const [error, setError] = useState("");
+  const [exporting, setExporting] = useState("");
 
-  useEffect(() => {
-    fetchAnalyticsData();
-  }, [timeRange]);
-
-  const fetchAnalyticsData = async () => {
-    setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
+    setRefreshing(true);
+    setError("");
     try {
-      const res = await fetch(`/api/analytics?timeRange=${timeRange}`);
-      if (res.ok) {
-        setAnalyticsData(await res.json());
-      }
-    } catch (error) {
-      console.error('Failed to fetch analytics data:', error);
+      const res = await fetch(`/api/tenant/${slug}/analytics?timeRange=${encodeURIComponent(timeRange)}`, { cache: "no-store" });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(payload?.error || "Failed to load analytics");
+      setData({ ...EMPTY, ...payload });
+    } catch (loadError: any) {
+      setError(loadError?.message || "Failed to load analytics");
+      setData(EMPTY);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const MetricCard = ({
-    title,
-    value,
-    change,
-    changeType,
-    icon: Icon,
-    color,
-    subtitle
-  }: {
-    title: string;
-    value: string | number;
-    change?: number;
-    changeType?: "positive" | "negative" | "neutral";
-    icon: React.ReactNode;
-    color: string;
-    subtitle?: string;
-  }) => (
-    <div className="bg-card border border-border rounded-xl p-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className={`size-12 rounded-xl ${color} flex items-center justify-center`}>
-          {Icon}
-        </div>
-        {change !== undefined && (
-          <div className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold ${
-            changeType === "positive"
-              ? "text-green-600 bg-green-50"
-              : changeType === "negative"
-              ? "text-red-600 bg-red-50"
-              : "text-gray-600 bg-gray-50"
-          }`}>
-            {changeType === "positive" ? <ArrowUpRight className="size-3" /> :
-             changeType === "negative" ? <ArrowDownRight className="size-3" /> :
-             <Minus className="size-3" />}
-            {Math.abs(change)}%
-          </div>
-        )}
-      </div>
-      <h3 className="text-sm font-medium text-muted-foreground mb-1">{title}</h3>
-      <p className="text-3xl font-bold text-foreground mb-1">{value}</p>
-      {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
-    </div>
-  );
+  useEffect(() => {
+    if (slug) load();
+  }, [slug, timeRange]);
 
-  const tabs = [
-    { id: "overview", label: "Overview", icon: BarChart3 },
-    { id: "patients", label: "Patients", icon: Users },
-    { id: "financial", label: "Financial", icon: DollarSign },
-    { id: "operations", label: "Operations", icon: Activity },
-    { id: "quality", label: "Quality", icon: CheckCircle }
+  useEffect(() => {
+    setTrendPage(0);
+  }, [timeRange, data.trends.length]);
+
+  const filteredInsights = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return data.insights;
+    return data.insights.filter((item) => [item.title, item.value, item.detail].join(" ").toLowerCase().includes(q));
+  }, [data.insights, query]);
+
+  const trendPageSize = 7;
+  const trendPageCount = Math.max(1, Math.ceil(data.trends.length / trendPageSize));
+  const pagedTrends = data.trends.slice(trendPage * trendPageSize, trendPage * trendPageSize + trendPageSize);
+
+  const exportCsv = () => {
+    const rows = [
+      ["Metric", "Value"],
+      ...Object.entries(data.metrics).map(([key, value]) => [key, value]),
+      [],
+      ["Trend", "Patients", "Appointments", "Revenue"],
+      ...data.trends.map((row) => [row.label, row.patients, row.appointments, row.revenue]),
+    ];
+    const blob = new Blob([rows.map((row) => row.map(csvEscape).join(",")).join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `hospital-analytics-${slug}-${timeRange}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportVisual = async (format: "pdf" | "png" | "jpg") => {
+    if (!exportRef.current) return;
+    setExporting(format);
+    try {
+      const filename = `hospital-analytics-${slug}-${timeRange}.${format}`;
+      if (format === "pdf") await exportElementAsPdf(exportRef.current, filename);
+      if (format === "png") await exportElementAsPng(exportRef.current, filename);
+      if (format === "jpg") await exportElementAsJpeg(exportRef.current, filename);
+    } finally {
+      setExporting("");
+    }
+  };
+
+  if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="size-8 animate-spin text-orange-500" /></div>;
+
+  const cards = [
+    { label: "Patients", value: data.metrics.totalPatients || 0, detail: `${data.metrics.newPatients || 0} new`, icon: Users, tone: "bg-blue-50 text-blue-700", tab: "patients" },
+    { label: "Revenue", value: money(data.metrics.totalRevenue || 0), detail: `${money(data.metrics.netRevenue || 0)} net`, icon: DollarSign, tone: "bg-green-50 text-green-700", tab: "financial" },
+    { label: "Appointments", value: data.metrics.totalAppointments || 0, detail: `${data.metrics.completionRate || 0}% completion`, icon: Activity, tone: "bg-orange-50 text-orange-700", tab: "operations" },
+    { label: "Claims", value: `${data.metrics.claimApprovalRate || 0}%`, detail: `${data.metrics.claimDenialRate || 0}% denial`, icon: FileText, tone: "bg-purple-50 text-purple-700", tab: "financial" },
+    { label: "Risk Events", value: data.metrics.riskEvents || 0, detail: `${data.metrics.auditEvents || 0} audit events`, icon: ShieldCheck, tone: "bg-red-50 text-red-700", tab: "risk" },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Analytics & Insights</p>
-          <h1 className="text-3xl font-bold text-foreground mt-1">Hospital Analytics</h1>
-          <p className="text-sm text-muted-foreground mt-1">Comprehensive data analysis and performance insights.</p>
+          <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Analytics & Insights</p>
+          <h1 className="mt-1 text-3xl font-bold text-foreground">Hospital Analytics</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Real-time tenant analytics across clinical operations, finance, staffing, claims, and audit risk.</p>
         </div>
-        <div className="flex gap-2">
-          <select
-            value={timeRange}
-            onChange={(e) => setTimeRange(e.target.value)}
-            className="h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300"
-          >
+        <div className="flex flex-wrap gap-2">
+          <select value={timeRange} onChange={(event) => setTimeRange(event.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
             <option value="7d">Last 7 days</option>
             <option value="30d">Last 30 days</option>
             <option value="90d">Last 90 days</option>
             <option value="1y">Last year</option>
           </select>
-          <button
-            onClick={fetchAnalyticsData}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm font-semibold hover:bg-muted transition-all"
-          >
-            <RefreshCw className="size-4" />
-            Refresh
-          </button>
-          <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-sm hover:opacity-90" style={{ backgroundColor: orange }}>
-            <Download className="size-4" />
-            Export Report
-          </button>
+          <button onClick={() => load(true)} disabled={refreshing} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60"><RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button>
+          <button onClick={exportCsv} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted"><Download className="size-4" />CSV</button>
+          <button onClick={() => exportVisual("pdf")} disabled={!!exporting} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted">PDF</button>
+          <button onClick={() => exportVisual("png")} disabled={!!exporting} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted">PNG</button>
+          <button onClick={() => exportVisual("jpg")} disabled={!!exporting} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted">JPG</button>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-border">
-        <nav className="flex space-x-8">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === tab.id
-                  ? "border-orange-500 text-orange-600"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <tab.icon className="size-4" />
-              {tab.label}
+      {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+
+      <div ref={exportRef} className="space-y-6 rounded-2xl bg-background p-1">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {cards.map((card) => (
+            <button key={card.label} onClick={() => setActiveTab(card.tab as any)} className="rounded-xl border border-border bg-card p-5 text-left hover:bg-muted/30">
+              <div className={`mb-3 flex size-11 items-center justify-center rounded-xl ${card.tone}`}><card.icon className="size-5" /></div>
+              <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{card.label}</p>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{card.value}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{card.detail}</p>
             </button>
           ))}
-        </nav>
-      </div>
-
-      {/* Content */}
-      {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="size-6 text-orange-500 animate-spin mx-auto" />
         </div>
-      ) : (
-        <>
-          {activeTab === "overview" && (
-            <div className="space-y-6">
-              {/* Key Metrics */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <MetricCard
-                  title="Total Patients"
-                  value={analyticsData?.patientMetrics.totalPatients || 0}
-                  change={12}
-                  changeType="positive"
-                  icon={<Users className="size-6" />}
-                  color="bg-blue-50 text-blue-600"
-                  subtitle={`${analyticsData?.patientMetrics.newPatientsThisMonth || 0} new this month`}
-                />
-                <MetricCard
-                  title="Revenue"
-                  value={`$${(analyticsData?.financialMetrics.totalRevenue || 0).toLocaleString()}`}
-                  change={8}
-                  changeType="positive"
-                  icon={<DollarSign className="size-6" />}
-                  color="bg-green-50 text-green-600"
-                  subtitle={`${analyticsData?.financialMetrics.revenueGrowth || 0}% growth`}
-                />
-                <MetricCard
-                  title="Bed Occupancy"
-                  value={`${analyticsData?.operationalMetrics.bedOccupancyRate || 0}%`}
-                  change={-2}
-                  changeType="negative"
-                  icon={<Activity className="size-6" />}
-                  color="bg-orange-50 text-orange-600"
-                  subtitle="Current utilization"
-                />
-                <MetricCard
-                  title="Patient Satisfaction"
-                  value={`${analyticsData?.qualityMetrics.patientSatisfaction || 0}%`}
-                  change={5}
-                  changeType="positive"
-                  icon={<CheckCircle className="size-6" />}
-                  color="bg-purple-50 text-purple-600"
-                  subtitle="Based on surveys"
-                />
-              </div>
 
-              {/* Charts Grid */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-card border border-border rounded-xl p-6">
-                  <h3 className="text-lg font-semibold mb-4">Patient Volume Trends</h3>
-                  <div className="h-64 flex items-center justify-center text-muted-foreground">
-                    <div className="text-center">
-                      <BarChart3 className="size-12 mx-auto mb-2" />
-                      <p>Patient volume chart</p>
-                      <p className="text-xs">Interactive charts coming soon</p>
-                    </div>
-                  </div>
-                </div>
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-4">
+          {["overview", "patients", "financial", "operations", "risk"].map((tab) => (
+            <button key={tab} onClick={() => setActiveTab(tab as any)} className={`rounded-lg px-4 py-2 text-sm font-semibold capitalize ${activeTab === tab ? "bg-orange-500 text-white" : "border border-border hover:bg-muted"}`}>{tab}</button>
+          ))}
+          <div className="relative ml-auto min-w-64">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search insights..." className="w-full rounded-lg border border-border bg-background py-2 pl-10 pr-3 text-sm outline-none focus:border-orange-300" />
+          </div>
+        </div>
 
-                <div className="bg-card border border-border rounded-xl p-6">
-                  <h3 className="text-lg font-semibold mb-4">Revenue Breakdown</h3>
-                  <div className="h-64 flex items-center justify-center text-muted-foreground">
-                    <div className="text-center">
-                      <PieChart className="size-12 mx-auto mb-2" />
-                      <p>Revenue distribution chart</p>
-                      <p className="text-xs">Interactive charts coming soon</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Performance Indicators */}
-              <div className="bg-card border border-border rounded-xl p-6">
-                <h3 className="text-lg font-semibold mb-4">Key Performance Indicators</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-4">
-                    <h4 className="font-medium text-foreground">Clinical Quality</h4>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Infection Rate</span>
-                        <span className="text-sm font-semibold">{analyticsData?.qualityMetrics.infectionRate || 0}%</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Medication Errors</span>
-                        <span className="text-sm font-semibold">{analyticsData?.qualityMetrics.medicationErrorRate || 0}%</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Mortality Rate</span>
-                        <span className="text-sm font-semibold">{analyticsData?.qualityMetrics.mortalityRate || 0}%</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <h4 className="font-medium text-foreground">Operational Efficiency</h4>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Avg Wait Time</span>
-                        <span className="text-sm font-semibold">{analyticsData?.operationalMetrics.averageWaitTime || 0}min</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Staff Utilization</span>
-                        <span className="text-sm font-semibold">{analyticsData?.operationalMetrics.staffUtilization || 0}%</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Appointment Fill Rate</span>
-                        <span className="text-sm font-semibold">{analyticsData?.operationalMetrics.appointmentFillRate || 0}%</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <h4 className="font-medium text-foreground">Financial Performance</h4>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Avg Revenue/Patient</span>
-                        <span className="text-sm font-semibold">${analyticsData?.financialMetrics.averageRevenuePerPatient || 0}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Outstanding Invoices</span>
-                        <span className="text-sm font-semibold">${(analyticsData?.financialMetrics.outstandingInvoices || 0).toLocaleString()}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Monthly Growth</span>
-                        <span className="text-sm font-semibold text-green-600">+{analyticsData?.financialMetrics.revenueGrowth || 0}%</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+        <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+          <div className="rounded-xl border border-border bg-card p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="flex items-center gap-2 font-semibold"><BarChart3 className="size-5 text-orange-500" />Activity Trend</h2>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <button onClick={() => setTrendPage((page) => Math.max(0, page - 1))} disabled={trendPage === 0} className="rounded-lg border border-border px-3 py-1 font-semibold hover:bg-muted disabled:opacity-50">Previous</button>
+                <span>Page {trendPage + 1} of {trendPageCount}</span>
+                <button onClick={() => setTrendPage((page) => Math.min(trendPageCount - 1, page + 1))} disabled={trendPage >= trendPageCount - 1} className="rounded-lg border border-border px-3 py-1 font-semibold hover:bg-muted disabled:opacity-50">Next</button>
               </div>
             </div>
-          )}
-
-          {activeTab === "patients" && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <MetricCard
-                  title="Total Patients"
-                  value={analyticsData?.patientMetrics.totalPatients || 0}
-                  change={12}
-                  changeType="positive"
-                  icon={<Users className="size-6" />}
-                  color="bg-blue-50 text-blue-600"
-                />
-                <MetricCard
-                  title="New Patients"
-                  value={analyticsData?.patientMetrics.newPatientsThisMonth || 0}
-                  change={8}
-                  changeType="positive"
-                  icon={<TrendingUp className="size-6" />}
-                  color="bg-green-50 text-green-600"
-                  subtitle="This month"
-                />
-                <MetricCard
-                  title="Avg Length of Stay"
-                  value={`${analyticsData?.patientMetrics.avgLengthOfStay || 0} days`}
-                  change={-3}
-                  changeType="positive"
-                  icon={<Clock className="size-6" />}
-                  color="bg-orange-50 text-orange-600"
-                />
-                <MetricCard
-                  title="Readmission Rate"
-                  value={`${analyticsData?.patientMetrics.readmissionRate || 0}%`}
-                  change={-2}
-                  changeType="positive"
-                  icon={<AlertTriangle className="size-6" />}
-                  color="bg-red-50 text-red-600"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-card border border-border rounded-xl p-6">
-                  <h3 className="text-lg font-semibold mb-4">Patient Demographics</h3>
-                  <div className="h-64 flex items-center justify-center text-muted-foreground">
-                    <PieChart className="size-12 mx-auto mb-2" />
-                    <p>Demographics chart coming soon</p>
+            <div className="mt-4 space-y-3">
+              {pagedTrends.map((row, index) => (
+                <div key={`${row.label}-${trendPage}-${index}`} className="rounded-lg border border-border bg-background p-3">
+                  <div className="flex items-center justify-between text-sm"><span className="font-semibold">{row.label}</span><span className="text-muted-foreground">{money(row.revenue)}</span></div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                    <span>{row.patients} patients</span><span>{row.appointments} appts</span><span>{money(row.revenue)} revenue</span>
                   </div>
                 </div>
+              ))}
+            </div>
+          </div>
 
-                <div className="bg-card border border-border rounded-xl p-6">
-                  <h3 className="text-lg font-semibold mb-4">Patient Flow</h3>
-                  <div className="h-64 flex items-center justify-center text-muted-foreground">
-                    <Activity className="size-12 mx-auto mb-2" />
-                    <p>Patient flow analysis coming soon</p>
-                  </div>
-                </div>
+          <div className="space-y-6">
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h2 className="font-semibold">Insights</h2>
+              <div className="mt-4 space-y-3">
+                {filteredInsights.length === 0 ? <p className="text-sm text-muted-foreground">No matching insights.</p> : filteredInsights.map((item) => (
+                  <div key={item.title} className="rounded-lg border border-border bg-background p-3"><p className="font-semibold">{item.title}: {item.value}</p><p className="mt-1 text-sm text-muted-foreground">{item.detail}</p></div>
+                ))}
               </div>
             </div>
-          )}
-
-          {activeTab === "financial" && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <MetricCard
-                  title="Total Revenue"
-                  value={`$${(analyticsData?.financialMetrics.totalRevenue || 0).toLocaleString()}`}
-                  change={8}
-                  changeType="positive"
-                  icon={<DollarSign className="size-6" />}
-                  color="bg-green-50 text-green-600"
-                />
-                <MetricCard
-                  title="Monthly Revenue"
-                  value={`$${(analyticsData?.financialMetrics.monthlyRevenue || 0).toLocaleString()}`}
-                  change={12}
-                  changeType="positive"
-                  icon={<TrendingUp className="size-6" />}
-                  color="bg-blue-50 text-blue-600"
-                />
-                <MetricCard
-                  title="Avg Revenue/Patient"
-                  value={`$${analyticsData?.financialMetrics.averageRevenuePerPatient || 0}`}
-                  change={5}
-                  changeType="positive"
-                  icon={<Users className="size-6" />}
-                  color="bg-purple-50 text-purple-600"
-                />
-                <MetricCard
-                  title="Outstanding"
-                  value={`$${(analyticsData?.financialMetrics.outstandingInvoices || 0).toLocaleString()}`}
-                  change={-10}
-                  changeType="positive"
-                  icon={<AlertTriangle className="size-6" />}
-                  color="bg-red-50 text-red-600"
-                />
-              </div>
-
-              <div className="bg-card border border-border rounded-xl p-6">
-                <h3 className="text-lg font-semibold mb-4">Revenue Trends</h3>
-                <div className="h-64 flex items-center justify-center text-muted-foreground">
-                  <BarChart3 className="size-12 mx-auto mb-2" />
-                  <p>Revenue trends chart coming soon</p>
-                </div>
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h2 className="font-semibold">User Role Mix</h2>
+              <div className="mt-4 space-y-2">
+                {data.roleMix.map((item) => <div key={item.role} className="flex justify-between rounded-lg bg-background px-3 py-2 text-sm"><span className="capitalize">{item.role.replace(/_/g, " ")}</span><span className="font-semibold">{item.count}</span></div>)}
               </div>
             </div>
-          )}
+          </div>
+        </div>
 
-          {activeTab === "operations" && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <MetricCard
-                  title="Avg Wait Time"
-                  value={`${analyticsData?.operationalMetrics.averageWaitTime || 0}min`}
-                  change={-5}
-                  changeType="positive"
-                  icon={<Clock className="size-6" />}
-                  color="bg-blue-50 text-blue-600"
-                />
-                <MetricCard
-                  title="Bed Occupancy"
-                  value={`${analyticsData?.operationalMetrics.bedOccupancyRate || 0}%`}
-                  change={2}
-                  changeType="negative"
-                  icon={<Activity className="size-6" />}
-                  color="bg-orange-50 text-orange-600"
-                />
-                <MetricCard
-                  title="Staff Utilization"
-                  value={`${analyticsData?.operationalMetrics.staffUtilization || 0}%`}
-                  change={3}
-                  changeType="positive"
-                  icon={<Users className="size-6" />}
-                  color="bg-green-50 text-green-600"
-                />
-                <MetricCard
-                  title="Emergency Response"
-                  value={`${analyticsData?.operationalMetrics.emergencyResponseTime || 0}min`}
-                  change={-2}
-                  changeType="positive"
-                  icon={<AlertTriangle className="size-6" />}
-                  color="bg-red-50 text-red-600"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-card border border-border rounded-xl p-6">
-                  <h3 className="text-lg font-semibold mb-4">Department Utilization</h3>
-                  <div className="h-64 flex items-center justify-center text-muted-foreground">
-                    <BarChart3 className="size-12 mx-auto mb-2" />
-                    <p>Utilization chart coming soon</p>
-                  </div>
-                </div>
-
-                <div className="bg-card border border-border rounded-xl p-6">
-                  <h3 className="text-lg font-semibold mb-4">Appointment Fill Rate</h3>
-                  <div className="h-64 flex items-center justify-center text-muted-foreground">
-                    <TrendingUp className="size-12 mx-auto mb-2" />
-                    <p>Fill rate trends coming soon</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "quality" && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <MetricCard
-                  title="Patient Satisfaction"
-                  value={`${analyticsData?.qualityMetrics.patientSatisfaction || 0}%`}
-                  change={5}
-                  changeType="positive"
-                  icon={<CheckCircle className="size-6" />}
-                  color="bg-green-50 text-green-600"
-                />
-                <MetricCard
-                  title="Infection Rate"
-                  value={`${analyticsData?.qualityMetrics.infectionRate || 0}%`}
-                  change={-1}
-                  changeType="positive"
-                  icon={<AlertTriangle className="size-6" />}
-                  color="bg-red-50 text-red-600"
-                />
-                <MetricCard
-                  title="Medication Errors"
-                  value={`${analyticsData?.qualityMetrics.medicationErrorRate || 0}%`}
-                  change={-0.5}
-                  changeType="positive"
-                  icon={<Activity className="size-6" />}
-                  color="bg-orange-50 text-orange-600"
-                />
-                <MetricCard
-                  title="Mortality Rate"
-                  value={`${analyticsData?.qualityMetrics.mortalityRate || 0}%`}
-                  change={-0.2}
-                  changeType="positive"
-                  icon={<TrendingDown className="size-6" />}
-                  color="bg-blue-50 text-blue-600"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-card border border-border rounded-xl p-6">
-                  <h3 className="text-lg font-semibold mb-4">Quality Metrics Over Time</h3>
-                  <div className="h-64 flex items-center justify-center text-muted-foreground">
-                    <TrendingUp className="size-12 mx-auto mb-2" />
-                    <p>Quality trends chart coming soon</p>
-                  </div>
-                </div>
-
-                <div className="bg-card border border-border rounded-xl p-6">
-                  <h3 className="text-lg font-semibold mb-4">Quality Benchmarks</h3>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between p-3 rounded-lg border border-border">
-                      <span className="text-sm font-medium">Patient Satisfaction</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">Target: 95%</span>
-                        <span className="text-sm font-semibold text-green-600">✓ Met</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between p-3 rounded-lg border border-border">
-                      <span className="text-sm font-medium">Infection Rate</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">Target: &lt;2%</span>
-                        <span className="text-sm font-semibold text-green-600">✓ Met</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between p-3 rounded-lg border border-border">
-                      <span className="text-sm font-medium">Readmission Rate</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">Target: &lt;15%</span>
-                        <span className="text-sm font-semibold text-yellow-600">⚠ Close</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+        {activeTab === "financial" && <div className="grid gap-4 md:grid-cols-4">{Object.entries(data.financial).map(([key, value]) => <div key={key} className="rounded-xl border border-border bg-card p-5"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{key.replace(/([A-Z])/g, " $1")}</p><p className="mt-2 text-xl font-bold">{money(value)}</p></div>)}</div>}
+        {activeTab === "operations" && <div className="grid gap-4 md:grid-cols-3">{data.appointmentStatus.map((item) => <div key={item.status} className="rounded-xl border border-border bg-card p-5"><p className="capitalize">{item.status || "Unknown"}</p><p className="mt-2 text-3xl font-bold">{item.count}</p></div>)}</div>}
+        {activeTab === "risk" && <div className="rounded-xl border border-border bg-card p-5"><h2 className="flex items-center gap-2 font-semibold"><AlertTriangle className="size-5 text-red-500" />Risk Summary</h2><p className="mt-3 text-sm text-muted-foreground">{data.metrics.riskEvents || 0} failed/error audit events were detected in this period. Use the audit logs page for full drill-down.</p></div>}
+        {activeTab === "patients" && <div className="grid gap-4 md:grid-cols-3"><div className="rounded-xl border border-border bg-card p-5"><p>Active Patients</p><p className="mt-2 text-3xl font-bold">{data.metrics.activePatients || 0}</p></div><div className="rounded-xl border border-border bg-card p-5"><p>New Patients</p><p className="mt-2 text-3xl font-bold">{data.metrics.newPatients || 0}</p></div><div className="rounded-xl border border-border bg-card p-5"><p>Recent Visits</p><p className="mt-2 text-3xl font-bold">{data.metrics.recentVisits || 0}</p></div></div>}
+      </div>
     </div>
   );
 }

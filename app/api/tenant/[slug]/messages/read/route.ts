@@ -16,7 +16,7 @@ async function resolveTenantUser(sessionEmail: string, slug: string) {
   if (!tenantId) return null;
 
   return db.query.users.findFirst({
-    where: and(eq(users.tenantId, tenantId), ilike(users.email, sessionEmail), isNull(users.deletedAt)),
+    where: and(eq(users.tenantId, tenantId), ilike(users.email, sessionEmail), eq(users.isActive, true), isNull(users.deletedAt)),
     columns: { id: true },
   });
 }

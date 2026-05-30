@@ -111,6 +111,14 @@ export function formatTenantName(slug: string) {
     .join(" ");
 }
 
+function getPostLoginDashboardPath(slug: string, role: AppRole, hostname: string) {
+  if (role === "hospital_admin") {
+    return withTenantPrefix("/admin", slug, hostname);
+  }
+
+  return getTenantDashboardPath(slug, role, hostname);
+}
+
 export function TenantRoleLogin({
   slug,
   tenantId,
@@ -189,6 +197,10 @@ export function TenantRoleLogin({
         setError(`This account is temporarily locked until ${precheckData.lockoutUntil || "later"}.`);
         return;
       }
+      if (precheckData?.allowed === false && precheckData?.reason === "inactive") {
+        setError("This account has been deactivated. Contact your hospital administrator.");
+        return;
+      }
 
       const result = await authClient.signIn.email({ email, password });
 
@@ -202,20 +214,28 @@ export function TenantRoleLogin({
         return;
       }
 
-      const successResponse = await fetch("/api/auth/login-guard", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "record-success", email, tenantSlug: slug }),
-      });
+      const [successResponse, roleResponse] = await Promise.all([
+        fetch("/api/auth/login-guard", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "record-success", email, tenantSlug: slug }),
+        }),
+        fetch("/api/auth/role", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, tenantSlug: slug }),
+        }),
+      ]);
       const successData = await successResponse.json().catch(() => ({}));
+      const { role } = await roleResponse.json().catch(() => ({ role: null }));
 
-      const roleResponse = await fetch("/api/auth/role", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, tenantSlug: slug }),
-      });
+      if (!successResponse.ok) {
+        throw new Error(successData?.error || "Sign-in completion failed");
+      }
 
-      const { role } = await roleResponse.json();
+      if (!roleResponse.ok) {
+        throw new Error("Unable to verify account role");
+      }
 
       if (role && role !== selectedRole) {
         setError(
@@ -226,9 +246,9 @@ export function TenantRoleLogin({
       }
 
       const resolvedRole = (role as AppRole | null) ?? (selectedRole as AppRole);
-      const dashboardPath = getTenantDashboardPath(slug, resolvedRole, window.location.hostname);
+      const dashboardPath = getPostLoginDashboardPath(slug, resolvedRole, window.location.hostname);
 
-      if (successData?.passwordExpired) {
+      if (successData?.passwordExpired || successData?.forcePasswordChange) {
         const activationPath = withTenantPrefix("/complete-access", slug, window.location.hostname);
         const params = new URLSearchParams({
           redirect: dashboardPath,
@@ -238,10 +258,16 @@ export function TenantRoleLogin({
         return;
       }
 
-      const securityResponse = await fetch(`/api/tenant/${slug}/security/2fa/challenge`, {
-        method: "POST",
-        credentials: "include",
-      });
+      const [securityResponse, settingsResponse] = await Promise.all([
+        fetch(`/api/tenant/${slug}/security/2fa/challenge`, {
+          method: "POST",
+          credentials: "include",
+        }),
+        fetch("/api/users/settings", {
+          cache: "no-store",
+          credentials: "include",
+        }),
+      ]);
       const securityData = await securityResponse.json().catch(() => ({}));
       if (securityResponse.ok && securityData?.required) {
         const verifyPath = withTenantPrefix("/verify-2fa", slug, window.location.hostname);
@@ -252,11 +278,6 @@ export function TenantRoleLogin({
         window.location.assign(`${verifyPath}?${params.toString()}`);
         return;
       }
-
-      const settingsResponse = await fetch("/api/users/settings", {
-        cache: "no-store",
-        credentials: "include",
-      });
 
       if (settingsResponse.ok) {
         const settings = await settingsResponse.json().catch(() => null);

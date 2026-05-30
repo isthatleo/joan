@@ -6,8 +6,9 @@ import {
   inventoryItems,
   queues,
   labOrders,
+  systemAlerts,
 } from "@/lib/db/schema";
-import { eq, and, lte } from "drizzle-orm";
+import { eq, and, count, desc, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
@@ -29,110 +30,132 @@ export async function GET(request: NextRequest) {
 
     const alerts: any[] = [];
 
-    // Check for overdue invoices
-    const [overdueInvoices] = await db
-      .select()
-      .from(invoices)
-      .where(
-        and(
-          eq(invoices.tenantId, user.tenantId),
-          eq(invoices.status, "overdue")
+    const [
+      overdueInvoicesResult,
+      lowStockResult,
+      pendingLabsResult,
+      queueBackupResult,
+      unresolvedSystemAlertsResult,
+    ] = await Promise.allSettled([
+      db
+        .select({ count: count() })
+        .from(invoices)
+        .where(
+          and(
+            eq(invoices.tenantId, user.tenantId),
+            eq(invoices.status, "overdue")
+          )
+        ),
+      db
+        .select({ count: count() })
+        .from(inventoryItems)
+        .where(
+          and(
+            eq(inventoryItems.tenantId, user.tenantId),
+            sql`case when ${inventoryItems.stock} ~ '^[0-9]+(\\.[0-9]+)?$' then ${inventoryItems.stock}::numeric else null end <= 10`
+          )
+        ),
+      db
+        .select({ count: count() })
+        .from(labOrders)
+        .where(
+          and(
+            eq(labOrders.tenantId, user.tenantId),
+            eq(labOrders.status, "pending")
+          )
+        ),
+      db
+        .select({ count: count() })
+        .from(queues)
+        .where(
+          and(
+            eq(queues.tenantId, user.tenantId),
+            eq(queues.status, "waiting")
+          )
+        ),
+      db
+        .select({
+          id: systemAlerts.id,
+          title: systemAlerts.title,
+          message: systemAlerts.message,
+          severity: systemAlerts.severity,
+          type: systemAlerts.type,
+        })
+        .from(systemAlerts)
+        .where(
+          and(
+            eq(systemAlerts.tenantId, user.tenantId),
+            eq(systemAlerts.isResolved, false)
+          )
         )
-      )
-      .limit(1);
+        .orderBy(desc(systemAlerts.createdAt))
+        .limit(3),
+    ]);
 
-    if (overdueInvoices) {
+    const overdueInvoices = overdueInvoicesResult.status === "fulfilled" ? overdueInvoicesResult.value : [];
+    const lowStockRows = lowStockResult.status === "fulfilled" ? lowStockResult.value : [];
+    const pendingLabs = pendingLabsResult.status === "fulfilled" ? pendingLabsResult.value : [];
+    const queueBackup = queueBackupResult.status === "fulfilled" ? queueBackupResult.value : [];
+    const unresolvedSystemAlerts = unresolvedSystemAlertsResult.status === "fulfilled" ? unresolvedSystemAlertsResult.value : [];
+
+    const overdueInvoiceCount = overdueInvoices[0]?.count || 0;
+    if (overdueInvoiceCount > 0) {
       alerts.push({
         id: "alert-1",
         title: "Overdue Invoices",
-        message: "You have overdue invoices that need attention",
+        message: `${overdueInvoiceCount} overdue invoice${overdueInvoiceCount === 1 ? "" : "s"} need attention`,
         severity: "urgent",
         type: "billing",
       });
     }
 
-    // Check for low stock items
-    const lowStockResult = await db
-      .select()
-      .from(inventoryItems)
-      .where(
-        and(
-          eq(inventoryItems.tenantId, user.tenantId),
-          lte(inventoryItems.stock, "10")
-        )
-      )
-      .limit(3);
-
-    if (lowStockResult.length > 0) {
+    const lowStockCount = lowStockRows[0]?.count || 0;
+    if (lowStockCount > 0) {
       alerts.push({
         id: "alert-2",
         title: "Low Stock Items",
-        message: `${lowStockResult.length} inventory items running low on stock`,
+        message: `${lowStockCount} inventory item${lowStockCount === 1 ? "" : "s"} running low on stock`,
         severity: "warning",
         type: "inventory",
       });
     }
 
-    // Check for pending lab tests
-    const [pendingLabs] = await db
-      .select()
-      .from(labOrders)
-      .where(
-        and(
-          eq(labOrders.tenantId, user.tenantId),
-          eq(labOrders.status, "pending")
-        )
-      )
-      .limit(1);
-
-    if (pendingLabs) {
+    const pendingLabCount = pendingLabs[0]?.count || 0;
+    if (pendingLabCount > 0) {
       alerts.push({
         id: "alert-3",
         title: "Pending Lab Results",
-        message: "Lab test results are pending and need review",
+        message: `${pendingLabCount} lab order${pendingLabCount === 1 ? "" : "s"} pending review`,
         severity: "info",
         type: "lab",
       });
     }
 
-    // Check for queue backup
-    const [queueBackup] = await db
-      .select()
-      .from(queues)
-      .where(
-        and(
-          eq(queues.tenantId, user.tenantId),
-          eq(queues.status, "waiting")
-        )
-      )
-      .limit(1);
-
-    if (queueBackup) {
+    const queueBacklogCount = queueBackup[0]?.count || 0;
+    if (queueBacklogCount > 0) {
       alerts.push({
         id: "alert-4",
         title: "Queue Backup",
-        message: "Significant queue backup detected in departments",
+        message: `${queueBacklogCount} patient${queueBacklogCount === 1 ? "" : "s"} currently waiting`,
         severity: "warning",
         type: "operations",
       });
     }
 
-    // Add system health alerts
-    alerts.push({
-      id: "alert-5",
-      title: "System Health",
-      message: "All systems operational - 99.8% uptime",
-      severity: "info",
-      type: "system",
+    unresolvedSystemAlerts.forEach((alert) => {
+      alerts.push({
+        id: alert.id,
+        title: alert.title,
+        message: alert.message || "System alert requires review",
+        severity: alert.severity || "info",
+        type: alert.type || "system",
+      });
     });
 
     return NextResponse.json(alerts);
   } catch (error) {
     console.error("Error fetching alerts:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json([]);
   }
 }
 

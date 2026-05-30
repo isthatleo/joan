@@ -1,133 +1,218 @@
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
+import { getTenantIdBySlug } from "@/lib/accountant/server";
 import { db } from "@/lib/db";
-import { tenants, users, patients, appointments, visits } from "@/lib/db/schema";
-import { eq, gte, lte, sql, count, sum, avg } from "drizzle-orm";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+function rangeDays(range: string) {
+  if (range === "7d") return 7;
+  if (range === "90d") return 90;
+  if (range === "1y") return 365;
+  return 30;
+}
+
+function num(value: unknown) {
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function pct(part: number, total: number) {
+  return total > 0 ? Math.round((part / total) * 100) : 0;
+}
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
-    const slug = resolvedParams.slug;
-    const { searchParams } = new URL(request.url);
-    const timeRange = searchParams.get("timeRange") || "30d";
+    const { slug } = await params;
+    const tenantId = await getTenantIdBySlug(slug);
+    if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    if (!slug) {
-      return NextResponse.json({ error: "Tenant slug required" }, { status: 400 });
-    }
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
-    // Get tenant by slug
-    const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, slug)).limit(1);
+    const range = new URL(request.url).searchParams.get("timeRange") || "30d";
+    const days = rangeDays(range);
 
-    if (!tenant) {
-      return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
-    }
+    const [
+      patientRows,
+      appointmentRows,
+      visitRows,
+      staffRows,
+      invoiceRows,
+      paymentRows,
+      claimRows,
+      expenseRows,
+      auditRows,
+      dailyRows,
+      statusRows,
+      roleRows,
+    ] = await Promise.all([
+      db.execute(sql`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE created_at >= NOW() - (${days}::text || ' days')::interval)::int AS recent,
+          COUNT(*) FILTER (WHERE status = 'active')::int AS active
+        FROM patients
+        WHERE tenant_id = ${tenantId} AND deleted_at IS NULL
+      `),
+      db.execute(sql`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE scheduled_at >= NOW() - (${days}::text || ' days')::interval)::int AS recent,
+          COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
+          COUNT(*) FILTER (WHERE status IN ('cancelled', 'canceled', 'no_show'))::int AS missed
+        FROM appointments
+        WHERE tenant_id = ${tenantId} AND deleted_at IS NULL
+      `),
+      db.execute(sql`
+        SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE created_at >= NOW() - (${days}::text || ' days')::interval)::int AS recent
+        FROM visits
+        WHERE tenant_id = ${tenantId} AND deleted_at IS NULL
+      `),
+      db.execute(sql`
+        SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE is_active = true)::int AS active
+        FROM users
+        WHERE tenant_id = ${tenantId} AND deleted_at IS NULL AND role <> 'patient'
+      `),
+      db.execute(sql`
+        SELECT
+          COUNT(*)::int AS total,
+          COALESCE(SUM(COALESCE(total_amount, amount, '0')::numeric), 0) AS billed,
+          COALESCE(SUM(COALESCE(amount_due, '0')::numeric), 0) AS outstanding,
+          COUNT(*) FILTER (WHERE status = 'paid')::int AS paid
+        FROM invoices
+        WHERE tenant_id = ${tenantId} AND deleted_at IS NULL
+      `),
+      db.execute(sql`
+        SELECT
+          COUNT(*)::int AS total,
+          COALESCE(SUM(amount::numeric) FILTER (WHERE status = 'completed'), 0) AS revenue,
+          COALESCE(AVG(amount::numeric) FILTER (WHERE status = 'completed'), 0) AS average_payment
+        FROM payments
+        WHERE tenant_id = ${tenantId} AND deleted_at IS NULL AND created_at >= NOW() - (${days}::text || ' days')::interval
+      `),
+      db.execute(sql`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE status IN ('approved', 'paid'))::int AS approved,
+          COUNT(*) FILTER (WHERE status = 'denied')::int AS denied,
+          COALESCE(SUM(claim_amount), 0) AS claimed,
+          COALESCE(SUM(approved_amount), 0) AS approved_amount
+        FROM claims
+        WHERE tenant_id = ${tenantId} AND deleted_at IS NULL
+      `),
+      db.execute(sql`
+        SELECT COALESCE(SUM(amount), 0) AS expenses
+        FROM expenses
+        WHERE tenant_id = ${tenantId} AND deleted_at IS NULL AND expense_date >= CURRENT_DATE - (${days}::text || ' days')::interval
+      `),
+      db.execute(sql`
+        SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE action ILIKE '%failed%' OR action ILIKE '%error%')::int AS risk_events
+        FROM audit_logs
+        WHERE tenant_id = ${tenantId} AND created_at >= NOW() - (${days}::text || ' days')::interval
+      `),
+      db.execute(sql`
+        SELECT
+          TO_CHAR(day, 'Mon DD') AS label,
+          COALESCE(patients_count, 0)::int AS patients,
+          COALESCE(appointments_count, 0)::int AS appointments,
+          COALESCE(revenue_amount, 0) AS revenue
+        FROM generate_series(CURRENT_DATE - (${Math.min(days, 30)}::text || ' days')::interval, CURRENT_DATE, '1 day') AS days(day)
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) AS patients_count FROM patients WHERE tenant_id = ${tenantId} AND deleted_at IS NULL AND created_at::date = day::date
+        ) p ON true
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) AS appointments_count FROM appointments WHERE tenant_id = ${tenantId} AND deleted_at IS NULL AND scheduled_at::date = day::date
+        ) a ON true
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(SUM(amount::numeric), 0) AS revenue_amount FROM payments WHERE tenant_id = ${tenantId} AND deleted_at IS NULL AND status = 'completed' AND created_at::date = day::date
+        ) pay ON true
+      `),
+      db.execute(sql`
+        SELECT COALESCE(status, 'unknown') AS status, COUNT(*)::int AS count
+        FROM appointments
+        WHERE tenant_id = ${tenantId} AND deleted_at IS NULL AND scheduled_at >= NOW() - (${days}::text || ' days')::interval
+        GROUP BY status
+        ORDER BY count DESC
+      `),
+      db.execute(sql`
+        SELECT COALESCE(role, 'unknown') AS role, COUNT(*)::int AS count
+        FROM users
+        WHERE tenant_id = ${tenantId} AND deleted_at IS NULL
+        GROUP BY role
+        ORDER BY count DESC
+      `),
+    ]);
 
-    const tenantId = tenant.id;
+    const patients = patientRows.rows[0] as any;
+    const appointments = appointmentRows.rows[0] as any;
+    const visits = visitRows.rows[0] as any;
+    const staff = staffRows.rows[0] as any;
+    const invoices = invoiceRows.rows[0] as any;
+    const payments = paymentRows.rows[0] as any;
+    const claims = claimRows.rows[0] as any;
+    const expenses = expenseRows.rows[0] as any;
+    const audit = auditRows.rows[0] as any;
 
-    // Calculate date range based on timeRange
-    const now = new Date();
-    const startDate = new Date();
+    const totalRevenue = num(payments.revenue);
+    const totalExpenses = num(expenses.expenses);
+    const totalAppointments = num(appointments.total);
+    const completedAppointments = num(appointments.completed);
 
-    switch (timeRange) {
-      case "7d":
-        startDate.setDate(now.getDate() - 7);
-        break;
-      case "30d":
-        startDate.setDate(now.getDate() - 30);
-        break;
-      case "90d":
-        startDate.setDate(now.getDate() - 90);
-        break;
-      case "1y":
-        startDate.setFullYear(now.getFullYear() - 1);
-        break;
-      default:
-        startDate.setDate(now.getDate() - 30);
-    }
-
-    // Fetch analytics data
-    const analyticsData = await getAnalyticsData(tenantId, startDate, now);
-
-    return NextResponse.json(analyticsData);
+    return NextResponse.json({
+      range,
+      generatedAt: new Date().toISOString(),
+      metrics: {
+        totalPatients: num(patients.total),
+        newPatients: num(patients.recent),
+        activePatients: num(patients.active),
+        totalStaff: num(staff.total),
+        activeStaff: num(staff.active),
+        totalAppointments,
+        recentAppointments: num(appointments.recent),
+        completedAppointments,
+        missedAppointments: num(appointments.missed),
+        completionRate: pct(completedAppointments, totalAppointments),
+        totalVisits: num(visits.total),
+        recentVisits: num(visits.recent),
+        totalRevenue,
+        netRevenue: totalRevenue - totalExpenses,
+        outstandingInvoices: num(invoices.outstanding),
+        collectionRate: pct(num(invoices.paid), num(invoices.total)),
+        averagePayment: num(payments.average_payment),
+        claimApprovalRate: pct(num(claims.approved), num(claims.total)),
+        claimDenialRate: pct(num(claims.denied), num(claims.total)),
+        auditEvents: num(audit.total),
+        riskEvents: num(audit.risk_events),
+      },
+      trends: dailyRows.rows.map((row: any) => ({
+        label: row.label,
+        patients: num(row.patients),
+        appointments: num(row.appointments),
+        revenue: num(row.revenue),
+      })),
+      appointmentStatus: statusRows.rows.map((row: any) => ({ status: row.status, count: num(row.count) })),
+      roleMix: roleRows.rows.map((row: any) => ({ role: row.role, count: num(row.count) })),
+      financial: {
+        billed: num(invoices.billed),
+        paidRevenue: totalRevenue,
+        expenses: totalExpenses,
+        outstanding: num(invoices.outstanding),
+        claimsSubmitted: num(claims.total),
+        claimsApproved: num(claims.approved),
+        claimAmount: num(claims.claimed),
+        approvedClaimAmount: num(claims.approved_amount),
+      },
+      insights: [
+        { title: "Appointment completion", value: `${pct(completedAppointments, totalAppointments)}%`, detail: `${completedAppointments} of ${totalAppointments} appointments completed.` },
+        { title: "Revenue position", value: totalRevenue - totalExpenses >= 0 ? "Positive" : "Deficit", detail: `${num(payments.total)} completed payment records in this period.` },
+        { title: "Audit risk", value: `${num(audit.risk_events)} events`, detail: "Risk events are inferred from failed/error audit actions." },
+      ],
+    }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("Error fetching tenant analytics:", error);
     return NextResponse.json({ error: "Failed to fetch analytics" }, { status: 500 });
   }
-}
-
-async function getAnalyticsData(tenantId: string, startDate: Date, endDate: Date) {
-  // Patient metrics
-  const [totalPatients] = await db
-    .select({ count: count() })
-    .from(patients)
-    .where(eq(patients.tenantId, tenantId));
-
-  const [newPatientsThisMonth] = await db
-    .select({ count: count() })
-    .from(patients)
-    .where(sql`${patients.tenantId} = ${tenantId} AND ${patients.createdAt} >= ${startDate} AND ${patients.createdAt} <= ${endDate}`);
-
-  const [avgLengthOfStay] = await db
-    .select({ avg: avg(patients.createdAt) }) // This is a placeholder - would need actual length of stay field
-    .from(patients)
-    .where(eq(patients.tenantId, tenantId));
-
-  // Appointment metrics
-  const [totalAppointments] = await db
-    .select({ count: count() })
-    .from(appointments)
-    .where(eq(appointments.tenantId, tenantId));
-
-  const [completedAppointments] = await db
-    .select({ count: count() })
-    .from(appointments)
-    .where(sql`${appointments.tenantId} = ${tenantId} AND ${appointments.status} = 'completed'`);
-
-  // Financial metrics (placeholder - would need actual billing/invoice tables)
-  const totalRevenue = 125000; // Placeholder
-  const monthlyRevenue = 15000; // Placeholder
-  const revenueGrowth = 8.5; // Placeholder
-  const averageRevenuePerPatient = 2500; // Placeholder
-  const outstandingInvoices = 8500; // Placeholder
-
-  // Operational metrics
-  const averageWaitTime = 25; // Placeholder in minutes
-  const bedOccupancyRate = 78; // Placeholder percentage
-  const staffUtilization = 82; // Placeholder percentage
-  const appointmentFillRate = 85; // Placeholder percentage
-  const emergencyResponseTime = 12; // Placeholder in minutes
-
-  // Quality metrics
-  const patientSatisfaction = 92; // Placeholder percentage
-  const infectionRate = 0.8; // Placeholder percentage
-  const medicationErrorRate = 0.3; // Placeholder percentage
-  const mortalityRate = 1.2; // Placeholder percentage
-
-  return {
-    patientMetrics: {
-      totalPatients: totalPatients.count,
-      newPatientsThisMonth: newPatientsThisMonth.count,
-      patientGrowth: 12.5, // Placeholder
-      avgLengthOfStay: 4.2, // Placeholder in days
-      readmissionRate: 8.5, // Placeholder percentage
-    },
-    financialMetrics: {
-      totalRevenue,
-      monthlyRevenue,
-      revenueGrowth,
-      averageRevenuePerPatient,
-      outstandingInvoices,
-    },
-    operationalMetrics: {
-      averageWaitTime,
-      bedOccupancyRate,
-      staffUtilization,
-      appointmentFillRate,
-      emergencyResponseTime,
-    },
-    qualityMetrics: {
-      patientSatisfaction,
-      infectionRate,
-      medicationErrorRate,
-      mortalityRate,
-    },
-  };
 }

@@ -35,6 +35,10 @@ function PersistTenantContext({ tenant }: { tenant: TenantInfo }) {
         sessionStorage.removeItem("active_tenant_logo");
       }
 
+      if (sessionStorage.getItem("active_tenant_modules") && sessionStorage.getItem("active_tenant_preferences")) {
+        return;
+      }
+
       fetch(`/api/tenants/${tenant.slug}/settings`, {
         credentials: "include",
         cache: "no-store",
@@ -114,6 +118,8 @@ function AuthenticatedShell({
     };
 
     const refreshPreferences = async () => {
+      if (sessionStorage.getItem("active_tenant_preferences")) return;
+
       try {
         const response = await fetch(`/api/tenants/${tenant.slug}/settings`, {
           credentials: "include",
@@ -144,14 +150,11 @@ function AuthenticatedShell({
     };
 
     applyStoredPreferences();
-    const interval = window.setInterval(() => {
-      void refreshPreferences();
-    }, 10000);
+    void refreshPreferences();
     window.addEventListener("storage", handleStorage);
     window.addEventListener(getTenantSettingsSyncEventName(), handleTenantSettingsEvent as EventListener);
 
     return () => {
-      window.clearInterval(interval);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener(getTenantSettingsSyncEventName(), handleTenantSettingsEvent as EventListener);
     };

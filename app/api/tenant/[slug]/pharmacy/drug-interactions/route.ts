@@ -1,84 +1,85 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { getPharmacySettings, listDrugInteractions, saveInteractions } from "@/lib/pharmacy/data";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-) {
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+async function requireAdminTenant(headers: Headers, slug: string) {
+  const tenantId = await getTenantIdBySlug(slug);
+  if (!tenantId) return { ok: false as const, status: 404, error: "Tenant not found" };
+  const admin = await requireTenantAdmin(headers, tenantId);
+  if (!admin.ok) return { ok: false as const, status: admin.status, error: admin.error };
+  return { ok: true as const, tenantId, admin };
+}
+
+export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
-    const slug = (await params).slug;
-    const { searchParams } = new URL(request.url);
-    const severity = searchParams.get("severity") || "all";
+    const { slug } = await params;
+    const context = await requireAdminTenant(request.headers, slug);
+    if (!context.ok) return NextResponse.json({ error: context.error }, { status: context.status });
 
-    // Mock drug interactions
-    const interactions = [
-      {
-        id: "inter-001",
-        drug1: "Warfarin",
-        drug2: "Aspirin",
-        severity: "critical",
-        type: "Anticoagulant Interaction",
-        description:
-          "Concurrent use may significantly increase bleeding risk due to inhibition of platelet aggregation and prolonged prothrombin time.",
-        recommendation:
-          "Avoid concurrent use if possible. If necessary, monitor INR closely and adjust warfarin dose accordingly.",
-        evidenceLevel: "A - Established",
-        prescriptionId: "rx-2024-045",
-        patientName: "Mary Johnson",
-      },
-      {
-        id: "inter-002",
-        drug1: "Metformin",
-        drug2: "Contrast Dye",
-        severity: "high",
-        type: "Renal Impairment Risk",
-        description:
-          "Radiographic contrast media can impair renal function, increasing the risk of lactic acidosis with metformin.",
-        recommendation:
-          "Hold metformin for 48 hours before and after contrast administration. Check renal function before restarting.",
-        evidenceLevel: "B - Probable",
-      },
-      {
-        id: "inter-003",
-        drug1: "ACE Inhibitors",
-        drug2: "NSAIDs",
-        severity: "high",
-        type: "Renal Function Impairment",
-        description:
-          "NSAIDs can reduce the effectiveness of ACE inhibitors and increase the risk of renal impairment and hyperkalemia.",
-        recommendation:
-          "Use NSAIDs cautiously. Monitor renal function and potassium levels. Consider alternatives to NSAIDs.",
-        evidenceLevel: "B - Probable",
-      },
-      {
-        id: "inter-004",
-        drug1: "Simvastatin",
-        drug2: "Clarithromycin",
-        severity: "moderate",
-        type: "Increased Statin Levels",
-        description:
-          "Clarithromycin inhibits CYP3A4, increasing simvastatin levels and risk of myopathy and rhabdomyolysis.",
-        recommendation: "Temporarily discontinue simvastatin during clarithromycin therapy or choose alternative antibiotic.",
-        evidenceLevel: "B - Probable",
-      },
-      {
-        id: "inter-005",
-        drug1: "Lisinopril",
-        drug2: "Potassium Supplements",
-        severity: "moderate",
-        type: "Hyperkalemia Risk",
-        description:
-          "ACE inhibitors reduce aldosterone secretion, promoting potassium retention. Combined use increases hyperkalemia risk.",
-        recommendation:
-          "Monitor serum potassium regularly. May need dose adjustment of either agent. Use potassium supplements cautiously.",
-        evidenceLevel: "B - Probable",
-      },
-    ];
-
-    const filtered = severity === "all" ? interactions : interactions.filter(i => i.severity === severity);
-    return NextResponse.json(filtered);
+    const data = await listDrugInteractions(context.tenantId);
+    return NextResponse.json(data, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
-    console.error("Error fetching drug interactions:", error);
-    return NextResponse.json({ error: "Failed to fetch interactions" }, { status: 500 });
+    console.error("Error fetching tenant drug interactions:", error);
+    return NextResponse.json({ error: "Failed to fetch drug interactions" }, { status: 500 });
   }
 }
 
+export async function POST(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
+  try {
+    const { slug } = await params;
+    const context = await requireAdminTenant(request.headers, slug);
+    if (!context.ok) return NextResponse.json({ error: context.error }, { status: context.status });
+
+    const body = await request.json().catch(() => ({}));
+    if (!body.medicationA || !body.medicationB || !body.effect || !body.recommendation) {
+      return NextResponse.json({ error: "Medication pair, effect, and recommendation are required" }, { status: 400 });
+    }
+
+    const settings = await getPharmacySettings(context.tenantId);
+    const interactions = [
+      {
+        id: body.id || crypto.randomUUID(),
+        medicationA: String(body.medicationA).trim(),
+        medicationB: String(body.medicationB).trim(),
+        severity: body.severity || "moderate",
+        effect: String(body.effect).trim(),
+        recommendation: String(body.recommendation).trim(),
+        source: body.source || "Hospital admin",
+        active: body.active !== false,
+        createdAt: body.createdAt || new Date().toISOString(),
+      },
+      ...settings.interactions.filter((item) => item.id !== body.id),
+    ];
+
+    await saveInteractions(context.tenantId, interactions, context.admin.user?.id || null);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error saving tenant drug interaction:", error);
+    return NextResponse.json({ error: "Failed to save drug interaction" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
+  try {
+    const { slug } = await params;
+    const context = await requireAdminTenant(request.headers, slug);
+    if (!context.ok) return NextResponse.json({ error: context.error }, { status: context.status });
+
+    const body = await request.json().catch(() => ({}));
+    const settings = await getPharmacySettings(context.tenantId);
+    await saveInteractions(
+      context.tenantId,
+      settings.interactions.filter((item) => item.id !== body.id),
+      context.admin.user?.id || null,
+    );
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting tenant drug interaction:", error);
+    return NextResponse.json({ error: "Failed to delete drug interaction" }, { status: 500 });
+  }
+}

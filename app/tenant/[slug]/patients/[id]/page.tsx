@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Calendar, CheckCircle2, Clock3, CreditCard, History, Phone, UserRound } from "lucide-react";
+import { ArrowLeft, Calendar, CheckCircle2, CreditCard, History, Mail, Phone } from "lucide-react";
 import { KPICard } from "@/components/KPICard";
 import { useTenantPath } from "@/hooks/useTenantPath";
 
@@ -32,33 +32,25 @@ type PatientWorkspace = {
     status: string;
     type: string;
   }>;
-  paymentWorkspace?: {
-    methods: string[];
-    currency: string;
-    defaultPreference: {
-      paymentMethod: string;
-      insuranceProvider: string | null;
-      insurancePolicyNumber: string | null;
-    } | null;
-  };
 };
 
 function formatDate(value?: string | null) {
   if (!value) return "Not recorded";
-  return new Date(value).toLocaleString();
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not recorded";
+  return date.toLocaleString();
 }
 
 export default function TenantPatientDetailPage() {
   const params = useParams();
-  const searchParams = useSearchParams();
   const slug = String(params?.slug || "");
   const patientId = String(params?.id || "");
   const tenantPath = useTenantPath();
 
   const query = useQuery<PatientWorkspace>({
-    queryKey: ["reception-patient-detail", slug, patientId],
+    queryKey: ["tenant-patient-detail", slug, patientId],
     queryFn: async () => {
-      const response = await fetch(`/api/tenant/${slug}/receptionist/appointments/patient/${patientId}`, { cache: "no-store" });
+      const response = await fetch(`/api/tenant/${slug}/patients/${patientId}`, { cache: "no-store" });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error || "Failed to load patient");
       return payload;
@@ -69,7 +61,7 @@ export default function TenantPatientDetailPage() {
   const patient = query.data?.patient || null;
   const appointments = query.data?.appointments || [];
   const recentVisits = patient?.recentVisits || [];
-  const banner = searchParams.get("registered") === "true";
+  const insurancePolicies = patient?.insurancePolicies || [];
 
   const metrics = useMemo(
     () => ({
@@ -83,9 +75,9 @@ export default function TenantPatientDetailPage() {
 
   return (
     <div className="space-y-6">
-      {banner ? (
-        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-foreground">
-          Patient registration completed. Portal access was provisioned using the captured email or phone details.
+      {query.isError ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+          {query.error instanceof Error ? query.error.message : "Failed to load patient details"}
         </div>
       ) : null}
 
@@ -98,14 +90,22 @@ export default function TenantPatientDetailPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href={tenantPath(`/appointments/book?patientId=${patientId}`)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-            <Calendar className="h-4 w-4" />
-            Book Appointment
+          <Link href={tenantPath("/patients")} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground">
+            <ArrowLeft className="h-4 w-4" />
+            Back to Patients
           </Link>
-          <Link href={tenantPath("/check-in")} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground">
-            <UserRound className="h-4 w-4" />
-            Check In
-          </Link>
+          {patient?.phone ? (
+            <a href={`tel:${patient.phone}`} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+              <Phone className="h-4 w-4" />
+              Call Patient
+            </a>
+          ) : null}
+          {patient?.email ? (
+            <a href={`mailto:${patient.email}`} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground">
+              <Mail className="h-4 w-4" />
+              Email Patient
+            </a>
+          ) : null}
         </div>
       </div>
 
@@ -153,18 +153,23 @@ export default function TenantPatientDetailPage() {
         </section>
 
         <section className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-foreground">Billing Preference</h2>
+          <h2 className="text-lg font-semibold text-foreground">Insurance Coverage</h2>
           <div className="mt-4 space-y-3 text-sm">
-            <div className="rounded-xl border border-border bg-background/70 px-4 py-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Default payment method</p>
-              <p className="mt-1 font-medium text-foreground">{query.data?.paymentWorkspace?.defaultPreference?.paymentMethod || "Not set"}</p>
-            </div>
-            {query.data?.paymentWorkspace?.defaultPreference?.insuranceProvider ? (
+            {insurancePolicies.length === 0 ? (
               <div className="rounded-xl border border-border bg-background/70 px-4 py-3">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Insurance provider</p>
-                <p className="mt-1 font-medium text-foreground">{query.data?.paymentWorkspace?.defaultPreference?.insuranceProvider}</p>
+                <p className="font-medium text-foreground">No insurance policy recorded</p>
+                <p className="mt-1 text-xs text-muted-foreground">Coverage details will appear here when attached to the patient record.</p>
               </div>
-            ) : null}
+            ) : (
+              insurancePolicies.map((policy) => (
+                <div key={policy.id} className="rounded-xl border border-border bg-background/70 px-4 py-3">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Provider</p>
+                  <p className="mt-1 font-medium text-foreground">{policy.provider}</p>
+                  <p className="mt-2 text-xs uppercase tracking-wide text-muted-foreground">Policy number</p>
+                  <p className="mt-1 font-mono text-xs text-foreground">{policy.policyNumber}</p>
+                </div>
+              ))
+            )}
             {patient?.phone ? (
               <a href={`tel:${patient.phone}`} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground">
                 <Phone className="h-4 w-4" />

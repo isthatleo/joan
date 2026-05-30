@@ -5,13 +5,38 @@ import {
   appointments,
   invoices,
   users,
-  visits,
   labOrders,
   inventoryItems,
   queues,
+  bedAssignments,
+  systemMetrics,
 } from "@/lib/db/schema";
-import { eq, count, sum, and, gte, lte, isNull } from "drizzle-orm";
+import { eq, count, and, gte, lte, desc, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+
+function toNumber(value: unknown) {
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatMoney(value: unknown) {
+  return toNumber(value).toFixed(2);
+}
+
+const invoiceTotalSql = sql<string>`
+  coalesce(
+    sum(
+      case
+        when ${invoices.totalAmount} ~ '^[0-9]+(\\.[0-9]+)?$'
+          then ${invoices.totalAmount}::numeric
+        when ${invoices.amount} ~ '^[0-9]+(\\.[0-9]+)?$'
+          then ${invoices.amount}::numeric
+        else 0
+      end
+    ),
+    0
+  )
+`;
 
 export async function GET(request: NextRequest) {
   try {
@@ -36,23 +61,30 @@ export async function GET(request: NextRequest) {
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
 
     // Fetch all metrics
     const [
       patientCount,
       todayPatients,
+      yesterdayPatients,
       activeAppointments,
       completedAppointments,
+      yesterdayAppointments,
       totalRevenueResult,
       todayRevenueResult,
+      yesterdayRevenueResult,
       pendingInvoicesResult,
       staffCount,
-      onDutyStaff,
       pendingLabTests,
       completedLabTests,
-      bedOccupancy,
+      totalBeds,
+      occupiedBeds,
+      inventoryCount,
       lowStockItems,
       queueCount,
+      latestSystemMetric,
     ] = await Promise.all([
       // Total patients
       db
@@ -69,6 +101,18 @@ export async function GET(request: NextRequest) {
             eq(patients.tenantId, tenantId),
             gte(patients.createdAt, today),
             lte(patients.createdAt, tomorrow)
+          )
+        ),
+
+      // Patients yesterday (trend baseline)
+      db
+        .select({ count: count() })
+        .from(patients)
+        .where(
+          and(
+            eq(patients.tenantId, tenantId),
+            gte(patients.createdAt, yesterday),
+            lte(patients.createdAt, today)
           )
         ),
 
@@ -98,15 +142,28 @@ export async function GET(request: NextRequest) {
           )
         ),
 
+      // Completed appointments yesterday (trend baseline)
+      db
+        .select({ count: count() })
+        .from(appointments)
+        .where(
+          and(
+            eq(appointments.tenantId, tenantId),
+            eq(appointments.status, "completed"),
+            gte(appointments.updatedAt, yesterday),
+            lte(appointments.updatedAt, today)
+          )
+        ),
+
       // Total revenue
       db
-        .select({ total: sum(invoices.totalAmount) })
+        .select({ total: invoiceTotalSql })
         .from(invoices)
         .where(eq(invoices.tenantId, tenantId)),
 
       // Today's revenue
       db
-        .select({ total: sum(invoices.totalAmount) })
+        .select({ total: invoiceTotalSql })
         .from(invoices)
         .where(
           and(
@@ -116,23 +173,27 @@ export async function GET(request: NextRequest) {
           )
         ),
 
+      // Yesterday's revenue (trend baseline)
+      db
+        .select({ total: invoiceTotalSql })
+        .from(invoices)
+        .where(
+          and(
+            eq(invoices.tenantId, tenantId),
+            gte(invoices.createdAt, yesterday),
+            lte(invoices.createdAt, today)
+          )
+        ),
+
       // Pending invoices
       db
-        .select({ total: sum(invoices.totalAmount) })
+        .select({ total: invoiceTotalSql })
         .from(invoices)
         .where(
           and(eq(invoices.tenantId, tenantId), eq(invoices.status, "pending"))
         ),
 
       // Total staff
-      db
-        .select({ count: count() })
-        .from(users)
-        .where(
-          and(eq(users.tenantId, tenantId), eq(users.isActive, true))
-        ),
-
-      // Staff on duty (simulated - in real scenario, track from a status table)
       db
         .select({ count: count() })
         .from(users)
@@ -162,16 +223,28 @@ export async function GET(request: NextRequest) {
           )
         ),
 
-      // Bed occupancy (calculate from visits)
+      // Total configured beds
       db
         .select({ count: count() })
-        .from(visits)
+        .from(bedAssignments)
+        .where(eq(bedAssignments.tenantId, tenantId)),
+
+      // Occupied beds
+      db
+        .select({ count: count() })
+        .from(bedAssignments)
         .where(
           and(
-            eq(visits.tenantId, tenantId),
-            isNull(visits.deletedAt)
+            eq(bedAssignments.tenantId, tenantId),
+            eq(bedAssignments.status, "occupied")
           )
         ),
+
+      // Total inventory items
+      db
+        .select({ count: count() })
+        .from(inventoryItems)
+        .where(eq(inventoryItems.tenantId, tenantId)),
 
       // Low stock items
       db
@@ -180,7 +253,7 @@ export async function GET(request: NextRequest) {
         .where(
           and(
             eq(inventoryItems.tenantId, tenantId),
-            lte(inventoryItems.stock, "10")
+            sql`case when ${inventoryItems.stock} ~ '^[0-9]+(\\.[0-9]+)?$' then ${inventoryItems.stock}::numeric else null end <= 10`
           )
         ),
 
@@ -194,40 +267,66 @@ export async function GET(request: NextRequest) {
             eq(queues.status, "waiting")
           )
         ),
+
+      db
+        .select({
+          uptime: systemMetrics.uptime,
+          cpuUsage: systemMetrics.cpuUsage,
+          memoryUsage: systemMetrics.memoryUsage,
+          apiResponseTime: systemMetrics.apiResponseTime,
+        })
+        .from(systemMetrics)
+        .where(eq(systemMetrics.tenantId, tenantId))
+        .orderBy(desc(systemMetrics.timestamp))
+        .limit(1),
     ]);
 
-    const totalRevenueNum = totalRevenueResult[0]?.total
-      ? parseFloat(totalRevenueResult[0].total.toString())
-      : 0;
-    const todayRevenueNum = todayRevenueResult[0]?.total
-      ? parseFloat(todayRevenueResult[0].total.toString())
-      : 0;
-    const pendingInvoicesNum = pendingInvoicesResult[0]?.total
-      ? parseFloat(pendingInvoicesResult[0].total.toString())
+    const totalRevenueNum = toNumber(totalRevenueResult[0]?.total);
+    const todayRevenueNum = toNumber(todayRevenueResult[0]?.total);
+    const yesterdayRevenueNum = toNumber(yesterdayRevenueResult[0]?.total);
+    const pendingInvoicesNum = toNumber(pendingInvoicesResult[0]?.total);
+    const totalBedCount = totalBeds[0]?.count || 0;
+    const occupiedBedCount = occupiedBeds[0]?.count || 0;
+
+    const bedOccupancyPercent = totalBedCount > 0
+      ? Math.min(Math.round((occupiedBedCount / totalBedCount) * 100), 100)
       : 0;
 
-    const bedOccupancyPercent = Math.min(
-      Math.floor((bedOccupancy[0]?.count || 0) / 140 * 100),
-      100
-    );
+    const percentageChange = (current: number, previous: number) => {
+      if (previous === 0) return current > 0 ? 100 : 0;
+      return Math.round(((current - previous) / previous) * 100);
+    };
+
+    const system = latestSystemMetric[0];
 
     return NextResponse.json({
       totalPatients: patientCount[0]?.count || 0,
       patientsToday: todayPatients[0]?.count || 0,
+      patientsYesterday: yesterdayPatients[0]?.count || 0,
+      patientTrendPercent: percentageChange(todayPatients[0]?.count || 0, yesterdayPatients[0]?.count || 0),
       activeAppointments: activeAppointments[0]?.count || 0,
       completedAppointments: completedAppointments[0]?.count || 0,
-      totalRevenue: totalRevenueNum.toFixed(2),
-      todayRevenue: todayRevenueNum.toFixed(2),
-      pendingInvoices: pendingInvoicesNum.toFixed(2),
+      completedAppointmentsYesterday: yesterdayAppointments[0]?.count || 0,
+      appointmentTrendPercent: percentageChange(completedAppointments[0]?.count || 0, yesterdayAppointments[0]?.count || 0),
+      totalRevenue: formatMoney(totalRevenueNum),
+      todayRevenue: formatMoney(todayRevenueNum),
+      yesterdayRevenue: formatMoney(yesterdayRevenueNum),
+      revenueTrendPercent: percentageChange(todayRevenueNum, yesterdayRevenueNum),
+      pendingInvoices: formatMoney(pendingInvoicesNum),
       bedOccupancy: bedOccupancyPercent,
-      staffOnDuty: Math.floor((onDutyStaff[0]?.count || 0) * 0.7),
+      occupiedBeds: occupiedBedCount,
+      totalBeds: totalBedCount,
+      staffOnDuty: staffCount[0]?.count || 0,
       totalStaff: staffCount[0]?.count || 0,
-      pendingLabTests: labOrders[0]?.count || 0,
+      pendingLabTests: pendingLabTests[0]?.count || 0,
       completedLabTests: completedLabTests[0]?.count || 0,
-      pharmacyItems: inventoryItems[0]?.count || 0,
+      pharmacyItems: inventoryCount[0]?.count || 0,
       lowStockItems: lowStockItems[0]?.count || 0,
-      criticalAlerts: 2,
-      systemUptime: "99.8%",
+      criticalAlerts: 0,
+      systemUptime: system?.uptime || null,
+      cpuUsage: system?.cpuUsage ?? null,
+      memoryUsage: system?.memoryUsage ?? null,
+      apiResponseTime: system?.apiResponseTime ?? null,
       queueCount: queueCount[0]?.count || 0,
     });
   } catch (error) {

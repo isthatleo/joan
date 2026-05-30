@@ -41,9 +41,9 @@ export default function LabResultDetailPage() {
   if (loading) return <div className="flex min-h-[50vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   if (!result) return <div className="space-y-4"><Link href={path("/lab/lab-results")} className="inline-flex items-center gap-2 text-sm text-primary hover:underline"><ArrowLeft className="h-4 w-4" />Back to results</Link><p className="text-sm text-muted-foreground">Result not found.</p></div>;
 
-  const entries = Array.isArray(result.parsed.values)
+  const entries: Array<[string, unknown]> = Array.isArray(result.parsed.values)
     ? result.parsed.values.map((value: any, index: number) => [value?.name || `Value ${index + 1}`, value?.value || "-"])
-    : Object.entries(result.parsed.values || {});
+    : Object.entries(result.parsed.values || {}) as Array<[string, unknown]>;
 
   return (
     <div className="space-y-6">
@@ -61,7 +61,7 @@ export default function LabResultDetailPage() {
           <div className="rounded-xl border border-border bg-background p-4"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Status</p><p className="mt-2 font-medium text-foreground">{result.parsed.status || "pending_review"}</p><p className="mt-4 text-xs uppercase tracking-[0.2em] text-muted-foreground">Flag</p><p className="mt-2 font-medium text-foreground">{result.parsed.flag || "normal"}</p></div>
           <div className="rounded-xl border border-border bg-background p-4"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Notes</p><p className="mt-2 text-sm text-muted-foreground">{result.parsed.notes || "No notes captured."}</p></div>
         </div>
-        <div className="mt-6 rounded-xl border border-border bg-background p-4"><div className="mb-3 flex items-center gap-2 font-medium text-foreground"><FileText className="h-4 w-4 text-primary" />Findings</div>{entries.length === 0 ? <p className="text-sm text-muted-foreground">No structured values saved.</p> : <div className="space-y-2">{entries.map(([key, value]) => <div key={key} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm"><span className="font-medium text-foreground">{key}</span><span className="text-muted-foreground">{String(value)}</span></div>)}</div>}</div>
+        <div className="mt-6 rounded-xl border border-border bg-background p-4"><div className="mb-3 flex items-center gap-2 font-medium text-foreground"><FileText className="h-4 w-4 text-primary" />Findings</div>{entries.length === 0 ? <p className="text-sm text-muted-foreground">No structured values saved.</p> : <div className="space-y-2">{entries.map(([key, value]: [string, unknown]) => <div key={key} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm"><span className="font-medium text-foreground">{key}</span><span className="text-muted-foreground">{String(value)}</span></div>)}</div>}</div>
       </div>
     </div>
   );

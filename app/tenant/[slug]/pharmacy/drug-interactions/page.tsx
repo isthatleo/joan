@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { AlertTriangle, Loader2, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 
 type InteractionRule = { id: string; medicationA: string; medicationB: string; severity: string; effect: string; recommendation: string; active?: boolean };
 type InteractionPayload = { interactions: InteractionRule[]; activeRisks: Array<{ id: string; patientName: string; severity: string; effect: string; recommendation: string; medications: string[] }>; stats: { configuredRules: number; criticalRules: number; activeRisks: number; severeActiveRisks: number } };
 
 export default function PharmacyDrugInteractionsPage() {
+  const params = useParams();
+  const slug = params?.slug as string;
   const [data, setData] = useState<InteractionPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -17,7 +20,7 @@ export default function PharmacyDrugInteractionsPage() {
     if (!silent) setLoading(true);
     setRefreshing(true);
     try {
-      const res = await fetch("/api/pharmacy/interactions", { cache: "no-store" });
+      const res = await fetch(`/api/tenant/${slug}/pharmacy/drug-interactions`, { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to load interactions");
       setData(await res.json());
     } finally {
@@ -26,17 +29,17 @@ export default function PharmacyDrugInteractionsPage() {
     }
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { if (slug) fetchData(); }, [slug]);
 
   const submit = async () => {
-    await fetch("/api/pharmacy/interactions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    await fetch(`/api/tenant/${slug}/pharmacy/drug-interactions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     setShowForm(false);
     setForm({ medicationA: "", medicationB: "", severity: "moderate", effect: "", recommendation: "", source: "" });
     await fetchData(true);
   };
 
   const remove = async (id: string) => {
-    await fetch("/api/pharmacy/interactions", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    await fetch(`/api/tenant/${slug}/pharmacy/drug-interactions`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
     await fetchData(true);
   };
 
