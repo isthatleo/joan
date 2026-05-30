@@ -36,12 +36,32 @@ export function isTenantModuleEnabled(modules: Record<string, boolean> | null | 
 }
 
 export function getModuleKeyForPath(path: string) {
+  const tenantPathMatch = path.match(/^\/tenant\/[^/]+(\/.*)?$/);
+  const normalizedPath = tenantPathMatch ? tenantPathMatch[1] || "/" : path;
+  path = normalizedPath;
+
   if (path.startsWith("/guardian")) return "guardians";
   if (path === "/patient" || path === "/my-health" || path.startsWith("/patient-portal")) return "patientPortal";
   if (path === "/messages") return "messaging";
+  if (path === "/broadcasts" || path.startsWith("/broadcasts/")) return "messaging";
   if (path.includes("/feedback") || path === "/feedback") return "feedback";
   if (path.includes("/analytics") || path.includes("/reports")) return "analytics";
   if (path === "/appointments" || path.startsWith("/doctor/appointments") || path.startsWith("/patient-portal/appointments") || path.startsWith("/guardian/appointments") || path === "/check-in") return "appointments";
+  if (path === "/patients" || path.startsWith("/patients/")) return "patientPortal";
+  if (path === "/prescriptions" || path.startsWith("/prescriptions/")) return "pharmacy";
+  if (path === "/insurance-claims" || path.startsWith("/insurance-claims/")) return "insurance";
+  if (path.startsWith("/admin/appointments")) return "appointments";
+  if (path.startsWith("/admin/patients")) return "patientPortal";
+  if (path.startsWith("/admin/broadcasts")) return "messaging";
+  if (path.startsWith("/admin/messages")) return "messaging";
+  if (path.startsWith("/admin/feedback")) return "feedback";
+  if (path.startsWith("/admin/lab")) return "lab";
+  if (path.startsWith("/admin/pharmacy")) return "pharmacy";
+  if (path.startsWith("/admin/billing")) return "billing";
+  if (path.startsWith("/admin/insurance")) return "insurance";
+  if (path.startsWith("/admin/reports")) return "reports";
+  if (path.startsWith("/admin/analytics")) return "analytics";
+  if (path.startsWith("/admin/audit")) return "analytics";
   if (path.includes("/queue")) return "queue";
   if (path.startsWith("/nurse/vitals")) return "vitals";
   if (path.startsWith("/nurse/care-plans")) return "carePlans";

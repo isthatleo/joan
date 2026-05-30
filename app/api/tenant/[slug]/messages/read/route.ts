@@ -1,25 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, ilike, isNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
-import { getTenantIdBySlug } from "@/lib/accountant/server";
 import { MessagingService } from "@/lib/services/messaging.service";
+import { resolveTenantMessagingUser } from "@/lib/tenant-messaging-auth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const service = new MessagingService();
-
-async function resolveTenantUser(sessionEmail: string, slug: string) {
-  const tenantId = await getTenantIdBySlug(slug);
-  if (!tenantId) return null;
-
-  return db.query.users.findFirst({
-    where: and(eq(users.tenantId, tenantId), ilike(users.email, sessionEmail), eq(users.isActive, true), isNull(users.deletedAt)),
-    columns: { id: true },
-  });
-}
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
@@ -29,7 +16,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const { slug } = await params;
-    const currentUser = await resolveTenantUser(session.user.email, slug);
+    const currentUser = await resolveTenantMessagingUser(request, session.user.email, slug);
     if (!currentUser) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }

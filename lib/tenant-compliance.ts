@@ -71,7 +71,8 @@ export const DEFAULT_TENANT_COMPLIANCE_SETTINGS: {
 export type TenantComplianceSettings = typeof DEFAULT_TENANT_COMPLIANCE_SETTINGS;
 
 function asPositiveInt(value: unknown, fallback: number) {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+  const next = typeof value === "string" ? Number(value) : value;
+  return typeof next === "number" && Number.isFinite(next) && next > 0 ? Math.min(50, Math.floor(next)) : fallback;
 }
 
 export function normalizeTenantComplianceSettings(
@@ -95,15 +96,15 @@ export async function getTenantComplianceSettings(tenantId: string) {
   return normalizeTenantComplianceSettings((row?.value as Record<string, any>) || {});
 }
 
-export async function upsertTenantComplianceSettings(tenantId: string, value: TenantComplianceSettings) {
+export async function upsertTenantComplianceSettings(tenantId: string, value: TenantComplianceSettings, updatedBy?: string | null) {
   const existing = await db.query.tenantSettings.findFirst({
     where: and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, "compliance")),
   });
 
   if (existing) {
-    await db.update(tenantSettings).set({ value, updatedAt: new Date() }).where(eq(tenantSettings.id, existing.id));
+    await db.update(tenantSettings).set({ value, updatedAt: new Date(), updatedBy: updatedBy || null }).where(eq(tenantSettings.id, existing.id));
     return;
   }
 
-  await db.insert(tenantSettings).values({ tenantId, key: "compliance", value });
+  await db.insert(tenantSettings).values({ tenantId, key: "compliance", value, updatedBy: updatedBy || null });
 }

@@ -45,13 +45,13 @@ export async function getTenantAuditSettings(tenantId: string) {
   return normalizeTenantAuditSettings((row?.value as Record<string, any>) || {});
 }
 
-export async function upsertTenantAuditSettings(tenantId: string, value: TenantAuditSettings) {
+export async function upsertTenantAuditSettings(tenantId: string, value: TenantAuditSettings, updatedBy?: string | null) {
   const existing = await db.query.tenantSettings.findFirst({
     where: and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, "audit")),
   });
   if (existing) {
-    await db.update(tenantSettings).set({ value, updatedAt: new Date() }).where(eq(tenantSettings.id, existing.id));
+    await db.update(tenantSettings).set({ value, updatedAt: new Date(), updatedBy: updatedBy || null }).where(eq(tenantSettings.id, existing.id));
     return;
   }
-  await db.insert(tenantSettings).values({ tenantId, key: "audit", value });
+  await db.insert(tenantSettings).values({ tenantId, key: "audit", value, updatedBy: updatedBy || null });
 }

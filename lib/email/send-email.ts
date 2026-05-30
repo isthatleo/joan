@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { z } from "zod";
+import { createHash, createHmac } from "crypto";
 import { db } from "@/lib/db";
 import { emailSendLog } from "@/lib/db/schema";
 import { getIntegrationCredentials, getTenantCommunicationSettings } from "@/lib/integrations/server";
@@ -74,7 +75,7 @@ export const sendEmailSchema = z
   });
 
 const DEFAULT_FROM = process.env.EMAIL_FROM || "Joan <onboarding@resend.dev>";
-const FALLBACK_PROVIDER_ORDER = ["resend", "brevo", "sendgrid", "mailgun", "mailgram"] as const;
+const FALLBACK_PROVIDER_ORDER = ["resend", "brevo", "sendgrid", "mailgun", "mailgram", "aws-ses"] as const;
 
 type ProviderId = (typeof FALLBACK_PROVIDER_ORDER)[number] | "gmail";
 
@@ -247,6 +248,15 @@ async function resolveProvider(payload: SendEmailPayload): Promise<ResolvedProvi
     }
 
     if (["brevo", "sendgrid", "mailgun", "mailgram"].includes(provider) && credentials.apiKey) {
+      return {
+        provider,
+        tenantId,
+        credentials,
+        fromAddress: pickFromAddress(payload, credentials),
+      };
+    }
+
+    if (provider === "aws-ses" && credentials.accessKey && credentials.secretKey && credentials.region) {
       return {
         provider,
         tenantId,
@@ -440,6 +450,78 @@ async function sendWithMailgram(payload: SendEmailPayload, provider: ResolvedPro
   return { ok: true as const, providerMessageId: parsed?.id || parsed?.messageId || null };
 }
 
+function hmac(key: Buffer | string, value: string) {
+  return createHmac("sha256", key).update(value, "utf8").digest();
+}
+
+function sha256(value: string) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function awsSignatureKey(secretKey: string, dateStamp: string, region: string, service: string) {
+  const kDate = hmac(`AWS4${secretKey}`, dateStamp);
+  const kRegion = hmac(kDate, region);
+  const kService = hmac(kRegion, service);
+  return hmac(kService, "aws4_request");
+}
+
+async function sendWithAwsSes(payload: SendEmailPayload, provider: ResolvedProvider, html: string, text: string) {
+  const region = provider.credentials.region || "us-east-1";
+  const endpoint = `https://email.${region}.amazonaws.com/v2/email/outbound-emails`;
+  const url = new URL(endpoint);
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const dateStamp = amzDate.slice(0, 8);
+  const body = JSON.stringify({
+    FromEmailAddress: provider.fromAddress,
+    Destination: {
+      ToAddresses: toRecipientList(payload.to),
+      CcAddresses: payload.cc || [],
+      BccAddresses: payload.bcc || [],
+    },
+    ReplyToAddresses: payload.replyTo ? [payload.replyTo] : undefined,
+    Content: {
+      Simple: {
+        Subject: { Data: payload.subject, Charset: "UTF-8" },
+        Body: {
+          Text: { Data: text, Charset: "UTF-8" },
+          Html: { Data: html, Charset: "UTF-8" },
+        },
+      },
+    },
+    EmailTags: payload.tags?.map((tag) => ({ Name: tag.name, Value: tag.value })),
+  });
+
+  const payloadHash = sha256(body);
+  const canonicalHeaders = `content-type:application/json\nhost:${url.host}\nx-amz-date:${amzDate}\n`;
+  const signedHeaders = "content-type;host;x-amz-date";
+  const canonicalRequest = ["POST", url.pathname, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const credentialScope = `${dateStamp}/${region}/ses/aws4_request`;
+  const stringToSign = ["AWS4-HMAC-SHA256", amzDate, credentialScope, sha256(canonicalRequest)].join("\n");
+  const signingKey = awsSignatureKey(provider.credentials.secretKey, dateStamp, region, "ses");
+  const signature = createHmac("sha256", signingKey).update(stringToSign, "utf8").digest("hex");
+  const authorization = `AWS4-HMAC-SHA256 Credential=${provider.credentials.accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Amz-Date": amzDate,
+      Authorization: authorization,
+    },
+    body,
+  });
+
+  const responseBody = await response.text();
+  let parsed: any = null;
+  try { parsed = JSON.parse(responseBody); } catch {}
+  if (!response.ok) {
+    return { ok: false as const, error: parsed?.message || responseBody || `AWS SES send failed (${response.status})` };
+  }
+
+  return { ok: true as const, providerMessageId: parsed?.MessageId || null };
+}
+
 async function dispatchEmail(payload: SendEmailPayload, provider: ResolvedProvider, html: string, text: string, idempotencyKey: string) {
   switch (provider.provider) {
     case "resend":
@@ -452,6 +534,8 @@ async function dispatchEmail(payload: SendEmailPayload, provider: ResolvedProvid
       return sendWithMailgun(payload, provider, html, text);
     case "mailgram":
       return sendWithMailgram(payload, provider, html, text);
+    case "aws-ses":
+      return sendWithAwsSes(payload, provider, html, text);
     default:
       return { ok: false as const, error: `Email provider ${provider.provider} is not supported for outbound sending yet` };
   }

@@ -3,13 +3,14 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { auditLogs, tenantSettings, tenants } from "@/lib/db/schema";
 import { getTenantAccess, tenantAccessResponse } from "@/lib/api/tenant-access";
+import { createTenantBackupSnapshot } from "@/lib/tenant-backups";
 
 async function getDangerZoneSettings(tenantId: string) {
   const row = await db.query.tenantSettings.findFirst({
     where: and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, "dangerZone")),
   });
   return {
-    archiveGraceDays: Number((row?.value as any)?.archiveGraceDays || 30),
+    archiveGraceDays: Math.max(1, Math.min(365, Number((row?.value as any)?.archiveGraceDays || 30))),
   };
 }
 
@@ -50,7 +51,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     if (action === "export-snapshot") {
       if (!access.canViewAudit) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      const backup = await createTenantBackupSnapshot(access.tenant.id, access.user?.id || null);
       const recentAudit = await db.select().from(auditLogs).where(eq(auditLogs.tenantId, access.tenant.id)).limit(100);
+      await db.insert(auditLogs).values({
+        tenantId: access.tenant.id,
+        userId: access.user?.id || null,
+        action: "tenant.danger_snapshot_exported",
+        entity: "tenant",
+        entityId: access.tenant.id,
+        metadata: { backupId: backup.manifest.id, storageDeliveries: backup.manifest.storageDeliveries },
+      });
       return NextResponse.json({
         tenant: {
           id: access.tenant.id,
@@ -60,6 +70,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           isActive: access.tenant.isActive,
         },
         exportedAt: new Date().toISOString(),
+        backup,
         recentAudit,
       });
     }
@@ -87,6 +98,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const [updated] = await db.update(tenants).set({
         isActive: true,
         provisioningStatus: "completed",
+        deletedAt: null,
+        scheduledPurgeAt: null,
         updatedAt: new Date(),
       }).where(eq(tenants.id, access.tenant.id)).returning();
       await db.insert(auditLogs).values({
@@ -98,6 +111,69 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         metadata: { slug: access.tenant.slug },
       });
       return NextResponse.json({ ok: true, tenant: updated });
+    }
+
+    if (action === "archive") {
+      if (!access.canArchiveTenant) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      if (body.confirmSlug !== access.tenant.slug) {
+        return NextResponse.json({ error: `Type the tenant slug "${access.tenant.slug}" to confirm` }, { status: 400 });
+      }
+      const settings = await getDangerZoneSettings(access.tenant.id);
+      const backup = await createTenantBackupSnapshot(access.tenant.id, access.user?.id || null);
+      const scheduledPurgeAt = new Date(Date.now() + settings.archiveGraceDays * 24 * 60 * 60 * 1000);
+      const [updated] = await db.update(tenants).set({
+        isActive: false,
+        provisioningStatus: "archived",
+        deletedAt: new Date(),
+        scheduledPurgeAt,
+        updatedAt: new Date(),
+      } as any).where(eq(tenants.id, access.tenant.id)).returning();
+
+      await db.insert(auditLogs).values({
+        tenantId: access.tenant.id,
+        userId: access.user?.id || null,
+        action: "tenant.archived",
+        entity: "tenant",
+        entityId: access.tenant.id,
+        metadata: {
+          slug: access.tenant.slug,
+          scheduledPurgeAt,
+          archiveGraceDays: settings.archiveGraceDays,
+          backupId: backup.manifest.id,
+          storageDeliveries: backup.manifest.storageDeliveries,
+        },
+      });
+      return NextResponse.json({
+        ok: true,
+        mode: "archived",
+        tenant: updated,
+        scheduledPurgeAt,
+        backup,
+      });
+    }
+
+    if (action === "save-settings") {
+      if (!access.canEditSettings) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      const settings = {
+        archiveGraceDays: Math.max(1, Math.min(365, Number(body.archiveGraceDays || 30))),
+      };
+      const existing = await db.query.tenantSettings.findFirst({
+        where: and(eq(tenantSettings.tenantId, access.tenant.id), eq(tenantSettings.key, "dangerZone")),
+      });
+      if (existing) {
+        await db.update(tenantSettings).set({ value: settings, updatedAt: new Date(), updatedBy: access.user?.id || null }).where(eq(tenantSettings.id, existing.id));
+      } else {
+        await db.insert(tenantSettings).values({ tenantId: access.tenant.id, key: "dangerZone", value: settings, updatedBy: access.user?.id || null });
+      }
+      await db.insert(auditLogs).values({
+        tenantId: access.tenant.id,
+        userId: access.user?.id || null,
+        action: "tenant.danger_settings_updated",
+        entity: "tenant",
+        entityId: access.tenant.id,
+        metadata: settings,
+      });
+      return NextResponse.json({ ok: true, settings });
     }
 
     return NextResponse.json({ error: "Unsupported action" }, { status: 400 });

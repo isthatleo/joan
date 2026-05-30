@@ -6,12 +6,12 @@ import { ensureRedisConnection, redis } from "@/lib/redis";
 const MESSAGE_PERMISSION_MATRIX: Record<string, string[]> = {
   super_admin: ["hospital_admin"],
   hospital_admin: ["super_admin", "doctor", "nurse", "lab_technician", "pharmacist", "accountant", "receptionist"],
-  doctor: ["nurse", "lab_technician", "pharmacist", "accountant", "receptionist", "patient", "guardian"],
-  nurse: ["doctor", "lab_technician", "pharmacist", "accountant", "receptionist"],
-  lab_technician: ["doctor", "nurse", "pharmacist", "accountant"],
-  pharmacist: ["doctor", "nurse", "lab_technician", "accountant"],
-  accountant: ["doctor", "nurse", "lab_technician", "pharmacist", "receptionist"],
-  receptionist: ["doctor", "nurse", "accountant"],
+  doctor: ["hospital_admin", "nurse", "lab_technician", "pharmacist", "accountant", "receptionist", "patient", "guardian"],
+  nurse: ["hospital_admin", "doctor", "lab_technician", "pharmacist", "accountant", "receptionist"],
+  lab_technician: ["hospital_admin", "doctor", "nurse", "pharmacist", "accountant"],
+  pharmacist: ["hospital_admin", "doctor", "nurse", "lab_technician", "accountant"],
+  accountant: ["hospital_admin", "doctor", "nurse", "lab_technician", "pharmacist", "receptionist"],
+  receptionist: ["hospital_admin", "doctor", "nurse", "accountant"],
   patient: ["doctor"],
   guardian: ["doctor"],
 };
@@ -29,6 +29,17 @@ function pickPrimaryRole(roleList: string[], fallbackRole?: string | null) {
   const normalizedFallback = normalizeRole(fallbackRole);
   const normalizedRoles = roleList.map(normalizeRole).filter(Boolean);
   return normalizedRoles.find((role) => role !== "patient") || normalizedRoles[0] || normalizedFallback;
+}
+
+function uniqueRoles(primaryRole: string, linkedRoles: string[]) {
+  return Array.from(new Set([primaryRole, ...linkedRoles.map(normalizeRole)].filter(Boolean)));
+}
+
+function canDiscoverContact(senderRole: string, contactRoles: string[], allowedRoles: string[]) {
+  if (senderRole === "hospital_admin") {
+    return contactRoles.includes("super_admin") || contactRoles.every((role) => !["patient", "guardian", "hospital_admin", "admin"].includes(role));
+  }
+  return contactRoles.some((role) => allowedRoles.includes(role));
 }
 
 export class MessagingService {
@@ -491,7 +502,7 @@ export class MessagingService {
     return (rows as any[])
       .filter((candidate) => candidate.id !== userId)
       .map((candidate) => {
-        const linkedRoles = Array.isArray(candidate.linked_roles) ? candidate.linked_roles : [];
+        const linkedRoles = Array.isArray(candidate.linked_roles) ? candidate.linked_roles.map(normalizeRole) : [];
         const primaryRole = pickPrimaryRole(linkedRoles, candidate.role);
         return {
           id: candidate.id,
@@ -503,8 +514,8 @@ export class MessagingService {
         };
       })
       .filter((candidate) => {
-        const rolesToCheck = [candidate.role, ...candidate.linkedRoles.map(normalizeRole)];
-        const canMessage = rolesToCheck.some((role) => allowedRoles.includes(role));
+        const rolesToCheck = uniqueRoles(candidate.role, candidate.linkedRoles);
+        const canMessage = canDiscoverContact(currentUser.role, rolesToCheck, allowedRoles);
         if (!canMessage) return false;
         if (!needle) return true;
         const roleText = Array.from(new Set(rolesToCheck)).join(" ").replace(/_/g, " ");
@@ -577,6 +588,7 @@ export class MessagingService {
     }
 
     if (sameTenant && receiver.role === "hospital_admin" && sender.role !== "patient" && sender.role !== "guardian") {
+      if (allowedRoles.includes("hospital_admin")) return true;
       return this.hasExistingConversation(senderId, receiverId);
     }
 

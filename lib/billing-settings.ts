@@ -114,7 +114,7 @@ export async function getBillingSettings(tenantSlug: string): Promise<BillingSet
   }
 }
 
-export async function upsertBillingSettings(tenantSlug: string, value: BillingSettings) {
+export async function upsertBillingSettings(tenantSlug: string, value: BillingSettings, updatedBy?: string | null) {
   const tenant = await getTenantBySlug(tenantSlug);
   if (!tenant) throw new Error("Tenant not found");
 
@@ -123,7 +123,7 @@ export async function upsertBillingSettings(tenantSlug: string, value: BillingSe
   });
 
   if (existing) {
-    await db.update(tenantSettings).set({ value, updatedAt: new Date() }).where(eq(tenantSettings.id, existing.id));
+    await db.update(tenantSettings).set({ value, updatedAt: new Date(), updatedBy: updatedBy || null }).where(eq(tenantSettings.id, existing.id));
     return;
   }
 
@@ -131,6 +131,7 @@ export async function upsertBillingSettings(tenantSlug: string, value: BillingSe
     tenantId: tenant.id,
     key: "billing",
     value,
+    updatedBy: updatedBy || null,
   });
 }
 

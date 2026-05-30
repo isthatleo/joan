@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
 async function getTenantBySlug(slug: string) {
   return db.query.tenants.findFirst({ where: eq(tenants.slug, slug) });
@@ -59,6 +60,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error || "Forbidden" }, { status: admin.status || 403 });
 
     const body = updateSchema.parse(await request.json());
 
@@ -89,6 +92,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
     // Audit log
     await db.insert(auditLogs).values({
+      tenantId: tenant.id,
+      userId: admin.user?.id || null,
       action: "branding.updated",
       entity: "tenant",
       entityId: tenant.id,
@@ -110,10 +115,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error || "Forbidden" }, { status: admin.status || 403 });
 
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const type = formData.get("type") as string; // "logo" or "favicon"
+    if (!["logo", "favicon"].includes(type)) {
+      return NextResponse.json({ error: "Invalid branding asset type" }, { status: 400 });
+    }
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
@@ -125,7 +135,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: `Invalid file type: ${file.type || "unknown"}` }, { status: 400 });
     }
 
-    // Validate file size (2MB max)
+    // Validate file size (5MB max)
     if (file.size > 5 * 1024 * 1024) {
       return NextResponse.json({ error: "File too large. Maximum size is 5MB." }, { status: 400 });
     }
@@ -178,6 +188,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     // Audit log
     await db.insert(auditLogs).values({
+      tenantId: tenant.id,
+      userId: admin.user?.id || null,
       action: `branding.${type}_uploaded`,
       entity: "tenant",
       entityId: tenant.id,

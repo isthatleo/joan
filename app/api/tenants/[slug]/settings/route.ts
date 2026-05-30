@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { tenantSettings, tenants, auditLogs } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
 const DEFAULTS = {
   branding: { primaryColor: "#F97316", logoUrl: "", faviconUrl: "", accentColor: "#EA580C", lightLogoUrl: "" },
@@ -208,6 +209,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error || "Forbidden" }, { status: admin.status || 403 });
 
     const body = putSchema.parse(await request.json());
     if (body.communications && !body.communication) {
@@ -254,6 +257,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     // Audit
     if (changedKeys.length > 0) {
       await db.insert(auditLogs).values({
+        tenantId: tenant.id,
+        userId: admin.user?.id || null,
         action: "tenant.settings_updated",
         entity: "tenant",
         entityId: tenant.id,
