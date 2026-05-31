@@ -212,7 +212,7 @@ export function PharmacistDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Total Medications"
-          value={metrics?.totalMedications}
+          value={metrics?.totalMedications ?? 0}
           subtitle="In inventory"
           icon={<Pill className="h-6 w-6" />}
           trend="+3%"
@@ -220,7 +220,7 @@ export function PharmacistDashboard() {
         />
         <StatCard
           title="Pending Prescriptions"
-          value={metrics?.pendingPrescriptions}
+          value={metrics?.pendingPrescriptions ?? 0}
           subtitle="Awaiting fulfillment"
           icon={<Boxes className="h-6 w-6" />}
           trend="-2%"
@@ -228,7 +228,7 @@ export function PharmacistDashboard() {
         />
         <StatCard
           title="Dispensed Today"
-          value={metrics?.dispensedToday}
+          value={metrics?.dispensedToday ?? 0}
           subtitle="Successfully filled"
           icon={<CheckCircle className="h-6 w-6" />}
           trend="+8%"
@@ -236,7 +236,7 @@ export function PharmacistDashboard() {
         />
         <StatCard
           title="Stock Alerts"
-          value={metrics?.stockAlerts}
+          value={metrics?.stockAlerts ?? 0}
           subtitle="Requiring attention"
           icon={<AlertTriangle className="h-6 w-6" />}
         />
@@ -246,19 +246,19 @@ export function PharmacistDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard
           title="Low Stock Items"
-          value={metrics?.lowStockItems}
+          value={metrics?.lowStockItems ?? 0}
           subtitle="Below minimum threshold"
           icon={<Bell className="h-6 w-6" />}
         />
         <StatCard
           title="Drug Interactions"
-          value={metrics?.drugInteractionsCritical}
+          value={metrics?.drugInteractionsCritical ?? 0}
           subtitle="Critical alerts"
           icon={<AlertCircle className="h-6 w-6" />}
         />
         <StatCard
           title="Out of Stock"
-          value={metrics?.outOfStockItems}
+          value={metrics?.outOfStockItems ?? 0}
           subtitle="Unavailable medicines"
           icon={<Boxes className="h-6 w-6" />}
         />

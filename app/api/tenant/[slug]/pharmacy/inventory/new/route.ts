@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PharmacyService } from "@/lib/services/pharmacy.service";
+import { getTenantBySlug } from "@/lib/db/helpers";
+import { requireTenantUser } from "@/lib/api/route-guards";
 
 const pharmacyService = new PharmacyService();
 
@@ -9,6 +11,13 @@ export async function POST(
 ) {
   try {
     const slug = (await params).slug;
+    const access = await requireTenantUser(request, ["pharmacist"]);
+    if (!access.ok) return access.response;
+    const tenant = await getTenantBySlug(slug);
+    if (!tenant || tenant.id !== access.user.tenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const body = await request.json();
 
     const {
@@ -31,7 +40,6 @@ export async function POST(
       notes
     } = body;
 
-    // Validate required fields
     if (!name || !batchNumber || !manufacturer || quantity === undefined || !unitPrice || !sellingPrice || !expiryDate) {
       return NextResponse.json(
         { error: "Missing required fields: name, batchNumber, manufacturer, quantity, unitPrice, sellingPrice, expiryDate" },

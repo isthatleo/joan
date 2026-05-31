@@ -2,16 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { notifications } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { requireAppUser } from "@/lib/api/route-guards";
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await requireAppUser(request);
+    if (!access.ok) return access.response;
+
     const { userId } = await request.json();
 
     if (!userId) {
       return NextResponse.json({ error: "User ID required" }, { status: 400 });
     }
 
-    // Mark all notifications as read for user
+    if (userId !== access.user.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     await db
       .update(notifications)
       .set({ read: true })

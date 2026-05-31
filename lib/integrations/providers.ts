@@ -314,7 +314,7 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
         headers: { Authorization: `Bearer ${c.apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ query: "{ user { email } }" }),
       });
-      return r.ok && !r.body?.errors ? { ok: true, account: r.body?.data?.user?.email } : { ok: false, error: "Fireflies error" };
+      return r.ok && !r.body?.issues ? { ok: true, account: r.body?.data?.user?.email } : { ok: false, error: "Fireflies error" };
     },
   },
   {

@@ -4,7 +4,7 @@ import { neon } from "@neondatabase/serverless";
 import { drizzle as drizzleAuth } from "drizzle-orm/neon-http";
 import { and, eq, ilike, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { departments, roles, tenants, userRoles, users, userSettings } from "@/lib/db/schema";
+import { departments, roles, tenantSettings, tenants, userRoles, users, userSettings } from "@/lib/db/schema";
 import * as authSchema from "@/lib/auth-schema";
 import { mergeUserSettings } from "@/lib/user-settings";
 
@@ -51,6 +51,110 @@ export function generateTemporaryPassword() {
   return `Joa-${crypto.randomBytes(5).toString("base64url")}1!`;
 }
 
+export type StaffIdSettings = {
+  enabled: boolean;
+  prefix: string;
+  separator: string;
+  includeYear: boolean;
+  padding: number;
+  nextNumber: number;
+  codeType: "qr" | "barcode";
+  cardTheme: "clinical" | "minimal" | "executive";
+  customPatternEnabled: boolean;
+  customPattern: string;
+};
+
+export const DEFAULT_STAFF_ID_SETTINGS: StaffIdSettings = {
+  enabled: true,
+  prefix: "EMP",
+  separator: "-",
+  includeYear: true,
+  padding: 4,
+  nextNumber: 1,
+  codeType: "qr",
+  cardTheme: "clinical",
+  customPatternEnabled: false,
+  customPattern: "EMP-{YYYY}-{SEQ}",
+};
+
+function normalizeStaffIdSettings(value?: any): StaffIdSettings {
+  const raw = value && typeof value === "object" ? value : {};
+  return {
+    enabled: raw.enabled !== false,
+    prefix: String(raw.prefix || DEFAULT_STAFF_ID_SETTINGS.prefix).trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 16).replace(/^-+|-+$/g, "") || DEFAULT_STAFF_ID_SETTINGS.prefix,
+    separator: ["-", "/", "."].includes(raw.separator) ? raw.separator : DEFAULT_STAFF_ID_SETTINGS.separator,
+    includeYear: raw.includeYear !== false,
+    padding: Math.min(8, Math.max(2, Number(raw.padding || DEFAULT_STAFF_ID_SETTINGS.padding))),
+    nextNumber: Math.max(1, Number(raw.nextNumber || DEFAULT_STAFF_ID_SETTINGS.nextNumber)),
+    codeType: raw.codeType === "barcode" ? "barcode" : "qr",
+    cardTheme: ["clinical", "minimal", "executive"].includes(raw.cardTheme) ? raw.cardTheme : "clinical",
+    customPatternEnabled: Boolean(raw.customPatternEnabled),
+    customPattern: String(raw.customPattern || DEFAULT_STAFF_ID_SETTINGS.customPattern).trim().toUpperCase().replace(/[^A-Z0-9{}:_-]/g, "").slice(0, 80) || DEFAULT_STAFF_ID_SETTINGS.customPattern,
+  };
+}
+
+export async function getStaffIdSettings(tenantId: string) {
+  const row = await db.query.tenantSettings.findFirst({
+    where: and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, "branding")),
+  }).catch(() => null);
+  const value = row?.value && typeof row.value === "object" ? row.value as Record<string, any> : {};
+  return normalizeStaffIdSettings(value.employeeIds);
+}
+
+async function updateStaffIdNextNumber(tenantId: string, settings: StaffIdSettings, nextNumber: number) {
+  const existing = await db.query.tenantSettings.findFirst({
+    where: and(eq(tenantSettings.tenantId, tenantId), eq(tenantSettings.key, "branding")),
+  }).catch(() => null);
+  const current = existing?.value && typeof existing.value === "object" ? existing.value as Record<string, any> : {};
+  const value = {
+    ...current,
+    employeeIds: normalizeStaffIdSettings({ ...(current.employeeIds || {}), ...settings, nextNumber }),
+  };
+
+  if (existing) {
+    await db.update(tenantSettings).set({ value, updatedAt: new Date() }).where(eq(tenantSettings.id, existing.id));
+  } else {
+    await db.insert(tenantSettings).values({ tenantId, key: "branding", value });
+  }
+}
+
+function buildEmployeeId(settings: StaffIdSettings, sequence: number) {
+  if (settings.customPatternEnabled && settings.customPattern) {
+    const alpha = (length: number) => Array.from({ length }, () => String.fromCharCode(65 + crypto.randomInt(0, 26))).join("");
+    const rand = (length: number) => Array.from({ length }, () => crypto.randomInt(0, 10)).join("");
+    return settings.customPattern
+      .replace(/\{YYYY\}/g, String(new Date().getFullYear()))
+      .replace(/\{YY\}/g, String(new Date().getFullYear()).slice(-2))
+      .replace(/\{SEQ\}/g, String(sequence).padStart(settings.padding, "0"))
+      .replace(/\{RAND(\d+)\}/g, (_, size) => rand(Math.min(12, Math.max(1, Number(size || 4)))))
+      .replace(/\{ALPHA(\d+)\}/g, (_, size) => alpha(Math.min(12, Math.max(1, Number(size || 2)))))
+      .replace(/\{PREFIX\}/g, settings.prefix);
+  }
+  const parts = [settings.prefix];
+  if (settings.includeYear) parts.push(String(new Date().getFullYear()));
+  parts.push(String(sequence).padStart(settings.padding, "0"));
+  return parts.join(settings.separator);
+}
+
+async function resolveEmployeeId(tenantId: string, requested?: string | null) {
+  const manual = String(requested || "").trim();
+  if (manual) return manual;
+
+  const settings = await getStaffIdSettings(tenantId);
+  if (!settings.enabled) return "";
+
+  const staff = await getStaffRows(tenantId);
+  const existingIds = new Set(staff.map((member) => String(member.employeeId || "").toLowerCase()).filter(Boolean));
+  let sequence = settings.nextNumber;
+  let employeeId = buildEmployeeId(settings, sequence);
+  while (existingIds.has(employeeId.toLowerCase())) {
+    sequence += 1;
+    employeeId = buildEmployeeId(settings, sequence);
+  }
+  await updateStaffIdNextNumber(tenantId, settings, sequence + 1);
+  return employeeId;
+}
+
 export function buildTenantLoginUrl(slug: string, role?: StaffRole) {
   const origin = process.env.NEXT_PUBLIC_APP_URL || process.env.BETTER_AUTH_URL || "http://localhost:3000";
   const base = new URL(origin);
@@ -83,7 +187,7 @@ export async function requireTenantAdmin(headers: Headers, tenantId: string) {
 
   const tenant = await db.query.tenants.findFirst({
     where: eq(tenants.id, tenantId),
-    columns: { id: true, adminUserId: true },
+    columns: { id: true, adminUserId: true, contactEmail: true },
   });
 
   const tenantAdminRows = await db
@@ -119,7 +223,15 @@ export async function requireTenantAdmin(headers: Headers, tenantId: string) {
   const isSuperAdmin = assignedRoles.includes("super_admin") || normalizeRole(appUser.role) === "super_admin";
   const isTenantAdminUser = tenant?.adminUserId === appUser.id;
   const isTenantScopedUser = appUser.tenantId === tenantId;
-  const isAdmin = isSuperAdmin || isTenantAdminUser || (isTenantScopedUser && (assignedRoles.includes("hospital_admin") || normalizeRole(appUser.role) === "hospital_admin"));
+  let isAdmin = isSuperAdmin || isTenantAdminUser || (isTenantScopedUser && (assignedRoles.includes("hospital_admin") || normalizeRole(appUser.role) === "hospital_admin"));
+
+  if (!isAdmin && isTenantScopedUser && tenantHasNoAdmin && tenant?.contactEmail && tenant.contactEmail.toLowerCase() === appUser.email.toLowerCase()) {
+    await db.update(users).set({ role: "hospital_admin", updatedAt: new Date() }).where(eq(users.id, appUser.id)).catch(() => null);
+    await db.update(tenants).set({ adminUserId: appUser.id, updatedAt: new Date() }).where(eq(tenants.id, tenantId)).catch(() => null);
+    await setStaffRole(appUser.id, tenantId, "hospital_admin").catch(() => null);
+    assignedRoles.push("hospital_admin");
+    isAdmin = true;
+  }
 
   if (!isAdmin && isTenantScopedUser) {
     // Bootstrap fallback: if no tenant admin exists yet, active tenant staff can open staff management
@@ -365,6 +477,7 @@ export async function createStaffMember(input: {
   const passwordHash = await bcrypt.hash(temporaryPassword, 12);
   const now = new Date();
   let departmentName = input.department || "";
+  const employeeId = await resolveEmployeeId(input.tenantId, input.employeeId);
   if (input.departmentId) {
     const department = await db.query.departments.findFirst({
       where: and(eq(departments.id, input.departmentId), eq(departments.tenantId, input.tenantId), isNull(departments.deletedAt)),
@@ -418,7 +531,7 @@ export async function createStaffMember(input: {
       departmentId: input.departmentId || "",
       department: departmentName,
       title: input.title || STAFF_ROLE_LABELS[input.role],
-      employeeId: input.employeeId || "",
+      employeeId,
       licenseNumber: input.licenseNumber || "",
       startDate: input.startDate || "",
       emergencyContact: input.emergencyContact || "",

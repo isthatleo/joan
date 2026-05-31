@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { vitals } from "@/lib/db/schema";
+import { vitals, visits } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { requireTenantUser } from "@/lib/api/route-guards";
 
 export async function GET(request: NextRequest) {
   try {
+    const access = await requireTenantUser(request, ["doctor", "nurse", "hospital_admin", "patient", "guardian"]);
+    if (!access.ok) return access.response;
+
     const { searchParams } = new URL(request.url);
     const visitId = searchParams.get("visitId");
 
@@ -25,6 +29,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await requireTenantUser(request, ["nurse", "doctor"]);
+    if (!access.ok) return access.response;
+
     const data = await request.json();
     const { visitId, temperature, bloodPressure, heartRate, weight, height, notes } = data;
 
@@ -32,11 +39,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Visit ID required" }, { status: 400 });
     }
 
+    const visit = await db.query.visits.findFirst({
+      where: eq(visits.id, visitId),
+      columns: { id: true, tenantId: true },
+    });
+    if (!visit || visit.tenantId !== access.user.tenantId) {
+      return NextResponse.json({ error: "Visit not found" }, { status: 404 });
+    }
+
     const [vital] = await db.insert(vitals).values({
       visitId,
       temperature,
       bloodPressure,
       heartRate,
+      recordedBy: access.user.id,
       createdAt: new Date(),
       updatedAt: new Date(),
     }).returning();

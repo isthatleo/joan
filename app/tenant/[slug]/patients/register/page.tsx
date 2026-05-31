@@ -73,10 +73,29 @@ const defaultForm: PatientFormData = {
 const steps = [
   { id: 1, title: "Basic Information", icon: User },
   { id: 2, title: "Contact Details", icon: Phone },
-  { id: 3, title: "Billing & Coverage", icon: ShieldCheck },
-  { id: 4, title: "Medical History", icon: Heart },
-  { id: 5, title: "Review & Submit", icon: CheckCircle2 },
+  { id: 3, title: "Guardian Access", icon: User },
+  { id: 4, title: "Billing & Coverage", icon: ShieldCheck },
+  { id: 5, title: "Medical History", icon: Heart },
+  { id: 6, title: "Review & Submit", icon: CheckCircle2 },
 ];
+
+function calculateAge(dateOfBirth?: string) {
+  if (!dateOfBirth) return null;
+  const dob = new Date(dateOfBirth);
+  if (Number.isNaN(dob.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const monthDelta = today.getMonth() - dob.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < dob.getDate())) age -= 1;
+  return age;
+}
+
+function getEligibleOn(dateOfBirth: string, adultAge: number) {
+  const dob = new Date(dateOfBirth);
+  if (Number.isNaN(dob.getTime())) return "";
+  dob.setFullYear(dob.getFullYear() + adultAge);
+  return dob.toISOString();
+}
 
 export default function PatientRegistrationPage() {
   const { slug } = useParams();
@@ -91,11 +110,24 @@ export default function PatientRegistrationPage() {
   const [formData, setFormData] = useState<PatientFormData>(defaultForm);
   const [paymentMethods, setPaymentMethods] = useState<string[]>(["cash", "card", "insurance", "bank_transfer"]);
   const [insuranceProviders, setInsuranceProviders] = useState<string[]>([]);
+  const [adultAge, setAdultAge] = useState(18);
+  const [tenantCountry, setTenantCountry] = useState("");
+
+  const patientAge = useMemo(() => calculateAge(formData.dateOfBirth), [formData.dateOfBirth]);
+  const isUnderLegalAge = patientAge !== null && patientAge < adultAge;
+  const eligibleOn = useMemo(() => formData.dateOfBirth ? getEligibleOn(formData.dateOfBirth, adultAge) : "", [adultAge, formData.dateOfBirth]);
 
   useEffect(() => {
     if (!tenantSlug) return;
-    fetch(`/api/tenant/${tenantSlug}/receptionist/payment-options`, { cache: "no-store" })
-      .then((response) => response.json())
+    Promise.all([
+      fetch(`/api/tenant/${tenantSlug}/receptionist/payment-options`, { cache: "no-store" }).then((response) => response.json()).catch(() => null),
+      fetch(`/api/tenant/${tenantSlug}/receptionist/patients/register`, { cache: "no-store" }).then((response) => response.json()).catch(() => null),
+    ])
+      .then(([payload, policy]) => {
+        if (Number(policy?.adultAge)) setAdultAge(Number(policy.adultAge));
+        if (policy?.country) setTenantCountry(String(policy.country));
+        return payload;
+      })
       .then((payload) => {
         if (Array.isArray(payload?.methods) && payload.methods.length) {
           setPaymentMethods(payload.methods);
@@ -113,6 +145,17 @@ export default function PatientRegistrationPage() {
       })
       .catch(() => null);
   }, [tenantSlug]);
+
+  useEffect(() => {
+    setFormData((current) => ({
+      ...current,
+      isChildPatient: isUnderLegalAge,
+      guardian: {
+        ...current.guardian,
+        isParentGuardian: isUnderLegalAge ? true : current.guardian.isParentGuardian,
+      },
+    }));
+  }, [isUnderLegalAge]);
 
   const setRootField = (field: "firstName" | "lastName" | "dateOfBirth" | "gender" | "phone" | "email", value: string) => {
     setFormData((current) => ({ ...current, [field]: value }));
@@ -132,14 +175,14 @@ export default function PatientRegistrationPage() {
     if (step === 1) return Boolean(formData.firstName && formData.lastName && formData.dateOfBirth && formData.gender);
     if (step === 2) {
       const baseValid = Boolean(formData.phone && formData.email && formData.address.street && formData.address.city);
-      if (!baseValid) return false;
-      if (formData.isChildPatient && !formData.guardian.isParentGuardian) return false;
-      if (!formData.guardian.isParentGuardian) return true;
-      if (!formData.guardian.name || !formData.guardian.relationship) return false;
-      if (formData.guardian.isExistingPatient && !formData.guardian.phone && !formData.guardian.email) return false;
-      return true;
+      return baseValid;
     }
     if (step === 3) {
+      if (!isUnderLegalAge && !formData.guardian.isParentGuardian) return true;
+      if (!formData.guardian.name || !formData.guardian.relationship) return false;
+      return Boolean(formData.guardian.phone || formData.guardian.email);
+    }
+    if (step === 4) {
       if (!formData.insurance.paymentMethod) return false;
       if (formData.insurance.paymentMethod !== "insurance") return true;
       return Boolean(formData.insurance.provider && formData.insurance.policyNumber);
@@ -150,16 +193,17 @@ export default function PatientRegistrationPage() {
   const summary = useMemo(
     () => [
       { label: "Patient", value: `${formData.firstName} ${formData.lastName}`.trim() || "Not entered" },
-      { label: "DOB", value: formData.dateOfBirth || "Not entered" },
-      { label: "Patient type", value: formData.isChildPatient ? "Child patient" : "Adult patient" },
+      { label: "DOB / Age", value: `${formData.dateOfBirth || "Not entered"}${patientAge !== null ? ` (${patientAge} years)` : ""}` },
+      { label: "Legal age policy", value: `${adultAge}+${tenantCountry ? ` in ${tenantCountry}` : ""}` },
+      { label: "Patient type", value: isUnderLegalAge ? `Under-aged - patient portal deferred until ${eligibleOn ? new Date(eligibleOn).toLocaleDateString() : "legal age"}` : "Adult - patient credentials issued" },
       { label: "Phone", value: formData.phone || "Not entered" },
-      { label: "Parent/Guardian", value: formData.guardian.isParentGuardian ? `${formData.guardian.name || "Not entered"}${formData.guardian.isExistingPatient ? " (existing patient)" : ""}` : "No guardian captured" },
+      { label: "Parent/Guardian", value: formData.guardian.isParentGuardian ? `${formData.guardian.name || "Not entered"}${formData.guardian.isExistingPatient ? " (existing patient)" : " (new/linked guardian account)"}` : "No guardian captured" },
       { label: "Payment", value: formData.insurance.paymentMethod || "Not selected" },
       { label: "Insurance", value: formData.insurance.paymentMethod === "insurance" ? formData.insurance.provider || "Not entered" : "Not applicable" },
       { label: "Allergies", value: formData.medicalHistory.allergies || "None recorded" },
       { label: "Contact Preference", value: formData.preferences.communicationMethod || "phone" },
     ],
-    [formData],
+    [adultAge, eligibleOn, formData, isUnderLegalAge, patientAge, tenantCountry],
   );
 
   const handlePhotoSelected = (event: ChangeEvent<HTMLInputElement>) => {
@@ -179,6 +223,7 @@ export default function PatientRegistrationPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
+          isChildPatient: isUnderLegalAge,
           paymentPreference: {
             paymentMethod: formData.insurance.paymentMethod,
             saveAsDefault: formData.insurance.saveAsDefault,
@@ -187,7 +232,7 @@ export default function PatientRegistrationPage() {
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.patientId) {
-        throw new Error("Failed to register patient");
+        throw new Error(payload?.error || "Failed to register patient");
       }
       if (payload?.access) {
         const notice =
@@ -198,15 +243,18 @@ export default function PatientRegistrationPage() {
               : payload.access.delivery === "deferred"
                 ? `Patient portal access is deferred until the patient reaches the configured adult age of ${payload.access.adultAge}. Eligible on: ${payload.access.eligibleOn ? new Date(payload.access.eligibleOn).toLocaleDateString() : "Not available"}.`
               : `Patient portal login created. Login ID: ${payload.access.loginIdentifier}. Login URL: ${payload.access.loginUrl}`;
+        const guardianAccess = payload?.guardianLink?.access;
         const guardianNotice = payload?.guardianLink?.linked
-          ? " The parent/guardian was also linked to this child profile."
+          ? guardianAccess
+            ? ` Parent/guardian dashboard created. Login ID: ${guardianAccess.loginIdentifier}. Temporary password: ${guardianAccess.temporaryPassword}. Login URL: ${guardianAccess.loginUrl}.`
+            : " The parent/guardian was also linked to this child profile."
           : "";
         window.alert(`${notice}${guardianNotice}`);
       }
       router.push(toTenantPath(`/patients/${payload.patientId}?registered=true`));
     } catch (error) {
       console.error("Registration failed:", error);
-      alert("Failed to register patient. Please try again.");
+      alert(error instanceof Error ? error.message : "Failed to register patient. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -229,7 +277,7 @@ export default function PatientRegistrationPage() {
       </div>
 
       <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-        <div className="grid gap-4 lg:grid-cols-5">
+        <div className="grid gap-4 lg:grid-cols-6">
           {steps.map((step) => (
             <button
               key={step.id}
@@ -268,10 +316,13 @@ export default function PatientRegistrationPage() {
                   <option value="other">Other</option>
                   <option value="prefer-not-to-say">Prefer not to say</option>
                 </select>
-                <label className="md:col-span-2 flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-3 text-sm text-foreground">
-                  <input type="checkbox" checked={formData.isChildPatient} onChange={(event) => setFormData((current) => ({ ...current, isChildPatient: event.target.checked }))} />
-                  This patient is a child and should be managed through a parent/guardian until they reach the legal adult age for this tenant.
-                </label>
+                <div className={`md:col-span-2 rounded-lg border px-3 py-3 text-sm ${isUnderLegalAge ? "border-amber-300 bg-amber-50 text-amber-900" : "border-emerald-300 bg-emerald-50 text-emerald-900"}`}>
+                  {patientAge === null
+                    ? `Enter DOB to evaluate legal adult status. Tenant legal adult age is ${adultAge}${tenantCountry ? ` in ${tenantCountry}` : ""}.`
+                    : isUnderLegalAge
+                      ? `Under legal adult age (${patientAge}/${adultAge}). Parent/guardian registration is required and patient portal credentials will be deferred until ${eligibleOn ? new Date(eligibleOn).toLocaleDateString() : "their birthday"}.`
+                      : `Adult patient (${patientAge}/${adultAge}). Patient dashboard credentials will be issued after registration.`}
+                </div>
               </div>
               <div className="rounded-2xl border border-dashed border-border bg-background/70 p-5 text-center">
                 {photoPreview ? <img src={photoPreview} alt="Patient preview" className="mx-auto h-24 w-24 rounded-full object-cover" /> : <Camera className="mx-auto h-10 w-10 text-muted-foreground" />}
@@ -344,6 +395,53 @@ export default function PatientRegistrationPage() {
           {currentStep === 3 ? (
             <div className="space-y-6">
               <div>
+                <h2 className="text-xl font-semibold text-foreground">Parent/Guardian Access</h2>
+                <p className="text-sm text-muted-foreground">
+                  {isUnderLegalAge
+                    ? "This patient is under the tenant legal adult age. Register or link a parent/guardian before continuing."
+                    : "Guardian access is optional for adult patients, but can still be linked if needed."}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-border bg-background/70 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="font-semibold text-foreground">Guardian Dashboard Account</h3>
+                    <p className="text-sm text-muted-foreground">New guardians receive credentials for the guardian dashboard. Existing guardians are matched by phone or email.</p>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-foreground">
+                    <input type="checkbox" checked={formData.guardian.isParentGuardian} disabled={isUnderLegalAge} onChange={(event) => setNestedField("guardian", "isParentGuardian", event.target.checked)} />
+                    Link parent/guardian
+                  </label>
+                </div>
+                {formData.guardian.isParentGuardian ? (
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <input value={formData.guardian.name} onChange={(event) => setNestedField("guardian", "name", event.target.value)} placeholder="Parent/guardian full name" className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground" />
+                    <select value={formData.guardian.relationship} onChange={(event) => setNestedField("guardian", "relationship", event.target.value)} className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground">
+                      <option value="parent">Parent</option>
+                      <option value="guardian">Legal guardian</option>
+                      <option value="caregiver">Caregiver</option>
+                      <option value="other">Other</option>
+                    </select>
+                    <PhoneNumberInput value={formData.guardian.phone} onChange={(value) => setNestedField("guardian", "phone", value || "")} placeholder="Parent/guardian phone" />
+                    <input value={formData.guardian.email} onChange={(event) => setNestedField("guardian", "email", event.target.value)} placeholder="Parent/guardian email" className="h-11 rounded-lg border border-border bg-background px-3 text-sm text-foreground" />
+                    <label className="md:col-span-2 flex items-center gap-2 text-sm text-foreground">
+                      <input type="checkbox" checked={formData.guardian.isExistingPatient} onChange={(event) => setNestedField("guardian", "isExistingPatient", event.target.checked)} />
+                      Match this guardian to an existing patient/guardian account if phone or email already exists
+                    </label>
+                    <div className="md:col-span-2 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+                      For under-aged patients, the child remains linked to the guardian dashboard. Patient credentials are automatically deferred until the configured birthday threshold.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">No guardian will be linked for this adult patient.</div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {currentStep === 4 ? (
+            <div className="space-y-6">
+              <div>
                 <h2 className="text-xl font-semibold text-foreground">Insurance</h2>
                 <p className="text-sm text-muted-foreground">Collect payer details early so the accountant and billing teams do not have to backfill missing information.</p>
               </div>
@@ -382,7 +480,7 @@ export default function PatientRegistrationPage() {
             </div>
           ) : null}
 
-          {currentStep === 4 ? (
+          {currentStep === 5 ? (
             <div className="space-y-6">
               <div>
                 <h2 className="text-xl font-semibold text-foreground">Medical History Snapshot</h2>
@@ -397,7 +495,7 @@ export default function PatientRegistrationPage() {
             </div>
           ) : null}
 
-          {currentStep === 5 ? (
+          {currentStep === 6 ? (
             <div className="space-y-6">
               <div>
                 <h2 className="text-xl font-semibold text-foreground">Review & Submit</h2>
@@ -443,9 +541,9 @@ export default function PatientRegistrationPage() {
               >
                 Previous
               </button>
-              {currentStep < 5 ? (
+              {currentStep < 6 ? (
                 <button
-                  onClick={() => setCurrentStep((value) => Math.min(5, value + 1))}
+                  onClick={() => setCurrentStep((value) => Math.min(6, value + 1))}
                   disabled={!validateStep(currentStep)}
                   className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
                 >

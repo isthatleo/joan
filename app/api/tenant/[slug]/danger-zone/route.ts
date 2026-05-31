@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { auditLogs, tenantSettings, tenants } from "@/lib/db/schema";
 import { getTenantAccess, tenantAccessResponse } from "@/lib/api/tenant-access";
 import { createTenantBackupSnapshot } from "@/lib/tenant-backups";
+import { revalidateTenantAccessCache } from "@/lib/tenant-cache";
 
 async function getDangerZoneSettings(tenantId: string) {
   const row = await db.query.tenantSettings.findFirst({
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         entityId: access.tenant.id,
         metadata: { slug: access.tenant.slug },
       });
+      revalidateTenantAccessCache(access.tenant.slug);
       return NextResponse.json({ ok: true, tenant: updated });
     }
 
@@ -110,6 +112,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         entityId: access.tenant.id,
         metadata: { slug: access.tenant.slug },
       });
+      revalidateTenantAccessCache(access.tenant.slug);
       return NextResponse.json({ ok: true, tenant: updated });
     }
 
@@ -143,6 +146,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           storageDeliveries: backup.manifest.storageDeliveries,
         },
       });
+      revalidateTenantAccessCache(access.tenant.slug);
       return NextResponse.json({
         ok: true,
         mode: "archived",

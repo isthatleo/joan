@@ -21,7 +21,25 @@ import { authClient } from "@/lib/auth-client";
 const orange = "#F97316";
 
 type SettingsShape = {
-  branding: { primaryColor: string; logoUrl: string; hospitalName: string; favicon: string; faviconUrl: string; };
+  branding: {
+    primaryColor: string;
+    logoUrl: string;
+    hospitalName: string;
+    favicon: string;
+    faviconUrl: string;
+    employeeIds: {
+      enabled: boolean;
+      prefix: string;
+      separator: string;
+      includeYear: boolean;
+      padding: number;
+      nextNumber: number;
+      codeType: "qr" | "barcode";
+      cardTheme: "clinical" | "minimal" | "executive";
+      customPatternEnabled: boolean;
+      customPattern: string;
+    };
+  };
   notifications: {
     emailEnabled: boolean;
     smsEnabled: boolean;
@@ -223,7 +241,25 @@ type SettingsShape = {
 };
 
 const DEFAULT_SETTINGS: SettingsShape = {
-  branding: { primaryColor: "#F97316", logoUrl: "", hospitalName: "", favicon: "", faviconUrl: "" },
+  branding: {
+    primaryColor: "#F97316",
+    logoUrl: "",
+    hospitalName: "",
+    favicon: "",
+    faviconUrl: "",
+    employeeIds: {
+      enabled: true,
+      prefix: "EMP",
+      separator: "-",
+      includeYear: true,
+      padding: 4,
+      nextNumber: 1,
+      codeType: "qr",
+      cardTheme: "clinical",
+      customPatternEnabled: false,
+      customPattern: "EMP-{YYYY}-{SEQ}",
+    },
+  },
   notifications: {
     emailEnabled: true,
     smsEnabled: false,
@@ -689,6 +725,10 @@ export default function TenantSettingsPage() {
               ...(s?.branding || {}),
               faviconUrl: s?.branding?.faviconUrl || s?.branding?.favicon || "",
               favicon: s?.branding?.favicon || s?.branding?.faviconUrl || "",
+              employeeIds: {
+                ...DEFAULT_SETTINGS.branding.employeeIds,
+                ...(s?.branding?.employeeIds || {}),
+              },
             },
             notifications: { ...DEFAULT_SETTINGS.notifications, ...(s?.notifications || {}) },
             preferences: { ...DEFAULT_SETTINGS.preferences, ...(s?.preferences || {}) },
@@ -1690,14 +1730,48 @@ export default function TenantSettingsPage() {
         body: JSON.stringify(settingsPayload),
       });
       if (!res.ok) throw new Error(await res.text());
-      batchUpdateHospitalSettings(tenant?.id || slug, {
-        name: settings.branding.hospitalName,
-        logoUrl: settings.branding.logoUrl || "",
-        primaryColor: settings.branding.primaryColor,
-        modules: settings.modules,
+      const canonicalResponse = await fetch(`/api/tenants/${slug}/settings`, {
+        credentials: "include",
+        cache: "no-store",
       });
-      setSettings(settingsPayload);
-      setOriginal(JSON.parse(JSON.stringify(settingsPayload)));
+      const canonical = canonicalResponse.ok ? await canonicalResponse.json().catch(() => null) : null;
+      const nextSettings: SettingsShape = canonical ? {
+        ...DEFAULT_SETTINGS,
+        ...canonical,
+        branding: {
+          ...DEFAULT_SETTINGS.branding,
+          ...(canonical?.branding || {}),
+          faviconUrl: canonical?.branding?.faviconUrl || canonical?.branding?.favicon || "",
+          favicon: canonical?.branding?.favicon || canonical?.branding?.faviconUrl || "",
+          employeeIds: {
+            ...DEFAULT_SETTINGS.branding.employeeIds,
+            ...(canonical?.branding?.employeeIds || {}),
+          },
+        },
+        notifications: { ...DEFAULT_SETTINGS.notifications, ...(canonical?.notifications || {}) },
+        preferences: { ...DEFAULT_SETTINGS.preferences, ...(canonical?.preferences || {}) },
+        communications: { ...DEFAULT_SETTINGS.communications, ...(canonical?.communications || canonical?.communication || {}) },
+        workflow: { ...DEFAULT_SETTINGS.workflow, ...(canonical?.workflow || {}) },
+        compliance: { ...DEFAULT_SETTINGS.compliance, ...(canonical?.compliance || {}) },
+        security: { ...DEFAULT_SETTINGS.security, ...(canonical?.security || {}) },
+        billing: { ...DEFAULT_SETTINGS.billing, ...(canonical?.billing || {}) },
+        audit: { ...DEFAULT_SETTINGS.audit, ...(canonical?.audit || {}) },
+        system: { ...DEFAULT_SETTINGS.system, ...(canonical?.system || {}) },
+        dangerZone: { ...DEFAULT_SETTINGS.dangerZone, ...(canonical?.dangerZone || {}) },
+        integrations: { ...DEFAULT_SETTINGS.integrations, ...(canonical?.integrations || {}) },
+        modules: normalizeTenantModules(canonical?.modules),
+      } : settingsPayload;
+      batchUpdateHospitalSettings(tenant?.id || slug, {
+        name: nextSettings.branding.hospitalName,
+        logoUrl: nextSettings.branding.logoUrl || "",
+        primaryColor: nextSettings.branding.primaryColor,
+        modules: nextSettings.modules,
+        preferences: nextSettings.preferences,
+        workflow: nextSettings.workflow,
+      });
+      applyTenantPreferences(nextSettings.preferences as any);
+      setSettings(nextSettings);
+      setOriginal(JSON.parse(JSON.stringify(nextSettings)));
       toast.success("Settings saved");
     } catch (e: any) {
       toast.error(`Save failed: ${e?.message || "unknown"}`);
@@ -1972,6 +2046,137 @@ export default function TenantSettingsPage() {
                     </div>
                   )}
                   <p className="text-xs text-muted-foreground mt-2">Logo appears in sidebars, headers, and reports. Recommended: 256x256px, transparent background</p>
+                </div>
+
+                <div className="rounded-xl border border-border bg-muted/20 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-foreground">Employee ID Automation</h4>
+                      <p className="mt-1 text-xs text-muted-foreground">Controls how staff employee IDs are generated during registration and which code format appears on printable ID cards.</p>
+                    </div>
+                    <Toggle
+                      label="Auto-generate IDs"
+                      desc="Use this policy when staff registration leaves Employee ID blank"
+                      value={settings.branding.employeeIds.enabled}
+                      onChange={value => update("branding.employeeIds", { ...settings.branding.employeeIds, enabled: value })}
+                    />
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground">Prefix</label>
+                      <input
+                        value={settings.branding.employeeIds.prefix}
+                        onChange={event => update("branding.employeeIds", { ...settings.branding.employeeIds, prefix: event.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 16) })}
+                        className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm font-mono"
+                        placeholder="EMP or AS-"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground">Separator</label>
+                      <select
+                        value={settings.branding.employeeIds.separator}
+                        onChange={event => update("branding.employeeIds", { ...settings.branding.employeeIds, separator: event.target.value })}
+                        className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                      >
+                        <option value="-">Dash (-)</option>
+                        <option value="/">Slash (/)</option>
+                        <option value=".">Dot (.)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground">Next number</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={settings.branding.employeeIds.nextNumber}
+                        onChange={event => update("branding.employeeIds", { ...settings.branding.employeeIds, nextNumber: Math.max(1, Number(event.target.value || 1)) })}
+                        className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground">Number padding</label>
+                      <select
+                        value={settings.branding.employeeIds.padding}
+                        onChange={event => update("branding.employeeIds", { ...settings.branding.employeeIds, padding: Number(event.target.value) })}
+                        className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                      >
+                        {[3, 4, 5, 6, 7, 8].map(value => <option key={value} value={value}>{value} digits</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground">ID card code</label>
+                      <select
+                        value={settings.branding.employeeIds.codeType}
+                        onChange={event => update("branding.employeeIds", { ...settings.branding.employeeIds, codeType: event.target.value as "qr" | "barcode" })}
+                        className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                      >
+                        <option value="qr">QR code</option>
+                        <option value="barcode">Barcode</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground">Card theme</label>
+                      <select
+                        value={settings.branding.employeeIds.cardTheme}
+                        onChange={event => update("branding.employeeIds", { ...settings.branding.employeeIds, cardTheme: event.target.value as "clinical" | "minimal" | "executive" })}
+                        className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                      >
+                        <option value="clinical">Clinical</option>
+                        <option value="minimal">Minimal</option>
+                        <option value="executive">Executive</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-background px-4 py-3 text-sm">
+                    <span className="text-muted-foreground">Preview</span>
+                    <span className="rounded-md bg-muted px-2.5 py-1 font-mono font-semibold">
+                      {settings.branding.employeeIds.customPatternEnabled
+                        ? settings.branding.employeeIds.customPattern
+                            .replace(/\{YYYY\}/g, String(new Date().getFullYear()))
+                            .replace(/\{YY\}/g, String(new Date().getFullYear()).slice(-2))
+                            .replace(/\{SEQ\}/g, String(settings.branding.employeeIds.nextNumber).padStart(settings.branding.employeeIds.padding, "0"))
+                            .replace(/\{RAND(\d+)\}/g, (_, size) => "9".repeat(Math.min(12, Math.max(1, Number(size || 4)))))
+                            .replace(/\{ALPHA(\d+)\}/g, (_, size) => "A".repeat(Math.min(12, Math.max(1, Number(size || 2)))))
+                            .replace(/\{PREFIX\}/g, settings.branding.employeeIds.prefix)
+                        : [settings.branding.employeeIds.prefix, settings.branding.employeeIds.includeYear ? new Date().getFullYear() : null, String(settings.branding.employeeIds.nextNumber).padStart(settings.branding.employeeIds.padding, "0")].filter(Boolean).join(settings.branding.employeeIds.separator)}
+                    </span>
+                    <label className="ml-auto inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={settings.branding.employeeIds.includeYear}
+                        onChange={event => update("branding.employeeIds", { ...settings.branding.employeeIds, includeYear: event.target.checked })}
+                        className="accent-orange-500"
+                      />
+                      Include year
+                    </label>
+                  </div>
+                  <div className="mt-4 rounded-lg border border-border bg-background px-4 py-3">
+                    <label className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+                      <input
+                        type="checkbox"
+                        checked={settings.branding.employeeIds.customPatternEnabled}
+                        onChange={event => update("branding.employeeIds", { ...settings.branding.employeeIds, customPatternEnabled: event.target.checked })}
+                        className="accent-orange-500"
+                      />
+                      Use custom mixed employee ID pattern
+                    </label>
+                    <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+                      <input
+                        value={settings.branding.employeeIds.customPattern}
+                        onChange={event => update("branding.employeeIds", { ...settings.branding.employeeIds, customPattern: event.target.value.toUpperCase().replace(/[^A-Z0-9{}:_-]/g, "").slice(0, 80) })}
+                        className="h-10 rounded-lg border border-border bg-background px-3 font-mono text-sm"
+                        placeholder="AS-{RAND5}{ALPHA2}{RAND1}"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => update("branding.employeeIds", { ...settings.branding.employeeIds, customPatternEnabled: true, customPattern: "AS-{RAND5}{ALPHA2}{RAND1}" })}
+                        className="rounded-lg border border-border px-3 text-sm font-semibold hover:bg-muted"
+                      >
+                        Example AS-10987FG0
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">Supported tokens: {"{PREFIX}"}, {"{YYYY}"}, {"{YY}"}, {"{SEQ}"}, {"{RAND5}"}, {"{ALPHA2}"}. Letters, numbers, and dashes are allowed.</p>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2">

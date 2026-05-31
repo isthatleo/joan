@@ -19,7 +19,7 @@ const createIntegrationSchema = z.object({
   apiSecret: z.string().optional(),
   accountId: z.string().optional(),
   accountName: z.string().optional(),
-  config: z.record(z.any()).optional(),
+  config: z.record(z.string(), z.any()).optional(),
 });
 
 // GET - List all integrations for a tenant
@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid integration data", details: error.errors },
+        { error: "Invalid integration data", details: error.issues },
         { status: 400 }
       );
     }

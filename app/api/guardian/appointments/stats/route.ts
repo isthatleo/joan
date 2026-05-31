@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantBySlug } from "@/lib/db/helpers";
 import { db } from "@/lib/db";
-import { eq, and, gte, lte } from "drizzle-orm";
-import { appointments, guardians, guardianPatients } from "@/lib/db/schema";
+import { eq, and, gte, inArray } from "drizzle-orm";
+import { appointments, guardianPatients } from "@/lib/db/schema";
+import { resolveGuardianForTenant } from "@/lib/api/guardian-auth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,27 +19,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    // Get guardian's user ID from session/token (simplified for demo)
-    const guardianUserId = "guardian-user-id"; // This would come from auth
-
-    // Get guardian record
-    const guardian = await db
-      .select()
-      .from(guardians)
-      .where(and(eq(guardians.tenantId, tenant.id), eq(guardians.userId, guardianUserId)))
-      .limit(1);
-
-    if (!guardian.length) {
-      return NextResponse.json({ error: "Guardian not found" }, { status: 404 });
+    const access = await resolveGuardianForTenant(request, tenant.id);
+    if (access.status !== 200 || !access.guardian) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     // Get children associated with this guardian
     const childrenRelations = await db
       .select({ patientId: guardianPatients.patientId })
       .from(guardianPatients)
-      .where(eq(guardianPatients.guardianId, guardian[0].id));
+      .where(eq(guardianPatients.guardianId, access.guardian.id));
 
-    const childrenIds = childrenRelations.map(rel => rel.patientId);
+    const childrenIds = childrenRelations.map(rel => rel.patientId).filter((id): id is string => Boolean(id));
+    if (childrenIds.length === 0) {
+      return NextResponse.json({
+        total: 0,
+        upcoming: 0,
+        completed: 0,
+        completedThisMonth: 0,
+        cancelled: 0,
+      });
+    }
 
     // Get appointment statistics
     const now = new Date();
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
       .from(appointments)
       .where(and(
         eq(appointments.tenantId, tenant.id),
-        appointments.patientId ? childrenIds.includes(appointments.patientId) : false
+        inArray(appointments.patientId, childrenIds)
       ));
 
     // Upcoming appointments
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest) {
       .from(appointments)
       .where(and(
         eq(appointments.tenantId, tenant.id),
-        appointments.patientId ? childrenIds.includes(appointments.patientId) : false,
+        inArray(appointments.patientId, childrenIds),
         gte(appointments.scheduledAt, now),
         eq(appointments.status, "scheduled")
       ));
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
       .from(appointments)
       .where(and(
         eq(appointments.tenantId, tenant.id),
-        appointments.patientId ? childrenIds.includes(appointments.patientId) : false,
+        inArray(appointments.patientId, childrenIds),
         eq(appointments.status, "completed")
       ));
 
@@ -80,7 +81,7 @@ export async function GET(request: NextRequest) {
       .from(appointments)
       .where(and(
         eq(appointments.tenantId, tenant.id),
-        appointments.patientId ? childrenIds.includes(appointments.patientId) : false,
+        inArray(appointments.patientId, childrenIds),
         eq(appointments.status, "completed"),
         gte(appointments.scheduledAt, startOfMonth)
       ));
@@ -91,7 +92,7 @@ export async function GET(request: NextRequest) {
       .from(appointments)
       .where(and(
         eq(appointments.tenantId, tenant.id),
-        appointments.patientId ? childrenIds.includes(appointments.patientId) : false,
+        inArray(appointments.patientId, childrenIds),
         eq(appointments.status, "cancelled")
       ));
 

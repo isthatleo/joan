@@ -4,9 +4,28 @@ import { tenantSettings, tenants, auditLogs } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { requireTenantAdmin } from "@/lib/tenant-staff";
+import { inferCountryFromCity } from "@/lib/address-city-inference";
 
 const DEFAULTS = {
-  branding: { primaryColor: "#F97316", logoUrl: "", faviconUrl: "", accentColor: "#EA580C", lightLogoUrl: "" },
+  branding: {
+    primaryColor: "#F97316",
+    logoUrl: "",
+    faviconUrl: "",
+    accentColor: "#EA580C",
+    lightLogoUrl: "",
+    employeeIds: {
+      enabled: true,
+      prefix: "EMP",
+      separator: "-",
+      includeYear: true,
+      padding: 4,
+      nextNumber: 1,
+      codeType: "qr",
+      cardTheme: "clinical",
+      customPatternEnabled: false,
+      customPattern: "EMP-{YYYY}-{SEQ}",
+    },
+  },
   hospital: { name: "", displayName: "", shortName: "", slug: "", registrationNumber: "", licenseNumber: "", description: "" },
   contact: { email: "", phone: "", website: "", address: "", city: "", country: "", postalCode: "" },
   notifications: {
@@ -213,6 +232,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (!admin.ok) return NextResponse.json({ error: admin.error || "Forbidden" }, { status: admin.status || 403 });
 
     const body = putSchema.parse(await request.json());
+    if (body.contact && !body.contact.country && body.contact.city) {
+      body.contact.country = inferCountryFromCity(body.contact.city) || body.contact.country;
+    }
     if (body.communications && !body.communication) {
       body.communication = body.communications;
     }
@@ -269,7 +291,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ message: "Settings updated", changedKeys });
   } catch (e: any) {
     if (e instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid settings", details: e.errors }, { status: 400 });
+      return NextResponse.json({ error: "Invalid settings", details: e.issues }, { status: 400 });
     }
     console.error("[tenant settings PUT]", e);
     return NextResponse.json({ error: e.message || "Failed to update settings" }, { status: 500 });

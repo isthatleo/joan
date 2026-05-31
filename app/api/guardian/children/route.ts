@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantBySlug } from "@/lib/db/helpers";
 import { db } from "@/lib/db";
-import { eq, and, desc } from "drizzle-orm";
-import { users, patients, guardianPatients, guardians, visits, appointments, vitals } from "@/lib/db/schema";
+import { eq, and, desc, ilike, or } from "drizzle-orm";
+import { patients, guardianPatients, visits, appointments, vitals, patientAllergies, patientConditions, notifications } from "@/lib/db/schema";
+import { resolveGuardianForTenant } from "@/lib/api/guardian-auth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,18 +19,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    // Get guardian's user ID from session/token (simplified for demo)
-    const guardianUserId = "guardian-user-id"; // This would come from auth
-
-    // Get guardian record
-    const guardian = await db
-      .select()
-      .from(guardians)
-      .where(and(eq(guardians.tenantId, tenant.id), eq(guardians.userId, guardianUserId)))
-      .limit(1);
-
-    if (!guardian.length) {
-      return NextResponse.json({ error: "Guardian not found" }, { status: 404 });
+    const access = await resolveGuardianForTenant(request, tenant.id);
+    if (access.status !== 200 || !access.guardian || !access.user) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     // Get children associated with this guardian
@@ -43,7 +35,7 @@ export async function GET(request: NextRequest) {
       })
       .from(guardianPatients)
       .innerJoin(patients, eq(guardianPatients.patientId, patients.id))
-      .where(eq(guardianPatients.guardianId, guardian[0].id));
+      .where(eq(guardianPatients.guardianId, access.guardian.id));
 
     // Get additional data for each child
     const childrenWithDetails = await Promise.all(
@@ -74,18 +66,48 @@ export async function GET(request: NextRequest) {
           .limit(1);
 
         // Get latest vitals for health status
-        const latestVitals = await db
-          .select()
-          .from(vitals)
-          .where(eq(vitals.visitId, lastVisit[0]?.id || ""))
-          .orderBy(desc(vitals.createdAt))
-          .limit(1);
+        const latestVitals = lastVisit[0]?.id
+          ? await db
+              .select()
+              .from(vitals)
+              .where(eq(vitals.visitId, lastVisit[0].id))
+              .orderBy(desc(vitals.createdAt))
+              .limit(1)
+          : [];
 
-        // Calculate health status (simplified)
+        const allergies = await db
+          .select({ allergy: patientAllergies.allergy })
+          .from(patientAllergies)
+          .where(eq(patientAllergies.patientId, child.id));
+
+        const conditions = await db
+          .select({ condition: patientConditions.condition })
+          .from(patientConditions)
+          .where(eq(patientConditions.patientId, child.id));
+
+        const vaccinationSignals = await db
+          .select({ read: notifications.read })
+          .from(notifications)
+          .where(and(
+            eq(notifications.tenantId, tenant.id),
+            eq(notifications.userId, access.user.id),
+            or(
+              ilike(notifications.type, `%${child.id}%`),
+              ilike(notifications.title, "%vaccin%"),
+              ilike(notifications.message, "%vaccin%"),
+              ilike(notifications.title, "%immun%"),
+              ilike(notifications.message, "%immun%")
+            )
+          ))
+          .limit(20);
+
         let healthStatus: "excellent" | "good" | "fair" | "poor" = "good";
         if (latestVitals.length > 0) {
-          // Simple logic based on vitals
-          healthStatus = "excellent"; // Would implement proper logic
+          const oxygen = Number(latestVitals[0].oxygenSaturation || 0);
+          const pain = Number(latestVitals[0].painScore || 0);
+          if ((oxygen > 0 && oxygen < 92) || pain >= 8) healthStatus = "poor";
+          else if ((oxygen > 0 && oxygen < 95) || pain >= 5) healthStatus = "fair";
+          else if ((oxygen >= 97 || oxygen === 0) && pain <= 2) healthStatus = "excellent";
         }
 
         // Calculate age
@@ -100,20 +122,20 @@ export async function GET(request: NextRequest) {
           phone: child.phone || "",
           email: child.email || "",
           address: child.address || "",
-          bloodType: "", // Would need to add to schema
-          allergies: [], // Would need to add to schema
-          conditions: [], // Would need to add to schema
+          bloodType: "",
+          allergies: allergies.map((item) => item.allergy).filter(Boolean),
+          conditions: conditions.map((item) => item.condition).filter(Boolean),
           emergencyContact: {
-            name: "Emergency Contact",
-            relationship: "Parent/Guardian",
-            phone: child.phone || ""
+            name: access.user.fullName || "Guardian",
+            relationship: access.guardian.relationship || "guardian",
+            phone: access.user.phone || child.phone || ""
           },
-          insurance: null, // Would need to add to schema
+          insurance: null,
           avatar: null,
           lastVisit: lastVisit[0]?.createdAt?.toISOString() || null,
           nextAppointment: nextAppointment[0]?.scheduledAt?.toISOString() || null,
           healthStatus,
-          vaccinationStatus: "up-to-date", // Mock data
+          vaccinationStatus: vaccinationSignals.some((signal) => !signal.read) ? "attention-needed" : "not-recorded",
           permissions: {
             canViewRecords: relation.canViewRecords,
             canSchedule: relation.canSchedule,

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantBySlug } from "@/lib/db/helpers";
 import { db } from "@/lib/db";
-import { eq, and, gte, desc } from "drizzle-orm";
-import { appointments, users, patients, guardians, guardianPatients } from "@/lib/db/schema";
+import { eq, and, gte, desc, inArray } from "drizzle-orm";
+import { appointments, users, patients, guardianPatients, visits } from "@/lib/db/schema";
+import { resolveGuardianForTenant } from "@/lib/api/guardian-auth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,32 +20,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    // Get guardian's user ID from session/token (simplified for demo)
-    const guardianUserId = "guardian-user-id"; // This would come from auth
-
-    // Get guardian record
-    const guardian = await db
-      .select()
-      .from(guardians)
-      .where(and(eq(guardians.tenantId, tenant.id), eq(guardians.userId, guardianUserId)))
-      .limit(1);
-
-    if (!guardian.length) {
-      return NextResponse.json({ error: "Guardian not found" }, { status: 404 });
+    const access = await resolveGuardianForTenant(request, tenant.id);
+    if (access.status !== 200 || !access.guardian) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     // Get children associated with this guardian
     const childrenRelations = await db
       .select({ patientId: guardianPatients.patientId })
       .from(guardianPatients)
-      .where(eq(guardianPatients.guardianId, guardian[0].id));
+      .where(eq(guardianPatients.guardianId, access.guardian.id));
 
-    const childrenIds = childrenRelations.map(rel => rel.patientId);
+    const childrenIds = childrenRelations.map(rel => rel.patientId).filter((id): id is string => Boolean(id));
+    if (childrenIds.length === 0) {
+      return NextResponse.json([]);
+    }
 
     // Build query conditions
     let whereConditions = and(
       eq(appointments.tenantId, tenant.id),
-      appointments.patientId ? childrenIds.includes(appointments.patientId) : false
+      inArray(appointments.patientId, childrenIds)
     );
 
     if (upcoming) {
@@ -65,26 +60,35 @@ export async function GET(request: NextRequest) {
       .orderBy(upcoming ? appointments.scheduledAt : desc(appointments.createdAt));
 
     // Format the response
-    const formattedAppointments = appointmentsData.map(item => ({
-      id: item.appointment.id,
-      childId: item.patient.id,
-      childName: `${item.patient.firstName} ${item.patient.lastName}`,
-      doctorId: item.doctor.id,
-      doctorName: `${item.doctor.fullName}`,
-      specialty: "General Practice", // Would need to add to schema
-      date: item.appointment.scheduledAt?.toISOString().split('T')[0] || "",
-      time: item.appointment.scheduledAt?.toTimeString().slice(0, 5) || "",
-      duration: 30, // Default duration
-      type: "Check-up", // Would need to add to schema
-      status: item.appointment.status as "scheduled" | "confirmed" | "completed" | "cancelled" | "no-show",
-      location: "Main Clinic", // Would need to add to schema
-      notes: "", // Would need to add to schema
-      reason: "Regular check-up", // Would need to add to schema
-      createdAt: item.appointment.createdAt?.toISOString() || "",
-      updatedAt: item.appointment.updatedAt?.toISOString() || "",
-      canReschedule: item.appointment.status === "scheduled",
-      canCancel: item.appointment.status === "scheduled"
-    }));
+    const formattedAppointments = await Promise.all(
+      appointmentsData.map(async (item) => {
+        const visit = await db.query.visits.findFirst({
+          where: eq(visits.appointmentId, item.appointment.id),
+          columns: { reason: true, notes: true },
+        });
+
+        return {
+          id: item.appointment.id,
+          childId: item.patient.id,
+          childName: `${item.patient.firstName || ""} ${item.patient.lastName || ""}`.trim() || item.patient.fullName || "Patient",
+          doctorId: item.doctor.id,
+          doctorName: item.doctor.fullName || item.doctor.email,
+          specialty: item.doctor.role || "clinician",
+          date: item.appointment.scheduledAt?.toISOString().split("T")[0] || "",
+          time: item.appointment.scheduledAt?.toTimeString().slice(0, 5) || "",
+          duration: 30,
+          type: visit?.reason || "Clinical appointment",
+          status: item.appointment.status as "scheduled" | "confirmed" | "completed" | "cancelled" | "no-show",
+          location: tenant.name,
+          notes: visit?.notes || "",
+          reason: visit?.reason || "",
+          createdAt: item.appointment.createdAt?.toISOString() || "",
+          updatedAt: item.appointment.updatedAt?.toISOString() || "",
+          canReschedule: item.appointment.status === "scheduled",
+          canCancel: item.appointment.status === "scheduled",
+        };
+      })
+    );
 
     return NextResponse.json(formattedAppointments);
   } catch (error) {
@@ -115,25 +119,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Get guardian's user ID from session/token (simplified for demo)
-    const guardianUserId = "guardian-user-id"; // This would come from auth
-
-    // Verify the child belongs to this guardian
-    const guardian = await db
-      .select()
-      .from(guardians)
-      .where(and(eq(guardians.tenantId, tenant.id), eq(guardians.userId, guardianUserId)))
-      .limit(1);
-
-    if (!guardian.length) {
-      return NextResponse.json({ error: "Guardian not found" }, { status: 404 });
+    const access = await resolveGuardianForTenant(request, tenant.id);
+    if (access.status !== 200 || !access.guardian) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     const childRelation = await db
       .select()
       .from(guardianPatients)
       .where(and(
-        eq(guardianPatients.guardianId, guardian[0].id),
+        eq(guardianPatients.guardianId, access.guardian.id),
         eq(guardianPatients.patientId, childId)
       ))
       .limit(1);
@@ -153,7 +148,6 @@ export async function POST(request: NextRequest) {
         doctorId: doctorId,
         scheduledAt: scheduledDateTime,
         status: "scheduled",
-        // Add other fields as needed
       })
       .returning();
 

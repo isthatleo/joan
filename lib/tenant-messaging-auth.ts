@@ -10,16 +10,17 @@ function normalizeRole(role?: string | null) {
 }
 
 export async function resolveTenantMessagingUser(request: NextRequest, sessionEmail: string, slug: string) {
-  let tenantId = await getTenantIdBySlug(slug);
+  let tenantId: string | null = await getTenantIdBySlug(slug);
   if (!tenantId) {
     const hostSlug = getTenantSubdomain(request.headers.get("host"));
     tenantId = hostSlug ? await getTenantIdBySlug(hostSlug) : null;
   }
   if (!tenantId) return null;
+  const resolvedTenantId = tenantId;
 
   const [tenant, appUser] = await Promise.all([
     db.query.tenants.findFirst({
-      where: eq(tenants.id, tenantId),
+      where: eq(tenants.id, resolvedTenantId),
       columns: { id: true, adminUserId: true },
     }),
     db.query.users.findFirst({
@@ -29,20 +30,20 @@ export async function resolveTenantMessagingUser(request: NextRequest, sessionEm
   ]);
   if (!tenant || !appUser) return null;
 
-  if (appUser.tenantId === tenantId || tenant.adminUserId === appUser.id) {
-    return { id: appUser.id, tenantId };
+  if (appUser.tenantId === resolvedTenantId || tenant.adminUserId === appUser.id) {
+    return { id: appUser.id, tenantId: resolvedTenantId };
   }
 
   const roleRows = await db
     .select({ roleName: roles.name })
     .from(userRoles)
     .innerJoin(roles, eq(roles.id, userRoles.roleId))
-    .where(and(eq(userRoles.userId, appUser.id), eq(roles.tenantId, tenantId)))
+    .where(and(eq(userRoles.userId, appUser.id), eq(roles.tenantId, resolvedTenantId)))
     .catch(() => []);
   const linkedRoles = roleRows.map((row) => normalizeRole(row.roleName));
   const baseRole = normalizeRole(appUser.role);
   if (linkedRoles.includes("hospital_admin") || linkedRoles.includes("admin") || baseRole === "hospital_admin" || baseRole === "admin") {
-    return { id: appUser.id, tenantId };
+    return { id: appUser.id, tenantId: resolvedTenantId };
   }
 
   const superAdminRole = await db
@@ -53,7 +54,7 @@ export async function resolveTenantMessagingUser(request: NextRequest, sessionEm
     .limit(1)
     .catch(() => []);
   if (superAdminRole.length || baseRole === "super_admin") {
-    return { id: appUser.id, tenantId };
+    return { id: appUser.id, tenantId: resolvedTenantId };
   }
 
   return null;

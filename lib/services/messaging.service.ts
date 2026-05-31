@@ -28,7 +28,20 @@ function normalizeRole(role: string | null | undefined) {
 function pickPrimaryRole(roleList: string[], fallbackRole?: string | null) {
   const normalizedFallback = normalizeRole(fallbackRole);
   const normalizedRoles = roleList.map(normalizeRole).filter(Boolean);
-  return normalizedRoles.find((role) => role !== "patient") || normalizedRoles[0] || normalizedFallback;
+  const rolePriority = [
+    "super_admin",
+    "hospital_admin",
+    "doctor",
+    "nurse",
+    "lab_technician",
+    "pharmacist",
+    "accountant",
+    "receptionist",
+    "guardian",
+    "patient",
+  ];
+  const candidates = Array.from(new Set([normalizedFallback, ...normalizedRoles].filter(Boolean)));
+  return rolePriority.find((role) => candidates.includes(role)) || candidates[0] || "patient";
 }
 
 function uniqueRoles(primaryRole: string, linkedRoles: string[]) {
@@ -466,6 +479,57 @@ export class MessagingService {
     const currentTenantId = tenantId || currentUser.tenantId;
     const allowedRoles = MESSAGE_PERMISSION_MATRIX[currentUser.role] || [];
     if (allowedRoles.length === 0) return [];
+
+    if (currentUser.role === "super_admin") {
+      const needle = search?.trim().toLowerCase();
+      const rows = await db.$queryRaw`
+        SELECT DISTINCT ON (u.id)
+          u.id,
+          u.full_name,
+          u.email,
+          u.avatar,
+          u.role,
+          COALESCE(tu.name, ta.name) AS tenant_name,
+          COALESCE(tu.slug, ta.slug) AS tenant_slug
+        FROM users u
+        LEFT JOIN tenants tu ON tu.id = u.tenant_id AND tu.deleted_at IS NULL AND tu.is_active = true
+        LEFT JOIN tenants ta ON ta.admin_user_id = u.id AND ta.deleted_at IS NULL AND ta.is_active = true
+        LEFT JOIN user_roles ur ON ur.user_id = u.id
+        LEFT JOIN roles r ON r.id = ur.role_id
+        WHERE u.deleted_at IS NULL
+          AND u.is_active = true
+          AND u.id <> ${userId}
+          AND (tu.id IS NOT NULL OR ta.id IS NOT NULL)
+          AND (
+            lower(coalesce(u.role, '')) IN ('hospital_admin', 'admin')
+            OR lower(coalesce(r.name, '')) IN ('hospital_admin', 'admin')
+            OR ta.admin_user_id = u.id
+          )
+        ORDER BY u.id, coalesce(u.full_name, u.email)
+      `;
+
+      return (rows as any[])
+        .filter((candidate) => {
+          if (!needle) return true;
+          return (
+            (candidate.full_name || "").toLowerCase().includes(needle) ||
+            candidate.email.toLowerCase().includes(needle) ||
+            String(candidate.tenant_name || "").toLowerCase().includes(needle) ||
+            String(candidate.tenant_slug || "").toLowerCase().includes(needle) ||
+            "hospital admin".includes(needle)
+          );
+        })
+        .map((candidate) => ({
+          id: candidate.id,
+          fullName: candidate.full_name || null,
+          email: candidate.email,
+          avatar: candidate.avatar || null,
+          role: "hospital_admin",
+          tenantName: candidate.tenant_name || null,
+          tenantSlug: candidate.tenant_slug || null,
+        }))
+        .sort((a, b) => (a.fullName || a.email).localeCompare(b.fullName || b.email));
+    }
 
     const rows = await db.$queryRaw`
       SELECT

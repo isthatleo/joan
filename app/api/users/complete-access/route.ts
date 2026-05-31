@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
       .where(and(eq(authSchema.account.userId, session.user.id), eq(authSchema.account.providerId, "credential")));
 
     const nextSettings = mergeUserSettings({
-      ...settingsRecord?.settings,
+      ...(settingsRecord?.settings && typeof settingsRecord.settings === "object" && !Array.isArray(settingsRecord.settings) ? settingsRecord.settings as Record<string, unknown> : {}),
       security: {
         ...(mergedSettings.security ?? {}),
         forcePasswordChange: false,

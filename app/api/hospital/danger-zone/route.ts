@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { tenantSettings, auditLogs, tenants, patients, users } from "@/lib/db/schema";
-import { and, count, eq } from "drizzle-orm";
+import { tenantSettings, auditLogs, tenants, patients, users, userSessions } from "@/lib/db/schema";
+import { and, count, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import crypto from "crypto";
+import { revalidateTenantAccessCache } from "@/lib/tenant-cache";
 
 const confirmSchema = z.object({
   action: z.enum(["purge-data", "delete-tenant", "reset-settings"]),
@@ -86,10 +87,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "generate-code") {
-      // Generate confirmation code
-      const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const code = crypto.randomBytes(4).toString("hex").toUpperCase();
 
-      // Store in temporary settings (in production, use Redis)
       const existingCodes = await db
         .select()
         .from(tenantSettings)
@@ -225,33 +224,97 @@ export async function DELETE(request: NextRequest) {
         message: "All settings reset to defaults successfully",
       });
     } else if (body.action === "purge-data") {
-      // Archive old data (soft delete)
-      // In production, this would implement GDPR-compliant data purging
+      const purgeId = crypto.randomUUID();
+      await db.execute(sql`
+        DO $$
+        DECLARE
+          target record;
+          has_updated_at boolean;
+        BEGIN
+          FOR target IN
+            SELECT table_schema, table_name
+            FROM information_schema.columns
+            WHERE column_name = 'tenant_id'
+              AND table_schema = 'public'
+              AND table_name <> 'tenants'
+              AND table_name IN (
+                SELECT table_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND column_name = 'deleted_at'
+              )
+          LOOP
+            SELECT EXISTS (
+              SELECT 1
+              FROM information_schema.columns
+              WHERE table_schema = target.table_schema
+                AND table_name = target.table_name
+                AND column_name = 'updated_at'
+            ) INTO has_updated_at;
+
+            IF has_updated_at THEN
+              EXECUTE format(
+                'UPDATE %I.%I SET deleted_at = COALESCE(deleted_at, now()), updated_at = now() WHERE tenant_id = %L',
+                target.table_schema,
+                target.table_name,
+                ${tenantId}
+              );
+            ELSE
+              EXECUTE format(
+                'UPDATE %I.%I SET deleted_at = COALESCE(deleted_at, now()) WHERE tenant_id = %L',
+                target.table_schema,
+                target.table_name,
+                ${tenantId}
+              );
+            END IF;
+          END LOOP;
+        END $$;
+      `);
+
       await db.insert(auditLogs).values({
         action: "danger_zone.data_purged",
         entity: "hospital",
         entityId: tenantId,
         metadata: {
           reason: body.reason,
+          purgeId,
           timestamp: new Date().toISOString(),
         },
       });
 
       return NextResponse.json({
-        message: "Data purge initiated. This may take several minutes.",
-        purgeId: crypto.randomUUID(),
+        message: "Tenant-scoped data has been purged.",
+        purgeId,
       });
     } else if (body.action === "delete-tenant") {
       // This is destructive - mark tenant for deletion
-      const purgeDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const purgeDate = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
       await db
         .update(tenants)
         .set({
           scheduledPurgeAt: purgeDate,
           isActive: false,
+          provisioningStatus: "archived",
+          deletedAt: new Date(),
           updatedAt: new Date(),
-        })
+        } as any)
         .where(eq(tenants.id, tenantId));
+      revalidateTenantAccessCache(tenant.slug);
+
+      await db.update(userSessions).set({
+        isActive: false,
+        logoutAt: new Date(),
+        updatedAt: new Date(),
+      } as any).where(eq(userSessions.tenantId, tenantId)).catch(() => null);
+
+      await db.execute(sql`
+        DELETE FROM "session"
+        WHERE "userId" IN (
+          SELECT au.id
+          FROM "user" au
+          INNER JOIN users app_user ON lower(app_user.email) = lower(au.email)
+          WHERE app_user.tenant_id = ${tenantId}
+        )
+      `).catch(() => null);
 
       const archiveSetting = await db
         .select()
@@ -291,7 +354,7 @@ export async function DELETE(request: NextRequest) {
 
       return NextResponse.json({
         message:
-          "Tenant has been scheduled for deletion in 30 days. This can be cancelled.",
+          "Tenant has been archived and scheduled for deletion in 60 days. Active tenant sessions have been terminated.",
         purgeDate,
       });
     }
@@ -303,7 +366,7 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid request", details: error.errors },
+        { error: "Invalid request", details: error.issues },
         { status: 400 }
       );
     }

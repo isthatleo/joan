@@ -5,13 +5,47 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/helpers";
-import { users, patients, appointments, visits } from "@/lib/db/schema";
+import {
+  appointments,
+  departments,
+  guardianPatients,
+  inventoryItems,
+  invoices,
+  labOrders,
+  patients,
+  payments,
+  prescriptions,
+  users,
+  visits,
+  vitals,
+} from "@/lib/db/schema";
+import { count, eq, sql } from "drizzle-orm";
+
+async function tableCount(table: any) {
+  const [row] = await db.select({ value: count() }).from(table);
+  return Number(row?.value || 0);
+}
+
+async function statusCount(table: any, status: string) {
+  const [row] = await db.select({ value: count() }).from(table).where(eq(table.status, status));
+  return Number(row?.value || 0);
+}
 
 export async function getRoleAnalytics(role: string) {
   const allUsers = await db.select().from(users);
   const allPatients = await db.select().from(patients);
   const allAppointments = await db.select().from(appointments);
   const allVisits = await db.select().from(visits);
+  const revenueResult = await db.execute(sql`
+    SELECT
+      coalesce(sum(nullif(regexp_replace(coalesce(i.total_amount, i.amount, '0'), '[^0-9.-]', '', 'g'), '')::numeric), 0)::numeric AS total_revenue,
+      count(*) FILTER (WHERE lower(coalesce(i.status, '')) IN ('pending', 'sent', 'overdue', 'unpaid'))::int AS pending_invoices,
+      coalesce((SELECT sum(nullif(regexp_replace(coalesce(p.amount, '0'), '[^0-9.-]', '', 'g'), '')::numeric) FROM payments p WHERE lower(coalesce(p.status, '')) IN ('paid', 'completed', 'success', 'successful') AND p.deleted_at IS NULL), 0)::numeric AS collected,
+      coalesce(sum(nullif(regexp_replace(coalesce(i.amount_due, i.total_amount, i.amount, '0'), '[^0-9.-]', '', 'g'), '')::numeric) FILTER (WHERE lower(coalesce(i.status, '')) IN ('pending', 'sent', 'overdue', 'unpaid')), 0)::numeric AS outstanding
+    FROM invoices i
+    WHERE i.deleted_at IS NULL
+  `) as any;
+  const revenue = revenueResult.rows?.[0] || {};
 
   const baseMetrics = {
     timestamp: new Date(),
@@ -34,33 +68,33 @@ export async function getRoleAnalytics(role: string) {
         ...baseMetrics,
         patients: allPatients.length,
         visits: allVisits.length,
-        vitals: Math.floor(Math.random() * 100),
+        vitals: await tableCount(vitals),
       };
 
     case "lab_technician":
       return {
         ...baseMetrics,
-        tests: Math.floor(Math.random() * 150),
-        completed: Math.floor(Math.random() * 120),
-        pending: Math.floor(Math.random() * 30),
+        tests: await tableCount(labOrders),
+        completed: await statusCount(labOrders, "completed"),
+        pending: await statusCount(labOrders, "pending"),
       };
 
     case "pharmacist":
       return {
         ...baseMetrics,
-        prescriptions: Math.floor(Math.random() * 200),
-        dispensed: Math.floor(Math.random() * 180),
-        pending: Math.floor(Math.random() * 20),
-        inventory_items: Math.floor(Math.random() * 500),
+        prescriptions: await tableCount(prescriptions),
+        dispensed: await statusCount(prescriptions, "dispensed"),
+        pending: await statusCount(prescriptions, "pending"),
+        inventory_items: await tableCount(inventoryItems),
       };
 
     case "accountant":
       return {
         ...baseMetrics,
-        total_revenue: Math.floor(Math.random() * 50000),
-        pending_invoices: Math.floor(Math.random() * 50),
-        collected: Math.floor(Math.random() * 45000),
-        outstanding: Math.floor(Math.random() * 5000),
+        total_revenue: Number(revenue.total_revenue || 0),
+        pending_invoices: Number(revenue.pending_invoices || 0),
+        collected: Number(revenue.collected || 0),
+        outstanding: Number(revenue.outstanding || 0),
       };
 
     case "receptionist":
@@ -76,13 +110,13 @@ export async function getRoleAnalytics(role: string) {
         ...baseMetrics,
         appointments: allAppointments.length,
         records: allPatients.length,
-        prescriptions: Math.floor(Math.random() * 10),
+        prescriptions: await tableCount(prescriptions),
       };
 
     case "guardian":
       return {
         ...baseMetrics,
-        dependents: Math.floor(Math.random() * 5),
+        dependents: await tableCount(guardianPatients),
         appointments: allAppointments.length,
         records: allPatients.length,
       };
@@ -93,7 +127,7 @@ export async function getRoleAnalytics(role: string) {
         users: allUsers.length,
         patients: allPatients.length,
         appointments: allAppointments.length,
-        departments: Math.floor(Math.random() * 20),
+        departments: await tableCount(departments),
         staff: allUsers.filter((u) => u.isActive).length,
       };
 

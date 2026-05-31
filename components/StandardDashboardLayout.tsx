@@ -1,9 +1,19 @@
 "use client";
 
 import React from "react";
+import type { LucideIcon } from "lucide-react";
 import { StandardSidebar } from "@/components/StandardSidebar";
 import { DashboardHeader } from "@/components/DashboardHeader";
-import type { SidebarSection } from "@/types";
+
+type SidebarSection = {
+  title: string;
+  items: Array<{
+    label: string;
+    href: string;
+    icon: LucideIcon;
+    badge?: string | number;
+  }>;
+};
 
 interface StandardDashboardLayoutProps {
   children: React.ReactNode;

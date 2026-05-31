@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { inventoryItems } from "@/lib/db/schema";
-import { eq, like, and } from "drizzle-orm";
+import { eq, like, and, type SQL } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,13 +13,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Tenant ID required" }, { status: 400 });
     }
 
-    let query = db.select().from(inventoryItems).where(eq(inventoryItems.tenantId, tenantId));
+    const conditions: SQL[] = [eq(inventoryItems.tenantId, tenantId)];
 
     if (search) {
-      query = query.where(like(inventoryItems.name, `%${search}%`));
+      conditions.push(like(inventoryItems.name, `%${search}%`));
     }
 
-    const items = await query;
+    const items = await db.select().from(inventoryItems).where(and(...conditions));
     return NextResponse.json(items);
   } catch (error) {
     console.error("Error fetching inventory:", error);

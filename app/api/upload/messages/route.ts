@@ -5,9 +5,13 @@ import sharp from "sharp";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { requireTenantUser } from "@/lib/api/route-guards";
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await requireTenantUser(request);
+    if (!access.ok) return access.response;
+
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const userId = formData.get("userId") as string;
@@ -18,6 +22,10 @@ export async function POST(request: NextRequest) {
         { error: "Missing required fields: file, userId, conversationId" },
         { status: 400 }
       );
+    }
+
+    if (userId !== access.user.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // Verify user exists
@@ -86,8 +94,7 @@ export async function POST(request: NextRequest) {
       if (metadata.width && metadata.width > 1920) {
         processedImage = image.resize(1920, null, {
           withoutEnlargement: true,
-          quality: 85
-        });
+        }).jpeg({ quality: 85 });
       } else {
         // Just compress quality
         processedImage = image.jpeg({ quality: 85 }).png({ compressionLevel: 8 });

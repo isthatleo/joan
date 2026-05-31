@@ -1,14 +1,16 @@
 import { db } from "@/lib/db";
-import { events } from "@/lib/db/schema";
+import { auditLogs } from "@/lib/db/schema";
 import { redis } from "@/lib/redis";
 
 export class EventBus {
   async publish(type: string, payload: any) {
     // Save to DB
-    await db.insert(events).values({
-      type,
-      payload,
-      tenantId: payload.tenantId,
+    await db.insert(auditLogs).values({
+      tenantId: payload.tenantId || null,
+      action: type,
+      entity: "event",
+      entityId: payload.entityId || null,
+      metadata: payload,
     });
 
     // Publish to Redis

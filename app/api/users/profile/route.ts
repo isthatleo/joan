@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { resolveBetterAuthSession } from "@/lib/better-auth-session";
 import { db } from "@/lib/db";
 import { permissions, rolePermissions, roles, userRoles, users } from "@/lib/db/schema";
 import { and, eq, ilike } from "drizzle-orm";
@@ -11,7 +11,7 @@ function canEditIdentity(role: string | null | undefined) {
 }
 
 async function resolveCurrentAppUser(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers }).catch(() => null as any);
+  const session = await resolveBetterAuthSession(request.headers);
   if (!session?.user?.email) {
     return { session, appUser: null };
   }

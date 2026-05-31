@@ -37,7 +37,11 @@ export async function POST(request: NextRequest) {
     const user = doctorUser[0];
 
     // Verify current password
-    const isValidPassword = await bcrypt.compare(currentPassword, user.password);
+    if (!user.passwordHash) {
+      return NextResponse.json({ error: "Password login is not configured for this account" }, { status: 400 });
+    }
+
+    const isValidPassword = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!isValidPassword) {
       return NextResponse.json({ error: "Current password is incorrect" }, { status: 400 });
     }
@@ -49,19 +53,36 @@ export async function POST(request: NextRequest) {
     await db
       .update(users)
       .set({
-        password: hashedPassword,
+        passwordHash: hashedPassword,
         updatedAt: new Date(),
       })
       .where(eq(users.id, session.user.id));
 
     // Update password last changed in settings
+    const existingSettings = await db.query.doctorSettings.findFirst({
+      where: eq(doctorSettings.userId, session.user.id),
+    });
+
     await db
-      .update(doctorSettings)
-      .set({
-        passwordLastChanged: new Date().toISOString(),
+      .insert(doctorSettings)
+      .values({
+        userId: session.user.id,
+        settings: {
+          ...((existingSettings?.settings as Record<string, any> | undefined) || {}),
+          passwordLastChanged: new Date().toISOString(),
+        },
         updatedAt: new Date(),
       })
-      .where(eq(doctorSettings.doctorId, session.user.id));
+      .onConflictDoUpdate({
+        target: doctorSettings.userId,
+        set: {
+          settings: {
+            ...((existingSettings?.settings as Record<string, any> | undefined) || {}),
+            passwordLastChanged: new Date().toISOString(),
+          },
+          updatedAt: new Date(),
+        },
+      });
 
     return NextResponse.json({ message: "Password changed successfully" });
 

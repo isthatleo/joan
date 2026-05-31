@@ -1,4 +1,75 @@
-﻿export const defaultUserSettings = {
+export type UserSettingsShape = {
+  notifications: {
+    email: boolean;
+    push: boolean;
+    sms: boolean;
+    marketing: boolean;
+    desktop: boolean;
+    digests: boolean;
+    digestFrequency: "daily" | "weekly" | "monthly";
+    reportReady: boolean;
+    billingAlerts: boolean;
+    securityAlerts: boolean;
+    scheduleFailures: boolean;
+  };
+  privacy: {
+    profileVisibility: "private" | "team" | "organization";
+    dataSharing: boolean;
+    analytics: boolean;
+    readReceipts: boolean;
+    activityStatus: boolean;
+  };
+  appearance: {
+    theme: "light" | "dark" | "system";
+    language: string;
+    languageSource: "tenant" | "user";
+    timezone: string;
+    timeFormat: "12h" | "24h";
+    density: "compact" | "comfortable" | "spacious";
+    calendarStart: "monday" | "sunday";
+    reduceMotion: boolean;
+    highContrast: boolean;
+    fontScale: "small" | "default" | "large";
+  };
+  security: {
+    twoFactorEnabled: boolean;
+    sessionTimeout: 15 | 30 | 60 | 120;
+    loginAlerts: boolean;
+    deviceTrust: boolean;
+    passwordlessSignin: boolean;
+    biometricPrompt: boolean;
+    forcePasswordChange: boolean;
+    passwordLastChanged: string;
+    failedLoginAttempts: number;
+    lockoutUntil: string;
+  };
+  communication: {
+    messageSettings: {
+      allowMessagesFrom: "care-team" | "department" | "organization";
+      autoReply: string;
+      signature: string;
+      defaultChannel: "inbox" | "email" | "push";
+      workingHours: {
+        enabled: boolean;
+        start: string;
+        end: string;
+        timezone: string;
+      };
+    };
+  };
+  workflow: {
+    defaultLandingPage: string;
+    quickActions: boolean;
+    confirmDestructive: boolean;
+    autoSaveDrafts: boolean;
+    preferredExportFormat: "pdf" | "csv" | "html";
+    compactTables: boolean;
+    receptionEmergencyTutorialSeen: boolean;
+    linkedPatientId: string;
+  };
+};
+
+export const defaultUserSettings: UserSettingsShape = {
   notifications: {
     email: true,
     push: true,
@@ -67,9 +138,7 @@
     receptionEmergencyTutorialSeen: false,
     linkedPatientId: "",
   },
-} as const;
-
-export type UserSettingsShape = typeof defaultUserSettings;
+};
 
 const allowedThemes = new Set(["light", "dark", "system"]);
 const allowedLanguages = new Set(["en", "fr", "es", "sw", "ar"]);
@@ -106,12 +175,12 @@ function asString(value: unknown, fallback: string) {
   return typeof value === "string" ? value : fallback;
 }
 
-function asAllowedString(value: unknown, allowed: Set<string>, fallback: string) {
-  return typeof value === "string" && allowed.has(value) ? value : fallback;
+function asAllowedString<T extends string>(value: unknown, allowed: ReadonlySet<string>, fallback: T): T {
+  return typeof value === "string" && allowed.has(value) ? (value as T) : fallback;
 }
 
-function asAllowedNumber(value: unknown, allowed: Set<number>, fallback: number) {
-  return typeof value === "number" && allowed.has(value) ? value : fallback;
+function asAllowedNumber<T extends number>(value: unknown, allowed: ReadonlySet<number>, fallback: T): T {
+  return typeof value === "number" && allowed.has(value) ? (value as T) : fallback;
 }
 
 export function mergeUserSettings(settings: unknown): UserSettingsShape {

@@ -15,13 +15,9 @@ export async function GET(request: NextRequest) {
     const tenantId = searchParams.get("tenantId");
     const withPermissions = searchParams.get("withPermissions") === "true";
 
-    let query = db.select().from(roles);
-
-    if (tenantId) {
-      query = query.where(eq(roles.tenantId, tenantId as any));
-    }
-
-    const result = await query;
+    const result = tenantId
+      ? await db.select().from(roles).where(eq(roles.tenantId, tenantId))
+      : await db.select().from(roles);
 
     if (withPermissions) {
       const rolesWithPerms = await Promise.all(
@@ -75,7 +71,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid data", details: error.errors },
+        { error: "Invalid data", details: error.issues },
         { status: 400 }
       );
     }

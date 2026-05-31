@@ -22,6 +22,8 @@ import {
 import {
   canProvisionPatientPortalAccess,
   deferPatientPortalAccess,
+  getTenantAdultAge,
+  provisionGuardianPortalAccess,
   provisionPatientPortalAccess,
   syncDeferredPatientPortalAccesses,
 } from "@/lib/receptionist/access";
@@ -42,46 +44,65 @@ type TenantRecord = typeof tenants.$inferSelect;
 
 async function ensureGuardianLinkForNewPatient(
   tenantId: string,
+  tenantSlug: string,
   patientId: string,
   payload: any,
 ) {
   const guardianInput = payload?.guardian;
-  if (!guardianInput?.isParentGuardian || !guardianInput?.isExistingPatient) return null;
+  if (!guardianInput?.isParentGuardian) return null;
 
   const email = String(guardianInput.email || "").trim();
   const phone = String(guardianInput.phone || "").trim();
-  if (!email && !phone) return null;
+  const name = String(guardianInput.name || "").trim();
+  if (!email && !phone && !name) return null;
   const identityConditions = [
     email ? ilike(users.email, email) : null,
     phone ? eq(users.phone, phone) : null,
   ].filter(Boolean) as any[];
 
-  const possibleUsers = await db
-    .select({
-      id: users.id,
-      email: users.email,
-      phone: users.phone,
-      role: users.role,
-      linkedRole: roles.name,
-    })
-    .from(users)
-    .leftJoin(userRoles, eq(userRoles.userId, users.id))
-    .leftJoin(roles, eq(roles.id, userRoles.roleId))
-    .where(
-      and(
-        eq(users.tenantId, tenantId),
-        eq(users.isActive, true),
-        isNull(users.deletedAt),
-        or(...identityConditions),
-      ),
-    );
+  const possibleUsers = identityConditions.length
+    ? await db
+        .select({
+          id: users.id,
+          email: users.email,
+          phone: users.phone,
+          role: users.role,
+          linkedRole: roles.name,
+        })
+        .from(users)
+        .leftJoin(userRoles, eq(userRoles.userId, users.id))
+        .leftJoin(roles, eq(roles.id, userRoles.roleId))
+        .where(
+          and(
+            eq(users.tenantId, tenantId),
+            eq(users.isActive, true),
+            isNull(users.deletedAt),
+            or(...identityConditions),
+          ),
+        )
+    : [];
 
   const matchingGuardian = possibleUsers.find((row) => {
     const normalized = new Set([String(row.role || "").toLowerCase(), String(row.linkedRole || "").toLowerCase()].filter(Boolean));
     return normalized.has("patient") || normalized.has("guardian");
   });
 
-  if (!matchingGuardian?.id) return null;
+  let guardianAccess: any = null;
+  let guardianUserId = matchingGuardian?.id || null;
+  if (!guardianUserId) {
+    guardianAccess = await provisionGuardianPortalAccess({
+      tenantId,
+      tenantSlug,
+      patientId,
+      fullName: name || email || phone || "Parent/Guardian",
+      email: email || null,
+      phone: phone || null,
+      relationship: guardianInput.relationship || "parent",
+    });
+    guardianUserId = guardianAccess.userId;
+  }
+
+  if (!guardianUserId) return null;
 
   const guardianRole = await db.query.roles.findFirst({
     where: eq(roles.name, "guardian"),
@@ -89,20 +110,20 @@ async function ensureGuardianLinkForNewPatient(
   });
 
   const hasGuardianRole = possibleUsers.some(
-    (row) => row.id === matchingGuardian.id && String(row.linkedRole || row.role || "").toLowerCase() === "guardian",
+    (row) => row.id === guardianUserId && String(row.linkedRole || row.role || "").toLowerCase() === "guardian",
   );
 
   if (guardianRole?.id && !hasGuardianRole) {
     const existingAssignment = await db.query.userRoles.findFirst({
-      where: and(eq(userRoles.userId, matchingGuardian.id), eq(userRoles.roleId, guardianRole.id)),
+      where: and(eq(userRoles.userId, guardianUserId), eq(userRoles.roleId, guardianRole.id)),
     });
     if (!existingAssignment) {
-      await db.insert(userRoles).values({ userId: matchingGuardian.id, roleId: guardianRole.id });
+      await db.insert(userRoles).values({ userId: guardianUserId, roleId: guardianRole.id });
     }
   }
 
   let guardianRecord = await db.query.guardians.findFirst({
-    where: and(eq(guardians.tenantId, tenantId), eq(guardians.userId, matchingGuardian.id)),
+    where: and(eq(guardians.tenantId, tenantId), eq(guardians.userId, guardianUserId)),
   });
 
   if (!guardianRecord?.id) {
@@ -110,7 +131,7 @@ async function ensureGuardianLinkForNewPatient(
       .insert(guardians)
       .values({
         tenantId,
-        userId: matchingGuardian.id,
+        userId: guardianUserId,
         relationship: guardianInput.relationship || "parent",
       })
       .returning();
@@ -134,9 +155,10 @@ async function ensureGuardianLinkForNewPatient(
   }
 
   return {
-    guardianUserId: matchingGuardian.id,
+    guardianUserId,
     guardianId: guardianRecord.id,
     linked: true,
+    access: guardianAccess,
   };
 }
 
@@ -283,6 +305,18 @@ export async function getTenantBySlug(slug: string): Promise<TenantRecord | null
   return (await db.query.tenants.findFirst({
     where: eq(tenants.slug, slug.toLowerCase()),
   })) ?? null;
+}
+
+export async function getReceptionPatientRegistrationPolicy(tenantId: string) {
+  const tenant = await db.query.tenants.findFirst({
+    where: eq(tenants.id, tenantId),
+    columns: { country: true, slug: true },
+  });
+  return {
+    adultAge: await getTenantAdultAge(tenantId),
+    country: tenant?.country || "",
+    tenantSlug: tenant?.slug || "",
+  };
 }
 
 export async function getReceptionDashboardMetrics(tenantId: string) {
@@ -730,6 +764,10 @@ export async function registerReceptionPatient(tenantId: string, payload: any) {
     isChildPatient: payload.isChildPatient === true,
   });
 
+  if (!accessPolicy.allowed && !payload.guardian?.isParentGuardian) {
+    throw new Error("A parent or guardian is required before registering an under-aged patient.");
+  }
+
   const access = accessPolicy.allowed
     ? await provisionPatientPortalAccess({
         tenantId,
@@ -751,7 +789,7 @@ export async function registerReceptionPatient(tenantId: string, payload: any) {
         eligibleOn: accessPolicy.eligibleOn || "",
       });
 
-  const guardianLink = await ensureGuardianLinkForNewPatient(tenantId, patient.id, payload);
+  const guardianLink = await ensureGuardianLinkForNewPatient(tenantId, tenant?.slug || "tenant", patient.id, payload);
 
   return {
     patient,

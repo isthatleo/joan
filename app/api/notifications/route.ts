@@ -76,8 +76,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       notifications: userNotifications.map(n => ({
         id: n.id,
-        type: n.type,
-        title: n.title || n.type.charAt(0).toUpperCase() + n.type.slice(1),
+        type: n.type || "notification",
+        title: n.title || `${(n.type || "notification").charAt(0).toUpperCase()}${(n.type || "notification").slice(1)}`,
         message: n.message,
         read: n.read,
         createdAt: n.createdAt,
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
         type: z.string(),
         title: z.string().optional(),
         message: z.string(),
-        metadata: z.record(z.any()).optional(),
+        metadata: z.record(z.string(), z.any()).optional(),
       }).parse(data);
 
       if (userId !== session.user.id && userId !== appUser?.id) {
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
         type: z.string(),
         title: z.string(),
         message: z.string(),
-        metadata: z.record(z.any()).optional(),
+        metadata: z.record(z.string(), z.any()).optional(),
         excludeUserId: z.string().uuid().optional(),
       }).parse(data);
 
@@ -219,7 +219,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Validation error", details: error.errors },
+        { error: "Validation error", details: error.issues },
         { status: 400 }
       );
     }

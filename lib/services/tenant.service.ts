@@ -35,7 +35,7 @@ import {
   passwordResets,
   tenantSettings,
 } from "@/lib/db/schema";
-import { eq, like, desc, sql, and, inArray } from "drizzle-orm";
+import { eq, desc, sql, and, inArray, isNotNull, isNull } from "drizzle-orm";
 
 export class TenantService {
   async createTenant(data: {
@@ -83,6 +83,7 @@ export class TenantService {
     limit?: number;
     offset?: number;
     tenantId?: string; // Scope to specific tenant
+    deleted?: boolean;
   }) {
     let query: any = db.select().from(tenants);
 
@@ -93,8 +94,15 @@ export class TenantService {
       conditions.push(eq(tenants.id, options.tenantId));
     }
 
+    if (options?.deleted) {
+      conditions.push(isNotNull(tenants.deletedAt));
+    } else {
+      conditions.push(isNull(tenants.deletedAt));
+    }
+
     if (options?.search) {
-      conditions.push(like(tenants.name, `%${options.search}%`));
+      const search = `%${options.search.trim()}%`;
+      conditions.push(sql`(${tenants.name} ilike ${search} or ${tenants.slug} ilike ${search} or ${tenants.contactEmail} ilike ${search})`);
     }
 
     if (options?.plan) {
@@ -130,7 +138,14 @@ export class TenantService {
     contactEmail: string;
     contactPhone: string;
     address: string;
+    city: string;
+    country: string;
+    timezone: string;
+    logoUrl: string;
     isActive: boolean;
+    provisioningStatus: string;
+    scheduledPurgeAt: Date | null;
+    deletedAt: Date | null;
   }>) {
     return db.update(tenants)
       .set({ ...data, updatedAt: new Date() })
@@ -147,7 +162,13 @@ export class TenantService {
 
   async activateTenant(id: string) {
     return db.update(tenants)
-      .set({ isActive: true, updatedAt: new Date() })
+      .set({
+        isActive: true,
+        provisioningStatus: "active",
+        deletedAt: null,
+        scheduledPurgeAt: null,
+        updatedAt: new Date(),
+      } as any)
       .where(eq(tenants.id, id))
       .returning();
   }
@@ -157,6 +178,38 @@ export class TenantService {
 
     // Perform cascade delete in correct order to avoid foreign key constraints
     await db.transaction(async (tx) => {
+      await tx.execute(sql`DELETE FROM message_call_sessions WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM message_presence WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM message_typing_states WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM messaging_settings WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM platform_invoices WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM feedbacks WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM activity_logs WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM security_events WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM ai_logs WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM user_sessions WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM device_fingerprints WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM integrations WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM system_metrics WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM system_alerts WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM system_configurations WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM email_send_log WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM accountant_reports WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM scheduled_accountant_reports WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM accountant_report_templates WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM tax_records WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM journal_entries WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM budgets WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM accounts_payable WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM expenses WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM care_plan_tasks WHERE care_plan_id IN (SELECT id FROM care_plans WHERE tenant_id = ${id})`);
+      await tx.execute(sql`DELETE FROM care_plans WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM bed_assignments WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM medication_administrations WHERE tenant_id = ${id}`);
+      await tx.execute(sql`DELETE FROM guardian_patients WHERE guardian_id IN (SELECT id FROM guardians WHERE tenant_id = ${id})`);
+      await tx.execute(sql`DELETE FROM guardian_patients WHERE patient_id IN (SELECT id FROM patients WHERE tenant_id = ${id})`);
+      await tx.execute(sql`DELETE FROM guardians WHERE tenant_id = ${id}`);
+
       console.log(`Getting user IDs for tenant ${id}`);
       // Get all user IDs for this tenant first
       const userIds = await tx.select({ id: users.id }).from(users).where(eq(users.tenantId, id));
@@ -289,11 +342,96 @@ export class TenantService {
       // Delete branches
       await tx.delete(branches).where(eq(branches.tenantId, id));
 
+      await tx.execute(sql`
+        DO $$
+        DECLARE
+          tenant_uuid uuid := ${id}::uuid;
+        BEGIN
+          BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'session') THEN
+              EXECUTE '
+                DELETE FROM "session"
+                WHERE "userId" IN (SELECT id::text FROM users WHERE tenant_id = $1)
+                   OR "userId" IN (
+                     SELECT au.id
+                     FROM "user" au
+                     INNER JOIN users app_user ON lower(app_user.email) = lower(au.email)
+                     WHERE app_user.tenant_id = $1
+                   )
+              ' USING tenant_uuid;
+            END IF;
+          EXCEPTION WHEN OTHERS THEN
+            NULL;
+          END;
+
+          BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'account') THEN
+              EXECUTE '
+                DELETE FROM "account"
+                WHERE "userId" IN (SELECT id::text FROM users WHERE tenant_id = $1)
+                   OR "userId" IN (
+                     SELECT au.id
+                     FROM "user" au
+                     INNER JOIN users app_user ON lower(app_user.email) = lower(au.email)
+                     WHERE app_user.tenant_id = $1
+                   )
+              ' USING tenant_uuid;
+            END IF;
+          EXCEPTION WHEN OTHERS THEN
+            NULL;
+          END;
+
+          BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user') THEN
+              EXECUTE '
+                DELETE FROM "user"
+                WHERE id IN (SELECT id::text FROM users WHERE tenant_id = $1)
+                   OR lower(email) IN (SELECT lower(email) FROM users WHERE tenant_id = $1)
+              ' USING tenant_uuid;
+            END IF;
+          EXCEPTION WHEN OTHERS THEN
+            NULL;
+          END;
+        END $$;
+      `);
+
       // Delete users
       await tx.delete(users).where(eq(users.tenantId, id));
 
       // Delete provisioning runs
       await tx.delete(provisioningRuns).where(eq(provisioningRuns.tenantId, id));
+
+      // Delete tenant-scoped audit logs that reference the tenant directly.
+      await tx.delete(auditLogs).where(eq(auditLogs.tenantId, id));
+
+      await tx.execute(sql`
+        DO $$
+        DECLARE
+          tenant_uuid uuid := ${id}::uuid;
+          record_to_delete record;
+          pass int;
+        BEGIN
+          FOR pass IN 1..8 LOOP
+            FOR record_to_delete IN
+              SELECT table_schema, table_name
+              FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND column_name = 'tenant_id'
+                AND table_name <> 'tenants'
+            LOOP
+              BEGIN
+                EXECUTE format(
+                  'DELETE FROM %I.%I WHERE tenant_id = $1',
+                  record_to_delete.table_schema,
+                  record_to_delete.table_name
+                ) USING tenant_uuid;
+              EXCEPTION WHEN OTHERS THEN
+                NULL;
+              END;
+            END LOOP;
+          END LOOP;
+        END $$;
+      `);
 
       console.log(`Finally deleting tenant record ${id}`);
       // Finally delete the tenant
@@ -318,111 +456,97 @@ export class TenantService {
 
   async getUsageStats() {
     try {
-      // Get total tenants for API calls estimation
-      const [totalTenantStats] = await db
-        .select({
-          count: sql<number>`count(*)`,
-        })
-        .from(tenants)
-        .where(eq(tenants.isActive, true));
+      const summaryResult = await db.execute(sql`
+        WITH current_window AS (
+          SELECT
+            (SELECT count(*) FROM tenants WHERE is_active = true AND deleted_at IS NULL)::int AS active_tenants,
+            (SELECT count(*) FROM users WHERE is_active = true AND deleted_at IS NULL)::int AS active_users,
+            (SELECT count(*) FROM user_sessions WHERE is_active = true AND logout_at IS NULL AND expires_at > now())::int AS live_sessions,
+            (SELECT count(*) FROM appointments WHERE deleted_at IS NULL)::int AS appointments_total,
+            (SELECT count(*) FROM visits WHERE deleted_at IS NULL)::int AS visits_total,
+            (SELECT count(*) FROM patients WHERE deleted_at IS NULL)::int AS patients_total,
+            (SELECT count(*) FROM lab_orders WHERE deleted_at IS NULL)::int AS lab_orders_total,
+            (SELECT count(*) FROM prescriptions WHERE deleted_at IS NULL)::int AS prescriptions_total,
+            (SELECT count(*) FROM invoices WHERE deleted_at IS NULL)::int AS invoices_total,
+            (SELECT count(*) FROM activity_logs WHERE timestamp >= now() - interval '30 days')::int AS activity_30d,
+            (SELECT count(*) FROM security_events WHERE created_at >= now() - interval '30 days')::int AS security_30d,
+            (SELECT avg(api_response_time) FROM system_metrics WHERE created_at >= now() - interval '24 hours')::numeric AS avg_response_time,
+            (SELECT avg(memory_usage) FROM system_metrics WHERE created_at >= now() - interval '24 hours')::numeric AS avg_memory,
+            (SELECT avg(cpu_usage) FROM system_metrics WHERE created_at >= now() - interval '24 hours')::numeric AS avg_cpu
+        ),
+        previous_window AS (
+          SELECT
+            (SELECT count(*) FROM activity_logs WHERE timestamp >= now() - interval '60 days' AND timestamp < now() - interval '30 days')::int AS activity_prev_30d,
+            (SELECT count(*) FROM users WHERE created_at < now() - interval '30 days' AND deleted_at IS NULL)::int AS users_prev,
+            (SELECT count(*) FROM patients WHERE created_at < now() - interval '30 days' AND deleted_at IS NULL)::int AS patients_prev
+        )
+        SELECT * FROM current_window, previous_window
+      `) as any;
+      const [summary] = summaryResult.rows || [];
 
-      // Get active users count
-      const [activeUsersStats] = await db
-        .select({
-          count: sql<number>`count(*)`,
-        })
-        .from(users)
-        .where(eq(users.isActive, true));
+      const row = summary || {};
+      const toNum = (value: any) => Number(value || 0);
+      const totalApiCalls =
+        toNum(row.activity_30d) +
+        toNum(row.appointments_total) * 4 +
+        toNum(row.visits_total) * 6 +
+        toNum(row.lab_orders_total) * 5 +
+        toNum(row.prescriptions_total) * 5 +
+        toNum(row.invoices_total) * 3;
+      const totalActiveUsers = toNum(row.active_users);
+      const totalStorageUsed =
+        toNum(row.patients_total) * 2.5 * 1024 * 1024 +
+        toNum(row.visits_total) * 1.25 * 1024 * 1024 +
+        toNum(row.lab_orders_total) * 0.75 * 1024 * 1024 +
+        toNum(row.invoices_total) * 0.25 * 1024 * 1024;
+      const averageResponseTime = Math.round(toNum(row.avg_response_time) || 120);
+      const systemLoad = Math.min(100, Math.round(((toNum(row.avg_cpu) || 0) * 0.55) + ((toNum(row.avg_memory) || 0) * 0.45)));
+      const errorRate = totalApiCalls > 0 ? Number(((toNum(row.security_30d) / totalApiCalls) * 100).toFixed(3)) : 0;
+      const uptime = Math.max(95, Number((100 - errorRate).toFixed(2)));
+      const pct = (current: number, previous: number) => previous > 0 ? Number((((current - previous) / previous) * 100).toFixed(1)) : current > 0 ? 100 : 0;
+      const apiCallsTrendPercent = pct(toNum(row.activity_30d), toNum(row.activity_prev_30d));
+      const storageTrendPercent = pct(toNum(row.patients_total), toNum(row.patients_prev));
+      const activeUsersTrendPercent = pct(totalActiveUsers, toNum(row.users_prev));
+      const responseTimeTrendPercent = averageResponseTime > 250 ? 8 : averageResponseTime > 150 ? 2 : -3;
 
-      // Get appointments count (represents API calls to appointment system)
-      const [appointmentsStats] = await db
-        .select({
-          count: sql<number>`count(*)`,
-        })
-        .from(appointments);
+      const topResult = await db.execute(sql`
+        SELECT
+          t.id,
+          t.slug,
+          t.name,
+          t.plan,
+          coalesce(a.activity_count, 0)::int AS activity_count,
+          coalesce(ap.appointment_count, 0)::int AS appointment_count,
+          coalesce(v.visit_count, 0)::int AS visit_count,
+          coalesce(p.patient_count, 0)::int AS patient_count,
+          coalesce(lo.lab_count, 0)::int AS lab_count,
+          coalesce(pr.prescription_count, 0)::int AS prescription_count,
+          coalesce(inv.invoice_count, 0)::int AS invoice_count,
+          coalesce(us.session_count, 0)::int AS session_count
+        FROM tenants t
+        LEFT JOIN (SELECT tenant_id, count(*) AS activity_count FROM activity_logs WHERE timestamp >= now() - interval '30 days' GROUP BY tenant_id) a ON a.tenant_id = t.id
+        LEFT JOIN (SELECT tenant_id, count(*) AS appointment_count FROM appointments WHERE deleted_at IS NULL GROUP BY tenant_id) ap ON ap.tenant_id = t.id
+        LEFT JOIN (SELECT tenant_id, count(*) AS visit_count FROM visits WHERE deleted_at IS NULL GROUP BY tenant_id) v ON v.tenant_id = t.id
+        LEFT JOIN (SELECT tenant_id, count(*) AS patient_count FROM patients WHERE deleted_at IS NULL GROUP BY tenant_id) p ON p.tenant_id = t.id
+        LEFT JOIN (SELECT tenant_id, count(*) AS lab_count FROM lab_orders WHERE deleted_at IS NULL GROUP BY tenant_id) lo ON lo.tenant_id = t.id
+        LEFT JOIN (SELECT tenant_id, count(*) AS prescription_count FROM prescriptions WHERE deleted_at IS NULL GROUP BY tenant_id) pr ON pr.tenant_id = t.id
+        LEFT JOIN (SELECT tenant_id, count(*) AS invoice_count FROM invoices WHERE deleted_at IS NULL GROUP BY tenant_id) inv ON inv.tenant_id = t.id
+        LEFT JOIN (SELECT tenant_id, count(*) AS session_count FROM user_sessions WHERE is_active = true AND logout_at IS NULL AND expires_at > now() GROUP BY tenant_id) us ON us.tenant_id = t.id
+        WHERE t.is_active = true AND t.deleted_at IS NULL
+        ORDER BY (coalesce(a.activity_count, 0) + coalesce(ap.appointment_count, 0) * 4 + coalesce(v.visit_count, 0) * 6 + coalesce(lo.lab_count, 0) * 5 + coalesce(pr.prescription_count, 0) * 5 + coalesce(inv.invoice_count, 0) * 3) DESC
+        LIMIT 10
+      `) as any;
+      const topRows = topResult.rows || [];
 
-      // Get visits count (represents data processing)
-      const [visitsStats] = await db
-        .select({
-          count: sql<number>`count(*)`,
-        })
-        .from(visits);
-
-      // Get patients count (represents stored data/storage)
-      const [patientsStats] = await db
-        .select({
-          count: sql<number>`count(*)`,
-        })
-        .from(patients);
-
-      // Get top consuming tenants by activity
-      const topTenants = await db
-        .select({
-          id: tenants.id,
-          name: tenants.name,
-          appointmentCount: sql<number>`count(${appointments.id})`,
-          visitCount: sql<number>`count(${visits.id})`,
-          patientCount: sql<number>`count(${patients.id})`,
-        })
-        .from(tenants)
-        .leftJoin(appointments, eq(tenants.id, appointments.tenantId))
-        .leftJoin(visits, eq(tenants.id, visits.tenantId))
-        .leftJoin(patients, eq(tenants.id, patients.tenantId))
-        .where(eq(tenants.isActive, true))
-        .groupBy(tenants.id, tenants.name)
-        .orderBy(sql`count(${appointments.id}) + count(${visits.id}) + count(${patients.id}) desc`)
-        .limit(4);
-
-      const totalApiCalls = (appointmentsStats?.count || 0) * 1000 + (visitsStats?.count || 0) * 100;
-      const totalActiveUsers = activeUsersStats?.count || 0;
-      const totalStorageUsed = ((patientsStats?.count || 0) * 2.5 * 1024 * 1024);
-      const averageResponseTime = Math.floor(Math.random() * 100) + 50;
-
-      // Calculate system metrics based on actual data
-      const totalTenants = totalTenantStats?.count || 1;
-      
-      // System load calculation: based on total API calls and storage
-      // Higher when more data is being processed
-      const maxApiCallsCapacity = 10000000; // 10M API calls
-      const maxStorageCapacity = 1099511627776; // 1TB
-      const apiLoadPercent = Math.min((totalApiCalls / maxApiCallsCapacity) * 100, 100);
-      const storageLoadPercent = Math.min((totalStorageUsed / maxStorageCapacity) * 100, 100);
-      const systemLoad = (apiLoadPercent + storageLoadPercent) / 2;
-
-      // Calculate error rate based on data consistency (simulated from actual data)
-      // Lower error rate with more consistent data
-      const dataConsistencyScore = totalApiCalls > 0 ? Math.min((totalApiCalls / 1000000) * 0.05, 1) : 0;
-      const errorRate = Math.max(0.001 + (Math.random() * 0.05), 0.001) - (dataConsistencyScore * 0.02);
-
-      // Calculate uptime based on active tenants and users
-      // More active usage = higher uptime confidence
-      const uptimeBaseScore = 99.5;
-      const activeMetricScore = Math.min((totalActiveUsers / 100) * 0.48, 0.48);
-      const uptime = Math.min(uptimeBaseScore + activeMetricScore, 99.99);
-
-      // Calculate trends (comparing current to simulated last month baseline)
-      const baselineApiCalls = totalApiCalls * 0.89; // Simulate 11% growth
-      const baselineStorage = totalStorageUsed * 0.93; // Simulate 7% growth
-      const baselineUsers = totalActiveUsers * 0.95; // Simulate 5% growth
-      
-      const apiCallsTrendPercent = ((totalApiCalls - baselineApiCalls) / baselineApiCalls * 100);
-      const apiCallsTrend = Math.min(Math.max(baselineApiCalls / totalApiCalls * 100, 1), 99);
-
-      const storageTrendPercent = ((totalStorageUsed - baselineStorage) / baselineStorage * 100);
-      const storageConsumptionTrend = Math.min(Math.max(baselineStorage / totalStorageUsed * 100, 1), 99);
-
-      const activeUsersTrendPercent = ((totalActiveUsers - baselineUsers) / baselineUsers * 100);
-      const activeUsersTrend = Math.min(Math.max(baselineUsers / totalActiveUsers * 100, 1), 99);
-
-      // Response time trend: lower is better, so negative trend is good
-      const responseTimeTrend = averageResponseTime > 100 ? 75 : averageResponseTime > 75 ? 50 : 25;
-      const responseTimeTrendPercent = -3; // Improving trend
-
-      const topConsumers = topTenants.map((tenant) => ({
+      const topConsumers = topRows.map((tenant: any) => ({
         id: tenant.id,
+        slug: tenant.slug,
         name: tenant.name,
-        apiCalls: (tenant.appointmentCount || 0) * 1000 + (tenant.visitCount || 0) * 100,
-        storageUsed: (tenant.patientCount || 0) * 2.5 * 1024 * 1024,
+        plan: tenant.plan,
+        apiCalls: toNum(tenant.activity_count) + toNum(tenant.appointment_count) * 4 + toNum(tenant.visit_count) * 6 + toNum(tenant.lab_count) * 5 + toNum(tenant.prescription_count) * 5 + toNum(tenant.invoice_count) * 3,
+        storageUsed: toNum(tenant.patient_count) * 2.5 * 1024 * 1024 + toNum(tenant.visit_count) * 1.25 * 1024 * 1024 + toNum(tenant.lab_count) * 0.75 * 1024 * 1024 + toNum(tenant.invoice_count) * 0.25 * 1024 * 1024,
+        activeSessions: toNum(tenant.session_count),
+        patientCount: toNum(tenant.patient_count),
       }));
 
       return {
@@ -430,18 +554,27 @@ export class TenantService {
         totalStorageUsed,
         totalActiveUsers,
         averageResponseTime,
-        systemLoad: Math.round(systemLoad * 10) / 10,
-        errorRate: Math.max(errorRate, 0),
+        systemLoad,
+        errorRate,
         uptime: Math.min(uptime, 99.99),
-        apiCallsTrend: Math.round(apiCallsTrend),
+        apiCallsTrend: Math.max(0, Math.min(100, 100 - Math.abs(apiCallsTrendPercent))),
         apiCallsTrendPercent: Math.round(apiCallsTrendPercent * 10) / 10,
-        storageConsumptionTrend: Math.round(storageConsumptionTrend),
+        storageConsumptionTrend: Math.max(0, Math.min(100, 100 - Math.abs(storageTrendPercent))),
         storageTrendPercent: Math.round(storageTrendPercent * 10) / 10,
-        activeUsersTrend: Math.round(activeUsersTrend),
+        activeUsersTrend: Math.max(0, Math.min(100, 100 - Math.abs(activeUsersTrendPercent))),
         activeUsersTrendPercent: Math.round(activeUsersTrendPercent * 10) / 10,
-        responseTimeTrend: Math.round(responseTimeTrend),
+        responseTimeTrend: Math.max(0, Math.min(100, 100 - Math.abs(responseTimeTrendPercent))),
         responseTimeTrendPercent,
-        topConsumers: topConsumers.length > 0 ? topConsumers : this.getDefaultTopConsumers().topConsumers,
+        activeTenants: toNum(row.active_tenants),
+        liveSessions: toNum(row.live_sessions),
+        securityEvents30d: toNum(row.security_30d),
+        totalPatients: toNum(row.patients_total),
+        totalAppointments: toNum(row.appointments_total),
+        totalVisits: toNum(row.visits_total),
+        totalLabOrders: toNum(row.lab_orders_total),
+        totalPrescriptions: toNum(row.prescriptions_total),
+        totalInvoices: toNum(row.invoices_total),
+        topConsumers,
       };
     } catch (error) {
       console.error("Error calculating usage stats:", error);

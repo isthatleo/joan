@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { queues } from "@/lib/db/schema";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, type SQL } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,20 +14,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Tenant ID required" }, { status: 400 });
     }
 
-    let query = db.select().from(queues).where(eq(queues.tenantId, tenantId));
+    const conditions: SQL[] = [eq(queues.tenantId, tenantId)];
 
     if (departmentId) {
-      query = query.where(eq(queues.departmentId, departmentId));
+      conditions.push(eq(queues.departmentId, departmentId));
     }
 
     if (status) {
-      query = query.where(eq(queues.status, status));
+      conditions.push(eq(queues.status, status));
     }
 
-    // Order by position
-    query = query.orderBy(asc(queues.position));
-
-    const queueList = await query;
+    const queueList = await db
+      .select()
+      .from(queues)
+      .where(and(...conditions))
+      .orderBy(asc(queues.position));
     return NextResponse.json(queueList);
   } catch (error) {
     console.error("Error fetching queue:", error);

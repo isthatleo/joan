@@ -2,8 +2,20 @@
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { KeyRound, Loader2, ShieldCheck } from "lucide-react";
+import { CheckCircle2, KeyRound, Loader2, ShieldCheck, XCircle } from "lucide-react";
 import { useTenantPath } from "@/hooks/useTenantPath";
+
+function getPasswordChecks(password: string, confirmPassword: string) {
+  return [
+    { key: "length", label: "At least 8 characters", met: password.length >= 8 },
+    { key: "uppercase", label: "At least one uppercase letter", met: /[A-Z]/.test(password) },
+    { key: "lowercase", label: "At least one lowercase letter", met: /[a-z]/.test(password) },
+    { key: "number", label: "At least one number", met: /[0-9]/.test(password) },
+    { key: "special", label: "At least one special character", met: /[^A-Za-z0-9\s]/.test(password) },
+    { key: "spaces", label: "No spaces", met: password.length > 0 && !/\s/.test(password) },
+    { key: "match", label: "Passwords match", met: password.length > 0 && password === confirmPassword },
+  ];
+}
 
 export default function CompleteAccessPage() {
   const router = useRouter();
@@ -15,6 +27,8 @@ export default function CompleteAccessPage() {
   const [error, setError] = useState("");
 
   const redirect = searchParams.get("redirect") || toTenantPath("/");
+  const passwordChecks = getPasswordChecks(password, confirmPassword);
+  const passwordReady = passwordChecks.every((check) => check.met);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -26,6 +40,10 @@ export default function CompleteAccessPage() {
     setError("");
 
     try {
+      if (!passwordReady) {
+        throw new Error("Complete every password requirement before continuing.");
+      }
+
       const response = await fetch("/api/users/complete-access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -66,10 +84,12 @@ export default function CompleteAccessPage() {
         <div className="mb-6 rounded-xl border border-border bg-background/70 p-4 text-sm text-muted-foreground">
           <p className="font-medium text-foreground">Password requirements</p>
           <ul className="mt-2 space-y-1">
-            <li>At least 8 characters</li>
-            <li>At least one uppercase letter</li>
-            <li>At least one lowercase letter</li>
-            <li>At least one number</li>
+            {passwordChecks.map((check) => (
+              <li key={check.key} className={`flex items-center gap-2 ${check.met ? "text-emerald-600 dark:text-emerald-300" : "text-muted-foreground"}`}>
+                {check.met ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}
+                <span>{check.label}</span>
+              </li>
+            ))}
           </ul>
         </div>
 
@@ -112,7 +132,7 @@ export default function CompleteAccessPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !passwordReady}
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

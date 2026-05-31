@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { users, patients, appointments, visits } from "@/lib/db/schema";
-import { eq, gte, lte, sql, count } from "drizzle-orm";
+import { users, patients, appointments } from "@/lib/db/schema";
+import { and, count, eq, gte, lte, sql, type SQL } from "drizzle-orm";
+
+type DateFilter = {
+  gte: Date;
+  lte: Date;
+} | null;
 
 export async function GET(request: NextRequest) {
   try {
@@ -56,15 +61,14 @@ async function getGeneralAnalytics(tenantId: string) {
   };
 }
 
-async function getPatientAnalytics(tenantId: string, dateFilter: any) {
-  let query = db.select().from(patients).where(eq(patients.tenantId, tenantId));
-
+async function getPatientAnalytics(tenantId: string, dateFilter: DateFilter) {
+  const conditions: SQL[] = [eq(patients.tenantId, tenantId)];
   if (dateFilter) {
-    query = query.where(gte(patients.createdAt, dateFilter.gte))
-                  .where(lte(patients.createdAt, dateFilter.lte));
+    conditions.push(gte(patients.createdAt, dateFilter.gte));
+    conditions.push(lte(patients.createdAt, dateFilter.lte));
   }
 
-  const patientList = await query;
+  const patientList = await db.select().from(patients).where(and(...conditions));
 
   // Group by month
   const monthlyData = patientList.reduce((acc: any, patient) => {
@@ -83,15 +87,14 @@ async function getPatientAnalytics(tenantId: string, dateFilter: any) {
   };
 }
 
-async function getAppointmentAnalytics(tenantId: string, dateFilter: any) {
-  let query = db.select().from(appointments).where(eq(appointments.tenantId, tenantId));
-
+async function getAppointmentAnalytics(tenantId: string, dateFilter: DateFilter) {
+  const conditions: SQL[] = [eq(appointments.tenantId, tenantId)];
   if (dateFilter) {
-    query = query.where(gte(appointments.createdAt, dateFilter.gte))
-                  .where(lte(appointments.createdAt, dateFilter.lte));
+    conditions.push(gte(appointments.createdAt, dateFilter.gte));
+    conditions.push(lte(appointments.createdAt, dateFilter.lte));
   }
 
-  const appointmentList = await query;
+  const appointmentList = await db.select().from(appointments).where(and(...conditions));
 
   return {
     total: appointmentList.length,
@@ -101,22 +104,69 @@ async function getAppointmentAnalytics(tenantId: string, dateFilter: any) {
   };
 }
 
-async function getRevenueAnalytics(tenantId: string, dateFilter: any) {
-  // This would typically aggregate from invoices/payments
-  // For now, return mock data structure
+async function getRevenueAnalytics(tenantId: string, dateFilter: DateFilter) {
+  const dateStart = dateFilter?.gte ?? null;
+  const dateEnd = dateFilter?.lte ?? null;
+  const result = await db.execute(sql`
+    WITH scoped_invoices AS (
+      SELECT
+        id,
+        created_at,
+        status,
+        description,
+        items,
+        coalesce(
+          nullif(regexp_replace(coalesce(total_amount, amount, amount_due, '0'), '[^0-9.-]', '', 'g'), '')::numeric,
+          0
+        ) AS invoice_total
+      FROM invoices
+      WHERE tenant_id = ${tenantId}
+        AND deleted_at IS NULL
+        AND (${dateStart}::timestamp IS NULL OR created_at >= ${dateStart})
+        AND (${dateEnd}::timestamp IS NULL OR created_at <= ${dateEnd})
+    ),
+    scoped_payments AS (
+      SELECT
+        invoice_id,
+        created_at,
+        status,
+        coalesce(nullif(regexp_replace(coalesce(amount, '0'), '[^0-9.-]', '', 'g'), '')::numeric, 0) AS payment_total
+      FROM payments
+      WHERE tenant_id = ${tenantId}
+        AND deleted_at IS NULL
+        AND (${dateStart}::timestamp IS NULL OR created_at >= ${dateStart})
+        AND (${dateEnd}::timestamp IS NULL OR created_at <= ${dateEnd})
+    ),
+    monthly_rows AS (
+      SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS month, sum(invoice_total)::numeric AS total
+      FROM scoped_invoices
+      GROUP BY 1
+      ORDER BY 1 DESC
+    ),
+    service_rows AS (
+      SELECT
+        coalesce(nullif(trim(description), ''), 'Uncategorized') AS service,
+        sum(invoice_total)::numeric AS total
+      FROM scoped_invoices
+      GROUP BY 1
+      ORDER BY total DESC
+      LIMIT 12
+    )
+    SELECT
+      coalesce((SELECT sum(invoice_total) FROM scoped_invoices), 0)::numeric AS total,
+      coalesce((SELECT sum(payment_total) FROM scoped_payments WHERE lower(coalesce(status, '')) IN ('paid', 'completed', 'success', 'successful')), 0)::numeric AS collected,
+      coalesce((SELECT sum(invoice_total) FROM scoped_invoices WHERE lower(coalesce(status, '')) IN ('pending', 'sent', 'overdue', 'unpaid')), 0)::numeric AS outstanding,
+      coalesce((SELECT jsonb_object_agg(month, total) FROM monthly_rows), '{}'::jsonb) AS monthly,
+      coalesce((SELECT jsonb_object_agg(service, total) FROM service_rows), '{}'::jsonb) AS by_service
+  `) as any;
+  const row = result.rows?.[0] || {};
+
   return {
-    total: 125000,
-    monthly: {
-      "2026-04": 125000,
-      "2026-03": 118000,
-      "2026-02": 112000,
-    },
-    byService: {
-      "Consultation": 45000,
-      "Lab Tests": 32000,
-      "Medications": 28000,
-      "Procedures": 20000,
-    },
+    total: Number(row.total || 0),
+    collected: Number(row.collected || 0),
+    outstanding: Number(row.outstanding || 0),
+    monthly: row.monthly || {},
+    byService: row.by_service || {},
   };
 }
 

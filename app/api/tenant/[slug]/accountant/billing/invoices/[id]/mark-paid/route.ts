@@ -56,7 +56,7 @@ export async function POST(
       transactionId: parsed.data.transactionId || null,
       notes: parsed.data.notes || null,
       createdBy: session.user.id,
-      processedAt: parsed.data.paidAt || new Date(),
+      processedAt: parsed.data.paidAt ? new Date(parsed.data.paidAt) : new Date(),
     });
 
     await db.$queryRaw`

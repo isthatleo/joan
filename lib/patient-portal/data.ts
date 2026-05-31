@@ -273,7 +273,7 @@ export async function resolvePatientPortalContext(headers: Headers, rawSlug?: st
   }
 
   const nextSettings = mergeUserSettings({
-    ...row.settings,
+    ...(row.settings && typeof row.settings === "object" && !Array.isArray(row.settings) ? row.settings as Record<string, unknown> : {}),
     workflow: {
       ...(row.settings && typeof row.settings === "object" ? (row.settings as Record<string, any>).workflow ?? {} : {}),
       linkedPatientId: patientRecord.id,

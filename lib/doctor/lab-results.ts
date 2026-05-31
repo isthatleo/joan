@@ -12,6 +12,7 @@ export type ParsedLabValue = {
 export type ParsedLabResult = {
   summary: string;
   values: ParsedLabValue[];
+  flag: ParsedLabValue["flag"];
   notes: string | null;
   attachments: string[];
   status: string;
@@ -94,12 +95,23 @@ export function parseLabResultData(raw: unknown, fileUrl?: string | null): Parse
       })
     : recordToValues(payload);
 
+  const flag = values.some((value) => value.flag === "critical")
+    ? "critical"
+    : values.some((value) => value.flag === "abnormal")
+      ? "abnormal"
+      : values.some((value) => value.flag === "high")
+        ? "high"
+        : values.some((value) => value.flag === "low")
+          ? "low"
+          : "normal";
+
   return {
     summary: String(
       payload.summary ||
         (values.length === 1 ? `${values[0].name}: ${values[0].value}` : `${values.length} lab values recorded`)
     ),
     values,
+    flag,
     notes: payload.notes ? String(payload.notes) : null,
     attachments: Array.isArray(payload.attachments) ? payload.attachments.map((item) => String(item)) : [],
     status: String(payload.status || "pending_review"),
@@ -117,6 +129,7 @@ export function serializeLabResultData(parsed: ParsedLabResult) {
   return {
     summary: parsed.summary,
     values: parsed.values,
+    flag: parsed.flag,
     notes: parsed.notes,
     attachments: parsed.attachments,
     status: parsed.status,

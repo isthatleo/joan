@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantBySlug } from "@/lib/db/helpers";
 import { db } from "@/lib/db";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
-import { users, patients, appointments, guardianPatients, guardians, visits, prescriptions, labOrders, notifications } from "@/lib/db/schema";
+import { eq, and, gte, lte, inArray, or, ilike } from "drizzle-orm";
+import { patients, appointments, guardianPatients, visits, notifications } from "@/lib/db/schema";
+import { resolveGuardianForTenant } from "@/lib/api/guardian-auth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,18 +19,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    // Get guardian's user ID from session/token (simplified for demo)
-    const guardianUserId = "guardian-user-id"; // This would come from auth
-
-    // Get guardian record
-    const guardian = await db
-      .select()
-      .from(guardians)
-      .where(and(eq(guardians.tenantId, tenant.id), eq(guardians.userId, guardianUserId)))
-      .limit(1);
-
-    if (!guardian.length) {
-      return NextResponse.json({ error: "Guardian not found" }, { status: 404 });
+    const access = await resolveGuardianForTenant(request, tenant.id);
+    if (access.status !== 200 || !access.guardian || !access.user) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     // Get children associated with this guardian
@@ -40,9 +32,24 @@ export async function GET(request: NextRequest) {
       })
       .from(guardianPatients)
       .innerJoin(patients, eq(guardianPatients.patientId, patients.id))
-      .where(eq(guardianPatients.guardianId, guardian[0].id));
+      .where(eq(guardianPatients.guardianId, access.guardian.id));
 
     const children = childrenRelations.map(rel => rel.patient);
+    const childrenIds = children.map((child) => child.id);
+    if (childrenIds.length === 0) {
+      return NextResponse.json({
+        totalChildren: 0,
+        activeChildren: 0,
+        upcomingAppointments: 0,
+        completedAppointments: 0,
+        pendingVaccinations: 0,
+        completedVaccinations: 0,
+        unreadAlerts: 0,
+        healthRecordsCount: 0,
+        averageHealthScore: 0,
+        recentActivityCount: 0,
+      });
+    }
 
     // Calculate metrics
     const now = new Date();
@@ -57,10 +64,25 @@ export async function GET(request: NextRequest) {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const activeChildren = children.filter(child => {
-      // Check for recent visits, appointments, etc.
-      return true; // Simplified - would check actual activity
-    }).length;
+    const activeAppointments = await db
+      .select({ patientId: appointments.patientId })
+      .from(appointments)
+      .where(and(
+        eq(appointments.tenantId, tenant.id),
+        inArray(appointments.patientId, childrenIds),
+        gte(appointments.scheduledAt, thirtyDaysAgo)
+      ));
+
+    const activeVisits = await db
+      .select({ patientId: visits.patientId })
+      .from(visits)
+      .where(and(
+        eq(visits.tenantId, tenant.id),
+        inArray(visits.patientId, childrenIds),
+        gte(visits.createdAt, thirtyDaysAgo)
+      ));
+
+    const activeChildren = new Set([...activeAppointments, ...activeVisits].map((item) => item.patientId)).size;
 
     // Upcoming appointments
     const upcomingAppointments = await db
@@ -91,11 +113,36 @@ export async function GET(request: NextRequest) {
       children.some(child => child.id === apt.patientId)
     ).length;
 
-    // Pending vaccinations (simplified - would check vaccination records)
-    const pendingVaccinations = Math.floor(Math.random() * 5) + 1; // Mock data
+    const vaccinationAppointments = await db
+      .select()
+      .from(appointments)
+      .where(and(
+        eq(appointments.tenantId, tenant.id),
+        inArray(appointments.patientId, childrenIds),
+        or(
+          ilike(appointments.status, "%vaccin%"),
+          ilike(appointments.status, "%immun%")
+        )
+      ));
 
-    // Completed vaccinations
-    const completedVaccinations = Math.floor(Math.random() * 10) + 5; // Mock data
+    const vaccinationAlerts = await db
+      .select()
+      .from(notifications)
+      .where(and(
+        eq(notifications.tenantId, tenant.id),
+        eq(notifications.userId, access.user.id),
+        or(
+          ilike(notifications.type, "%vaccin%"),
+          ilike(notifications.title, "%vaccin%"),
+          ilike(notifications.message, "%vaccin%"),
+          ilike(notifications.type, "%immun%"),
+          ilike(notifications.title, "%immun%"),
+          ilike(notifications.message, "%immun%")
+        )
+      ));
+
+    const pendingVaccinations = vaccinationAlerts.filter((alert) => !alert.read).length;
+    const completedVaccinations = vaccinationAppointments.filter((apt) => apt.status === "completed").length;
 
     // Unread alerts
     const unreadAlerts = await db
@@ -103,7 +150,7 @@ export async function GET(request: NextRequest) {
       .from(notifications)
       .where(and(
         eq(notifications.tenantId, tenant.id),
-        eq(notifications.userId, guardianUserId),
+        eq(notifications.userId, access.user.id),
         eq(notifications.read, false)
       ));
 
@@ -113,11 +160,12 @@ export async function GET(request: NextRequest) {
       .from(visits)
       .where(and(
         eq(visits.tenantId, tenant.id),
-        visits.patientId ? children.some(child => child.id === visits.patientId) : false
+        inArray(visits.patientId, childrenIds)
       ));
 
-    // Average health score (simplified calculation)
-    const averageHealthScore = 85; // Mock calculation based on visit data
+    const averageHealthScore = totalChildren === 0
+      ? 0
+      : Math.max(55, Math.min(100, 95 - unreadAlerts.length * 2 - pendingVaccinations * 3 + Math.min(10, healthRecordsCount.length)));
 
     // Recent activity count (last 7 days)
     const lastWeek = new Date();
@@ -128,6 +176,7 @@ export async function GET(request: NextRequest) {
       .from(visits)
       .where(and(
         eq(visits.tenantId, tenant.id),
+        inArray(visits.patientId, childrenIds),
         gte(visits.createdAt, lastWeek)
       ));
 

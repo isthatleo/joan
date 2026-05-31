@@ -4,7 +4,7 @@ import { appointments, labOrders, patients, prescriptions, visits } from "@/lib/
 import { db } from "@/lib/db";
 import { resolveDoctorContext } from "@/lib/doctor/server";
 
-export async function GET(request: NextRequest, context: RouteContext<"/api/doctor/patient-analytics/[id]">) {
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const doctorContext = await resolveDoctorContext(request.headers);
   if (!doctorContext.ok) {
     return NextResponse.json({ error: doctorContext.error }, { status: doctorContext.status });

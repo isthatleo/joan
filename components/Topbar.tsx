@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, ChevronDown, Home, LogOut, Settings, User } from "lucide-react";
+import { Bell, ChevronDown, Home, LogOut, Menu, Settings, User } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { authClient } from "@/lib/auth-client";
 import { getResolvedTenantLoginPath, getTenantDashboardPath, resolveTenantSlug, withTenantPrefix } from "@/lib/tenant-routing";
@@ -21,6 +21,7 @@ interface BreadcrumbItem {
 
 interface TopbarProps {
   breadcrumbs?: BreadcrumbItem[];
+  onMobileMenuClick?: () => void;
 }
 
 /**
@@ -41,7 +42,7 @@ function deriveBreadcrumbs(pathname: string): BreadcrumbItem[] {
   });
 }
 
-export function Topbar({ breadcrumbs }: TopbarProps) {
+export function Topbar({ breadcrumbs, onMobileMenuClick }: TopbarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuthStore();
@@ -148,25 +149,40 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
   }, [notifOpen, profileOpen]);
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-border bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <header className={cn(
+      "sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80",
+      onMobileMenuClick ? "gap-2 px-3 sm:px-4 lg:px-6" : "gap-4 px-6"
+    )}>
       {/* Breadcrumbs */}
-      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
+      <div className="flex min-w-0 items-center gap-2">
+        {onMobileMenuClick ? (
+          <button
+            type="button"
+            onClick={onMobileMenuClick}
+            aria-label="Open navigation menu"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        ) : null}
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 overflow-hidden text-sm">
         <Link href={dashboardHref} className="text-muted-foreground hover:text-foreground">
           <Home className="h-4 w-4" />
         </Link>
-        {crumbs.map((c, i) => (
+        {(onMobileMenuClick ? crumbs.slice(-2) : crumbs).map((c, i) => (
           <div key={`${c.label}-${i}`} className="flex items-center gap-1.5">
             <span className="text-muted-foreground/60">/</span>
             {c.href ? (
-              <Link href={withTenantPrefix(c.href, tenantSlug, hostname)} className="text-muted-foreground hover:text-foreground">
+              <Link href={withTenantPrefix(c.href, tenantSlug, hostname)} className={cn("text-muted-foreground hover:text-foreground", onMobileMenuClick && "max-w-[7rem] truncate sm:max-w-none")}>
                 {c.label}
               </Link>
             ) : (
-              <span className="font-medium text-foreground">{c.label}</span>
+              <span className={cn("font-medium text-foreground", onMobileMenuClick && "max-w-[9rem] truncate sm:max-w-none")}>{c.label}</span>
             )}
           </div>
         ))}
       </nav>
+      </div>
 
       {/* Right cluster */}
       <div className="flex items-center gap-1">
@@ -241,14 +257,14 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
         </div>
 
         {/* Profile */}
-        <div className="relative ml-2" ref={profileRef}>
+        <div className="relative ml-1 sm:ml-2" ref={profileRef}>
           <button
             type="button"
             onClick={() => setProfileOpen((v) => !v)}
             className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-muted"
           >
             <Avatar className="h-8 w-8">
-              <AvatarImage src={user?.avatar} alt={user?.fullName || "User"} />
+              <AvatarImage src={user?.avatar || undefined} alt={user?.fullName || "User"} />
               <AvatarFallback className="text-xs font-semibold">
                 {(user?.fullName || user?.email || "U").charAt(0).toUpperCase()}
               </AvatarFallback>
@@ -261,7 +277,7 @@ export function Topbar({ breadcrumbs }: TopbarProps) {
                 {(user?.role || "staff").replace(/_/g, " ")}
               </p>
             </div>
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            <ChevronDown className="hidden h-4 w-4 text-muted-foreground sm:block" />
           </button>
 
            {profileOpen && (

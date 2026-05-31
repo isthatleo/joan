@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { otps } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import crypto from "node:crypto";
 
 export class OTPService {
   /**
@@ -10,7 +11,7 @@ export class OTPService {
     const digits = "0123456789";
     let code = "";
     for (let i = 0; i < length; i++) {
-      code += digits.charAt(Math.floor(Math.random() * digits.length));
+      code += digits.charAt(crypto.randomInt(0, digits.length));
     }
     return code;
   }
@@ -73,7 +74,7 @@ export class OTPService {
       return { success: false, error: "OTP has expired" };
     }
 
-    if (otp.attempts >= otp.maxAttempts) {
+    if ((otp.attempts ?? 0) >= (otp.maxAttempts ?? 0)) {
       return { success: false, error: "Too many failed attempts. OTP has been locked." };
     }
 
@@ -92,13 +93,13 @@ export class OTPService {
     });
 
     if (otp && !otp.isUsed) {
-      const newAttempts = otp.attempts + 1;
+      const newAttempts = (otp.attempts ?? 0) + 1;
       await db
         .update(otps)
         .set({ attempts: newAttempts })
         .where(eq(otps.id, otp.id));
 
-      if (newAttempts >= otp.maxAttempts) {
+      if (newAttempts >= (otp.maxAttempts ?? 0)) {
         return { success: false, error: "Too many failed attempts. OTP has been locked." };
       }
     }

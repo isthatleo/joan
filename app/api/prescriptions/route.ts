@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { prescriptions, prescriptionItems } from "@/lib/db/schema";
+import { prescriptions, prescriptionItems, visits } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { requireTenantUser } from "@/lib/api/route-guards";
 
 export async function GET(request: NextRequest) {
   try {
+    const access = await requireTenantUser(request, ["doctor", "pharmacist", "hospital_admin", "patient", "guardian"]);
+    if (!access.ok) return access.response;
+
     const { searchParams } = new URL(request.url);
     const visitId = searchParams.get("visitId");
 
@@ -28,6 +32,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await requireTenantUser(request, ["doctor"]);
+    if (!access.ok) return access.response;
+
     const data = await request.json();
     const { visitId, doctorId, items } = data;
 
@@ -35,15 +42,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Create prescription
+    if (doctorId !== access.user.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const visit = await db.query.visits.findFirst({
+      where: eq(visits.id, visitId),
+      columns: { id: true, tenantId: true, patientId: true },
+    });
+    if (!visit || visit.tenantId !== access.user.tenantId) {
+      return NextResponse.json({ error: "Visit not found" }, { status: 404 });
+    }
+
     const [prescription] = await db.insert(prescriptions).values({
+      tenantId: access.user.tenantId,
       visitId,
       doctorId,
+      patientId: visit.patientId,
       createdAt: new Date(),
       updatedAt: new Date(),
     }).returning();
 
-    // Add prescription items
     for (const item of items) {
       await db.insert(prescriptionItems).values({
         prescriptionId: prescription.id,
@@ -55,7 +74,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Fetch complete prescription with items
     const completePrescription = await db.query.prescriptions.findFirst({
       where: eq(prescriptions.id, prescription.id),
       with: {

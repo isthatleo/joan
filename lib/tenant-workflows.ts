@@ -2,7 +2,45 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tenantSettings } from "@/lib/db/schema";
 
-export const DEFAULT_TENANT_WORKFLOW_SETTINGS = {
+export type TenantWorkflowSettings = {
+  automationEnabled: boolean;
+  appointmentReminders: boolean;
+  patientNotifications: boolean;
+  staffNotifications: boolean;
+  prescriptionAlerts: boolean;
+  billingAutomation: boolean;
+  reportGeneration: boolean;
+  dataBackupEnabled: boolean;
+  backupFrequency: "daily" | "weekly" | "monthly";
+  autoConfirmAppointments: boolean;
+  reminderNotifications: boolean;
+  noShowAlerts: boolean;
+  followUpScheduling: boolean;
+  autoResultNotifications: boolean;
+  criticalValueAlerts: boolean;
+  resultReviewQueue: boolean;
+  autoArchiveOldResults: boolean;
+  autoGenerateInvoices: boolean;
+  paymentReminders: boolean;
+  insuranceClaimAutomation: boolean;
+  overdueAccountAlerts: boolean;
+  autoWriteOffSmallBalances: boolean;
+  monthlyBillingCycle: boolean;
+  autoEscalationAlerts: boolean;
+  emergencyTeamNotification: boolean;
+  ambulanceDispatchIntegration: boolean;
+  familyNotificationSystem: boolean;
+  emergencyLogGeneration: boolean;
+  postIncidentFollowUp: boolean;
+  customWorkflows: Array<{
+    id: string;
+    name: string;
+    status: "draft" | "active" | "disabled";
+    createdAt: string;
+  }>;
+};
+
+export const DEFAULT_TENANT_WORKFLOW_SETTINGS: TenantWorkflowSettings = {
   automationEnabled: true,
   appointmentReminders: true,
   patientNotifications: true,
@@ -38,9 +76,7 @@ export const DEFAULT_TENANT_WORKFLOW_SETTINGS = {
     status: "draft" | "active" | "disabled";
     createdAt: string;
   }>,
-} as const;
-
-export type TenantWorkflowSettings = typeof DEFAULT_TENANT_WORKFLOW_SETTINGS;
+};
 
 export function normalizeTenantWorkflowSettings(value?: Partial<TenantWorkflowSettings> | Record<string, any> | null): TenantWorkflowSettings {
   const source = value || {};

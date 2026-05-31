@@ -174,10 +174,7 @@ export function UserSettingsWorkspace({
     }
   }
 
-  function updateSection<T extends keyof UserSettingsShape>(
-    section: T,
-    patch: Partial<UserSettingsShape[T]>
-  ) {
+  function updateSection(section: keyof UserSettingsShape, patch: any) {
     setSettings((current) => ({
       ...current,
       [section]: {
@@ -187,7 +184,7 @@ export function UserSettingsWorkspace({
     }));
   }
 
-  function updateMessageSettings(patch: Partial<UserSettingsShape["communication"]["messageSettings"]>) {
+  function updateMessageSettings(patch: any) {
     setSettings((current) => ({
       ...current,
       communication: {
@@ -318,7 +315,7 @@ export function UserSettingsWorkspace({
                   value={settings.appearance.theme}
                   onChange={(value) => {
                     updateSection("appearance", { theme: value });
-                    setTheme(value);
+                    setTheme(value as any);
                   }}
                   options={[
                     { value: "light", label: "Light" },
@@ -664,7 +661,7 @@ function InputField({
 }: {
   label: string;
   value: string;
-  onChange: (value: string) => void;
+  onChange: (value: any) => void;
   type?: string;
 }) {
   return (

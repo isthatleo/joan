@@ -252,8 +252,9 @@ async function getChildLatestData(tenantId: string, patientId: string) {
 }
 export async function getGuardianDashboardData(context: GuardianContext) {
   const children = await getGuardianChildrenRows(context);
-  const childIds = children.map((item) => item.patientId);
-  const snapshots = await Promise.all(children.map(async (row) => ({ row, detail: await getChildLatestData(context.tenantId, row.patientId) })));
+  const validChildren = children.filter((item): item is (typeof children)[number] & { patientId: string } => Boolean(item.patientId));
+  const childIds = validChildren.map((item) => item.patientId);
+  const snapshots = await Promise.all(validChildren.map(async (row) => ({ row, detail: await getChildLatestData(context.tenantId, row.patientId) })));
   const appointmentRows = childIds.length ? await db.query.appointments.findMany({ where: and(eq(appointments.tenantId, context.tenantId), inArray(appointments.patientId, childIds)), orderBy: [desc(appointments.scheduledAt)] }) : [];
   const notificationRows = await db.query.notifications.findMany({ where: and(eq(notifications.tenantId, context.tenantId), eq(notifications.userId, context.userId)), orderBy: [desc(notifications.createdAt)], limit: 10 });
   const recentVisits = childIds.length ? await db.query.visits.findMany({ where: and(eq(visits.tenantId, context.tenantId), inArray(visits.patientId, childIds)), orderBy: [desc(visits.createdAt)], limit: 12 }) : [];
@@ -287,10 +288,11 @@ export async function getGuardianDashboardData(context: GuardianContext) {
 
 export async function getGuardianChildrenData(context: GuardianContext) {
   const rows = await getGuardianChildrenRows(context);
-  const data = await Promise.all(rows.map(async (row) => {
-    const detail = await getChildLatestData(context.tenantId, row.patientId);
+  const data = await Promise.all(rows.filter((row) => Boolean(row.patientId)).map(async (row) => {
+    const patientId = row.patientId as string;
+    const detail = await getChildLatestData(context.tenantId, patientId);
     return {
-      id: row.patientId,
+      id: patientId,
       firstName: row.patient.firstName || row.patient.fullName?.split(" ")[0] || "Child",
       lastName: row.patient.lastName || row.patient.fullName?.split(" ").slice(1).join(" ") || "",
       fullName: toPatientName(row.patient),
@@ -436,13 +438,14 @@ export async function unlinkGuardianChild(context: GuardianContext, childId: str
 
 export async function getGuardianFamilyData(context: GuardianContext) {
   const children = await getGuardianChildrenRows(context);
-  const childIds = children.map((item) => item.patientId);
+  const validChildren = children.filter((item): item is (typeof children)[number] & { patientId: string } => Boolean(item.patientId));
+  const childIds = validChildren.map((item) => item.patientId);
   const [policyRows, invoiceRows, paymentRows] = await Promise.all([
     childIds.length ? db.query.insurancePolicies.findMany({ where: and(eq(insurancePolicies.tenantId, context.tenantId), inArray(insurancePolicies.patientId, childIds)) }) : [],
     childIds.length ? db.query.invoices.findMany({ where: and(eq(invoices.tenantId, context.tenantId), inArray(invoices.patientId, childIds)), orderBy: [desc(invoices.createdAt)] }) : [],
     childIds.length ? db.query.payments.findMany({ where: eq(payments.tenantId, context.tenantId), orderBy: [desc(payments.createdAt)], limit: 100 }) : [],
   ]);
-  const familyMembers = await Promise.all(children.map(async (row) => {
+  const familyMembers = await Promise.all(validChildren.map(async (row) => {
     const detail = await getChildLatestData(context.tenantId, row.patientId);
     return { id: row.patientId, name: toPatientName(row.patient), age: calculateAge(row.patient.dob), relationship: row.emergencyContact ? "Emergency contact child" : "Child", healthStatus: healthStatusFromVitals(detail.latestVitals), insuranceProvider: detail.policies[0]?.provider || null, nextAppointment: toIso(detail.upcomingAppointment?.scheduledAt), outstandingAmount: detail.outstandingAmount };
   }));
@@ -481,7 +484,7 @@ export async function getGuardianDoctorSlots(context: GuardianContext, doctorId:
 export async function getGuardianAppointmentsData(context: GuardianContext) {
   const metadataMap = await getAppointmentMetadataMap(context.tenantId);
   const children = await getGuardianChildrenRows(context);
-  const childIds = children.map((item) => item.patientId);
+  const childIds = children.map((item) => item.patientId).filter((id): id is string => Boolean(id));
   const childMap = new Map(children.map((item) => [item.patientId, item]));
   const rows = childIds.length ? await db.select({ appointment: appointments, patient: patients, doctor: users }).from(appointments).innerJoin(patients, eq(appointments.patientId, patients.id)).leftJoin(users, eq(appointments.doctorId, users.id)).where(and(eq(appointments.tenantId, context.tenantId), inArray(appointments.patientId, childIds))).orderBy(desc(appointments.scheduledAt), desc(appointments.createdAt)) : [];
   const list = rows.map((item) => {
@@ -531,7 +534,7 @@ export async function updateGuardianAppointment(context: GuardianContext, appoin
 
 export async function getGuardianRecordsData(context: GuardianContext) {
   const children = await getGuardianChildrenRows(context);
-  const childIds = children.map((item) => item.patientId);
+  const childIds = children.map((item) => item.patientId).filter((id): id is string => Boolean(id));
   const childMap = new Map(children.map((item) => [item.patientId, toPatientName(item.patient)]));
   const [visitRows, diagnosisRows, prescriptionRows, labOrderRows] = await Promise.all([
     childIds.length ? db.query.visits.findMany({ where: and(eq(visits.tenantId, context.tenantId), inArray(visits.patientId, childIds)), orderBy: [desc(visits.createdAt)], limit: 100 }) : [],
@@ -564,7 +567,7 @@ export async function getGuardianVaccinationsData(context: GuardianContext) {
 
 export async function getGuardianLabResultsData(context: GuardianContext) {
   const children = await getGuardianChildrenRows(context);
-  const childIds = children.map((item) => item.patientId);
+  const childIds = children.map((item) => item.patientId).filter((id): id is string => Boolean(id));
   const childMap = new Map(children.map((item) => [item.patientId, toPatientName(item.patient)]));
   const orders = childIds.length ? await db.query.labOrders.findMany({ where: and(eq(labOrders.tenantId, context.tenantId), inArray(labOrders.patientId, childIds)), orderBy: [desc(labOrders.orderedAt), desc(labOrders.createdAt)] }) : [];
   const results = orders.length ? await db.query.labResults.findMany({ where: inArray(labResults.labOrderId, orders.map((item) => item.id)), orderBy: [desc(labResults.createdAt)] }) : [];
@@ -572,11 +575,11 @@ export async function getGuardianLabResultsData(context: GuardianContext) {
   const providerIds = Array.from(new Set(orders.map((item) => item.doctorId || item.orderedBy).filter(Boolean))) as string[];
   const providers = providerIds.length ? await db.query.users.findMany({ where: inArray(users.id, providerIds) }) : [];
   const providerMap = new Map(providers.map((item) => [item.id, item.fullName || item.email]));
-  const invoices = childIds.length ? await db.query.invoices.findMany({ where: and(eq(invoices.tenantId, context.tenantId), inArray(invoices.patientId, childIds)) }) : [];
+  const invoiceRows = childIds.length ? await db.query.invoices.findMany({ where: and(eq(invoices.tenantId, context.tenantId), inArray(invoices.patientId, childIds)) }) : [];
   const paymentsRows = childIds.length ? await db.query.payments.findMany({ where: eq(payments.tenantId, context.tenantId) }) : [];
   const items = orders.map((order) => {
     const orderResult = resultMap.get(order.id);
-    const patientInvoices = invoices.filter((item) => item.patientId === order.patientId);
+    const patientInvoices = invoiceRows.filter((item) => item.patientId === order.patientId);
     const patientPaymentIds = new Set(patientInvoices.map((item) => item.id));
     const hasPaymentClearance = paymentsRows.some((item) => patientPaymentIds.has(item.invoiceId || "") && item.status === "completed") || patientInvoices.some((item) => ["paid", "completed"].includes(String(item.status || "").toLowerCase()));
     return { id: orderResult?.id || order.id, orderId: order.id, childId: order.patientId || "", childName: childMap.get(order.patientId || "") || "Child", testName: order.testName || order.testCode || "Lab result", testCode: order.testCode, category: order.category || "general", status: orderResult ? "completed" : order.status || "pending", orderedAt: toIso(order.orderedAt || order.createdAt), completedAt: toIso(order.completedAt || orderResult?.createdAt), provider: providerMap.get(order.doctorId || order.orderedBy || "") || "Lab Team", notes: order.notes, resultData: orderResult?.resultData || order.results || null, fileUrl: orderResult?.fileUrl || null, patientPortalEligible: hasPaymentClearance };
@@ -605,7 +608,7 @@ export async function getGuardianAlertsData(context: GuardianContext) {
   const settings = await getGuardianAlertSettings(context);
   const acks = await getGuardianAlertAcks(context.tenantId);
   const children = await getGuardianChildrenRows(context);
-  const childIds = children.map((item) => item.patientId);
+  const childIds = children.map((item) => item.patientId).filter((id): id is string => Boolean(id));
   const childMap = new Map(children.map((item) => [item.patientId, toPatientName(item.patient)]));
   const [notificationRows, appointmentRows, invoiceRows] = await Promise.all([
     db.query.notifications.findMany({ where: and(eq(notifications.tenantId, context.tenantId), eq(notifications.userId, context.userId)), orderBy: [desc(notifications.createdAt)], limit: 50 }),

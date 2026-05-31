@@ -52,6 +52,8 @@ async function notifyFeedbackRecipients(options: {
   submitterName: string;
   submitterEmail: string;
   tenantId?: string | null;
+  destinationLabel?: string;
+  routingReason?: string;
 }) {
   const recipientRows = await db
     .select({
@@ -98,8 +100,8 @@ async function notifyFeedbackRecipients(options: {
 
   const message =
     options.scope === "platform"
-      ? `${options.submitterName} reported "${options.feedbackTitle}" for platform review.`
-      : `${options.submitterName} submitted "${options.feedbackTitle}" for tenant follow-up.`;
+      ? `${options.submitterName} reported "${options.feedbackTitle}" for super admin platform review.`
+      : `${options.submitterName} submitted "${options.feedbackTitle}" for hospital admin tenant follow-up.`;
 
   await db.insert(notifications).values(
     Array.from(recipientMap.entries()).map(([userId, meta]) => ({
@@ -112,6 +114,9 @@ async function notifyFeedbackRecipients(options: {
         feedbackId: options.feedbackId,
         feedbackType: options.feedbackType,
         feedbackScope: options.scope,
+        destination: options.scope === "platform" ? "super_admin" : "hospital_admin",
+        destinationLabel: options.destinationLabel || (options.scope === "platform" ? "Super admin" : "Hospital admin"),
+        routingReason: options.routingReason || null,
         priority: options.priority,
         submittedBy: options.submitterId,
         submitterEmail: options.submitterEmail,
@@ -219,7 +224,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const resolvedScope = service.resolveScope(type, scope);
+    const routing = service.getRoutingInfo(type, scope, patientFeedback);
+    const resolvedScope = routing.scope;
 
     const feedback = await service.createFeedback({
       userId: currentUser.id,
@@ -244,9 +250,11 @@ export async function POST(request: NextRequest) {
       submitterName: currentUser.fullName || currentUser.email,
       submitterEmail: currentUser.email,
       tenantId: currentUser.tenantId,
+      destinationLabel: routing.label,
+      routingReason: routing.reason,
     });
 
-    return NextResponse.json({ feedback });
+    return NextResponse.json({ feedback, routing });
   } catch (error) {
     console.error("Error creating feedback:", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Failed to create feedback" }, { status: 500 });

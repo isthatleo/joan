@@ -223,7 +223,7 @@ export function TenantRoleLogin({
         fetch("/api/auth/role", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, tenantSlug: slug }),
+          body: JSON.stringify({ email, tenantSlug: slug, requestedRole: selectedRole }),
         }),
       ]);
       const successData = await successResponse.json().catch(() => ({}));
@@ -247,6 +247,7 @@ export function TenantRoleLogin({
 
       const resolvedRole = (role as AppRole | null) ?? (selectedRole as AppRole);
       const dashboardPath = getPostLoginDashboardPath(slug, resolvedRole, window.location.hostname);
+      sessionStorage.removeItem("auth_bootstrap_cache");
 
       if (successData?.passwordExpired || successData?.forcePasswordChange) {
         const activationPath = withTenantPrefix("/complete-access", slug, window.location.hostname);

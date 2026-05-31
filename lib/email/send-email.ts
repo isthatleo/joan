@@ -277,7 +277,7 @@ async function sendWithResend(payload: SendEmailPayload, provider: ResolvedProvi
       to: toRecipientList(payload.to),
       cc: payload.cc,
       bcc: payload.bcc,
-      reply_to: payload.replyTo,
+      replyTo: payload.replyTo,
       subject: payload.subject,
       html,
       text,
@@ -287,7 +287,7 @@ async function sendWithResend(payload: SendEmailPayload, provider: ResolvedProvi
         content: Buffer.from(attachment.content, "base64"),
         contentType: attachment.contentType,
       })),
-      scheduled_at: payload.scheduledAt,
+      scheduledAt: payload.scheduledAt,
     },
     { idempotencyKey }
   );

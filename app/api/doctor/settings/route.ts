@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { users, doctorSettings } from "@/lib/db/schema";
 
 export async function GET(request: NextRequest) {
@@ -39,7 +39,6 @@ export async function GET(request: NextRequest) {
     if (!settings.length) {
       // Create default settings
       const defaultSettings = {
-        userId: session.user.id,
         displayName: doctorUser[0].fullName || "",
         title: "Dr.",
         specialty: "",
@@ -81,19 +80,28 @@ export async function GET(request: NextRequest) {
         autoRefresh: true,
         refreshInterval: 30,
 
-        createdAt: new Date(),
-        updatedAt: new Date(),
       };
 
       const newSettings = await db
         .insert(doctorSettings)
-        .values(defaultSettings)
+        .values({
+          userId: session.user.id,
+          settings: defaultSettings,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
         .returning();
 
       settings = newSettings;
     }
 
-    return NextResponse.json(settings[0]);
+    return NextResponse.json({
+      id: settings[0].id,
+      userId: settings[0].userId,
+      ...((settings[0].settings as Record<string, any>) || {}),
+      createdAt: settings[0].createdAt,
+      updatedAt: settings[0].updatedAt,
+    });
 
   } catch (error) {
     console.error("Doctor settings GET API error:", error);
@@ -129,15 +137,19 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 403 });
     }
 
-    // Update settings
-    const updateData = {
-      ...updates,
-      updatedAt: new Date(),
-    };
+    const existingSettings = await db.query.doctorSettings.findFirst({
+      where: eq(doctorSettings.userId, session.user.id),
+    });
 
     const updatedSettings = await db
       .update(doctorSettings)
-      .set(updateData)
+      .set({
+        settings: {
+          ...((existingSettings?.settings as Record<string, any> | undefined) || {}),
+          ...updates,
+        },
+        updatedAt: new Date(),
+      })
       .where(eq(doctorSettings.userId, session.user.id))
       .returning();
 
@@ -145,7 +157,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Settings not found" }, { status: 404 });
     }
 
-    return NextResponse.json(updatedSettings[0]);
+    return NextResponse.json({
+      id: updatedSettings[0].id,
+      userId: updatedSettings[0].userId,
+      ...((updatedSettings[0].settings as Record<string, any>) || {}),
+      createdAt: updatedSettings[0].createdAt,
+      updatedAt: updatedSettings[0].updatedAt,
+    });
 
   } catch (error) {
     console.error("Doctor settings PATCH API error:", error);

@@ -1,7 +1,5 @@
 import { FinanceRecordPage } from "../../record-page";
 
 export default function FinanceRecordDetailPage() {
-  return <FinanceRecordPage resource="
-budgets
-" mode="detail" />;
+  return <FinanceRecordPage resource="budgets" mode="detail" />;
 }

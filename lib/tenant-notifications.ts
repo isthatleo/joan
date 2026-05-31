@@ -2,7 +2,26 @@ import { and, desc, eq, gte } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { auditLogs, notifications, tenantSettings } from "@/lib/db/schema";
 
-export const DEFAULT_TENANT_NOTIFICATION_SETTINGS = {
+export type TenantNotificationSettings = {
+  emailEnabled: boolean;
+  smsEnabled: boolean;
+  pushEnabled: boolean;
+  inAppEnabled: boolean;
+  slackEnabled: boolean;
+  soundEnabled: boolean;
+  quietHoursEnabled: boolean;
+  quietHoursStart: string;
+  quietHoursEnd: string;
+  allowCriticalDuringQuietHours: boolean;
+  systemAlerts: boolean;
+  emergencyEvents: boolean;
+  appointmentReminders: boolean;
+  labResults: boolean;
+  billingUpdates: boolean;
+  productUpdates: boolean;
+};
+
+export const DEFAULT_TENANT_NOTIFICATION_SETTINGS: TenantNotificationSettings = {
   emailEnabled: true,
   smsEnabled: false,
   pushEnabled: true,
@@ -19,9 +38,7 @@ export const DEFAULT_TENANT_NOTIFICATION_SETTINGS = {
   labResults: true,
   billingUpdates: true,
   productUpdates: false,
-} as const;
-
-export type TenantNotificationSettings = typeof DEFAULT_TENANT_NOTIFICATION_SETTINGS;
+};
 
 function normalizeTime(value: unknown, fallback: string) {
   return typeof value === "string" && /^\d{2}:\d{2}$/.test(value) ? value : fallback;

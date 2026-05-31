@@ -1,7 +1,7 @@
 "use server";
 
 import { ID, Query } from "node-appwrite";
-import { File } from 'node:buffer'; // Import Node.js native File class for server-side
+import { InputFile } from "node-appwrite/file";
 
 import {
   BUCKET_ID,
@@ -70,7 +70,7 @@ export const registerPatient = async ({
       // Convert Blob to Buffer for server-side upload
       const arrayBuffer = await blobFile.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      const inputFile = new File([buffer], fileName, { type: blobFile.type });
+      const inputFile = InputFile.fromBuffer(buffer, fileName);
 
       file = await storage.createFile(BUCKET_ID!, ID.unique(), inputFile);
     }

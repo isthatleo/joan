@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { messagingSettings, users, userRoles } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { messagingSettings, users } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 export async function GET(request: NextRequest) {
@@ -16,16 +16,18 @@ export async function GET(request: NextRequest) {
     // Verify user is hospital admin
     const user = await db.query.users.findFirst({
       where: eq(users.id, userId),
-      with: { userRoles: { with: { role: true } } }
     });
 
-    if (user?.userRoles?.[0]?.role?.name !== "hospital_admin") {
+    if (user?.role !== "hospital_admin") {
       return NextResponse.json({ error: "Only hospital admins can access messaging settings" }, { status: 403 });
+    }
+    if (!user.tenantId) {
+      return NextResponse.json({ error: "User is not assigned to a tenant" }, { status: 400 });
     }
 
     // Get or create settings
     const settings = await db.query.messagingSettings.findFirst({
-      where: eq(messagingSettings.tenantId, user.tenantId!)
+      where: eq(messagingSettings.tenantId, user.tenantId)
     });
 
     return NextResponse.json({
@@ -54,16 +56,18 @@ export async function POST(request: NextRequest) {
     // Verify user is hospital admin
     const user = await db.query.users.findFirst({
       where: eq(users.id, userId),
-      with: { userRoles: { with: { role: true } } }
     });
 
-    if (user?.userRoles?.[0]?.role?.name !== "hospital_admin") {
+    if (user?.role !== "hospital_admin") {
       return NextResponse.json({ error: "Only hospital admins can update messaging settings" }, { status: 403 });
+    }
+    if (!user.tenantId) {
+      return NextResponse.json({ error: "User is not assigned to a tenant" }, { status: 400 });
     }
 
     // Upsert settings
     const existingSettings = await db.query.messagingSettings.findFirst({
-      where: eq(messagingSettings.tenantId, user.tenantId!)
+      where: eq(messagingSettings.tenantId, user.tenantId)
     });
 
     if (existingSettings) {
@@ -73,12 +77,12 @@ export async function POST(request: NextRequest) {
           allowPatientMessaging: allowPatientMessaging ?? existingSettings.allowPatientMessaging,
           allowGuardianMessaging: allowGuardianMessaging ?? existingSettings.allowGuardianMessaging,
         })
-        .where(eq(messagingSettings.tenantId, user.tenantId!))
+        .where(eq(messagingSettings.tenantId, user.tenantId))
         .returning();
       return NextResponse.json({ settings: updated[0] });
     } else {
       const created = await db.insert(messagingSettings).values({
-        tenantId: user.tenantId!,
+        tenantId: user.tenantId,
         allowAllStaffMessaging: allowAllStaffMessaging ?? false,
         allowPatientMessaging: allowPatientMessaging ?? false,
         allowGuardianMessaging: allowGuardianMessaging ?? false,
@@ -88,7 +92,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Validation error", details: error.errors },
+        { error: "Validation error", details: error.issues },
         { status: 400 }
       );
     }

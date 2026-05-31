@@ -37,15 +37,18 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Dashboard", path: "/super-admin", icon: LayoutDashboard, category: "Central Control" },
     { label: "Tenants", path: "/tenants", icon: Building2, category: "Admin" },
     { label: "Tenant Usage", path: "/tenants/usage", icon: Activity, category: "Admin" },
+    { label: "Subscription Plans", path: "/tenants/subscription-plans", icon: CreditCard, category: "Admin" },
     { label: "Users", path: "/super-admin/users", icon: Users, category: "Admin" },
+    { label: "Billing", path: "/super-admin/billing", icon: Receipt, category: "Admin" },
     { label: "Global Analytics", path: "/global-analytics", icon: BarChart3, category: "Admin" },
     { label: "Roles & Permissions", path: "/roles", icon: ShieldCheck, category: "Admin" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },
     { label: "Broadcasts", path: "/broadcasts", icon: Megaphone, category: "Communication" },
+    { label: "Feedback", path: "/super-admin/feedback", icon: MessageSquare, category: "Communication" },
     { label: "Compliance", path: "/compliance", icon: ShieldAlert, category: "Security" },
     { label: "Audit Logs", path: "/compliance/audit", icon: History, category: "Security" },
-    { label: "System Health", path: "/system-health", icon: ServerCog, category: "System" },
-    { label: "Platform Settings", path: "/settings", icon: Settings, category: "System" },
+    { label: "System Health", path: "/super-admin/system-health", icon: ServerCog, category: "System" },
+    { label: "Platform Settings", path: "/super-admin/settings", icon: Settings, category: "System" },
   ],
   hospital_admin: [
     { label: "Dashboard", path: "/admin", icon: LayoutDashboard, category: "Main" },
@@ -177,7 +180,15 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
 
 const STORAGE_KEY = "joan-sidebar-collapsed";
 
-export function Sidebar() {
+export function Sidebar({
+  mobileEnabled = false,
+  mobileOpen = false,
+  onMobileClose,
+}: {
+  mobileEnabled?: boolean;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+}) {
   const { user } = useAuthStore();
   const pathname = usePathname();
   const role = (user?.role || "doctor") as keyof typeof sidebarConfigs;
@@ -320,9 +331,7 @@ export function Sidebar() {
     };
 
     if (tenantSlug) {
-      if (!hasCachedBranding) {
-        scheduleRefresh(fetchLatestBranding);
-      }
+      scheduleRefresh(fetchLatestBranding);
       if (!hasCachedModules) {
         scheduleRefresh(fetchLatestModules);
       }
@@ -360,16 +369,30 @@ export function Sidebar() {
   }
 
   return (
+    <>
+      {mobileEnabled ? (
+        <div
+          className={cn(
+            "fixed inset-0 z-40 bg-black/45 backdrop-blur-sm transition-opacity lg:hidden",
+            mobileOpen ? "opacity-100" : "pointer-events-none opacity-0"
+          )}
+          onClick={onMobileClose}
+        />
+      ) : null}
     <aside
       className={cn(
-        "flex h-screen flex-col border-r border-sidebar-border bg-sidebar transition-[width]",
-        collapsed ? "w-16" : "w-64"
+        "flex flex-col border-r border-sidebar-border bg-sidebar",
+        mobileEnabled
+          ? "fixed inset-y-0 left-0 z-50 h-dvh w-72 shadow-2xl transition-transform duration-200 lg:static lg:z-auto lg:h-screen lg:shadow-none lg:transition-[width]"
+          : "h-screen transition-[width]",
+        mobileEnabled && (mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"),
+        collapsed ? (mobileEnabled ? "lg:w-16" : "w-16") : (mobileEnabled ? "lg:w-64" : "w-64")
       )}
     >
       {/* Brand */}
       <div className={cn(
         "flex items-center gap-3 border-b border-sidebar-border px-4 py-4",
-        collapsed && "justify-center px-2"
+        collapsed && (mobileEnabled ? "lg:justify-center lg:px-2" : "justify-center px-2")
       )}>
         {tenantLogo ? (
           <img data-hospital-logo src={tenantLogo} alt="Logo" className="h-9 w-9 shrink-0 rounded-xl object-cover border border-sidebar-border" />
@@ -378,7 +401,7 @@ export function Sidebar() {
             <GraduationCap className="h-5 w-5" />
           </div>
         )}
-        {!collapsed && (
+        {(!collapsed || (mobileEnabled && mobileOpen)) && (
           <div className="min-w-0 flex-1">
             <p data-hospital-name className="truncate text-base font-semibold text-sidebar-foreground">{tenantName}</p>
             <p className="truncate text-xs text-sidebar-muted">Healthcare OS</p>
@@ -390,14 +413,14 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto px-2 py-3 scrollbar-thin">
         {ordered.map((group) => (
           <div key={group.category} className="mb-3">
-            {!collapsed && (
+            {(!collapsed || (mobileEnabled && mobileOpen)) && (
               <p className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wider text-sidebar-muted">
                 {group.category}
               </p>
             )}
             <ul className="space-y-0.5">
               {group.items.filter((item) => isTenantModuleEnabled(tenantModules, getModuleKeyForPath(item.path))).map((item) => {
-                const resolvedPath = withTenantPrefix(item.path, tenantSlug, hostname);
+                const resolvedPath = role === "super_admin" ? item.path : withTenantPrefix(item.path, tenantSlug, hostname);
                 const isActive =
                   pathname === resolvedPath ||
                   (resolvedPath !== "/" && pathname.startsWith(resolvedPath + "/"));
@@ -407,16 +430,17 @@ export function Sidebar() {
                     <Link
                       href={resolvedPath}
                       title={collapsed ? item.label : undefined}
+                      onClick={mobileEnabled ? onMobileClose : undefined}
                       className={cn(
                         "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                         isActive
                           ? "bg-sidebar-active text-sidebar-active-foreground"
                           : "text-sidebar-foreground hover:bg-muted/60",
-                        collapsed && "justify-center px-0"
+                        collapsed && (mobileEnabled ? "lg:justify-center lg:px-0" : "justify-center px-0")
                       )}
                     >
                       <Icon className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span className="truncate">{item.label}</span>}
+                      {(!collapsed || (mobileEnabled && mobileOpen)) && <span className="truncate">{item.label}</span>}
                     </Link>
                   </li>
                 );
@@ -432,7 +456,8 @@ export function Sidebar() {
           type="button"
           onClick={toggleCollapsed}
           className={cn(
-            "mb-2 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-sidebar-muted transition-colors hover:bg-muted/60",
+            "mb-2 w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-sidebar-muted transition-colors hover:bg-muted/60",
+            mobileEnabled ? "hidden lg:flex" : "flex",
             collapsed && "justify-center px-0"
           )}
         >
@@ -441,7 +466,7 @@ export function Sidebar() {
         </button>
         <div className={cn(
           "flex items-center gap-3 rounded-lg px-3 py-2",
-          collapsed && "justify-center px-0"
+          collapsed && (mobileEnabled ? "lg:justify-center lg:px-0" : "justify-center px-0")
         )}>
           <Avatar className="h-8 w-8 shrink-0">
             <AvatarImage src={user?.avatar || undefined} alt={user?.fullName || "User"} />
@@ -449,7 +474,7 @@ export function Sidebar() {
               {(user?.fullName || user?.email || "U").charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          {!collapsed && (
+          {(!collapsed || (mobileEnabled && mobileOpen)) && (
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-medium text-sidebar-foreground">
                 {user?.fullName || "User"}
@@ -462,5 +487,6 @@ export function Sidebar() {
         </div>
       </div>
     </aside>
+    </>
   );
 }

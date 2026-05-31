@@ -5,9 +5,11 @@ import Link from "next/link";
 import {
   Search, Filter, Plus, Building2, Loader2, Check, Copy, AlertCircle,
   ChevronLeft, ChevronRight, X, RotateCw, ExternalLink, Clock, CheckCircle2, XCircle, Trash2,
+  CreditCard,
 } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
+import { AddressFields } from "@/components/forms/AddressFields";
 
 type Tenant = {
   id: string;
@@ -16,7 +18,11 @@ type Tenant = {
   plan: string;
   isActive: boolean;
   contactEmail?: string;
+  logoUrl?: string | null;
   createdAt?: string;
+  deletedAt?: string | null;
+  scheduledPurgeAt?: string | null;
+  provisioningStatus?: string | null;
 };
 
 type ProvisioningRun = {
@@ -26,7 +32,25 @@ type ProvisioningRun = {
   errorMessage: string | null;
   startedAt: string;
   completedAt: string | null;
+  metadata?: { input?: any; result?: any } | null;
   tenant: { id: string; name: string; slug: string } | null;
+};
+
+type SubscriptionPlan = {
+  id: string;
+  name: string;
+  code: string;
+  description?: string | null;
+  currency: string;
+  monthlyPrice: string;
+  yearlyPrice: string;
+  staffLimit: number;
+  clientLimit: number;
+  storageGb: number;
+  features: string[];
+  modules: string[];
+  supportLevel: string;
+  isActive: boolean;
 };
 
 const orange = "#F97316";
@@ -45,11 +69,13 @@ const STAGES = [
   { key: "roles", label: "Seeding user roles" },
   { key: "departments", label: "Seeding departments" },
   { key: "modules", label: "Activating modules" },
+  { key: "billing", label: "Issuing subscription invoice" },
   { key: "audit", label: "Recording audit log" },
 ];
 
 const DEFAULT_DEPTS = ["Reception", "General Medicine", "Pharmacy", "Laboratory", "Emergency"];
 const DEFAULT_MODULES = ["Appointments", "Pharmacy", "Laboratory", "Billing", "Inpatient", "Emergency", "Telemedicine"];
+const DEFAULT_PLAN_CODE = "growth_practice";
 
 type StageState = {
   status: "pending" | "running" | "done" | "error";
@@ -71,6 +97,7 @@ function summarizeMeta(key: string, meta: any): string {
   if (key === "roles" && meta.roles) return `${meta.count} role${meta.count === 1 ? "" : "s"}`;
   if (key === "departments" && meta.departments) return `${meta.count} · ${(meta.departments as string[]).slice(0, 3).join(", ")}${meta.departments.length > 3 ? "…" : ""}`;
   if (key === "modules" && meta.modules) return `${meta.count} module${meta.count === 1 ? "" : "s"}`;
+  if (key === "billing" && meta.invoiceNumber) return `${meta.invoiceNumber} - ${meta.status}`;
   return "";
 }
 
@@ -103,6 +130,17 @@ function validateForm(form: any): Record<string, string> {
   return errors;
 }
 
+async function readJsonResponse(response: Response, fallbackMessage: string) {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return response.json().catch(() => ({}));
+  }
+
+  const text = await response.text().catch(() => "");
+  const message = text.includes("<!DOCTYPE") ? fallbackMessage : text || fallbackMessage;
+  throw new Error(message);
+}
+
 export default function TenantsPage() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,6 +148,7 @@ export default function TenantsPage() {
   const debouncedSearch = useDebounce(search, 500);
   const [planFilter, setPlanFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
 
   // recent provisions
   const [runs, setRuns] = useState<ProvisioningRun[]>([]);
@@ -121,7 +160,7 @@ export default function TenantsPage() {
   const [form, setForm] = useState<any>({
     name: "", contactEmail: "", contactPhone: "",
     address: "", city: "", country: "", timezone: "UTC",
-    logoUrl: "", plan: "Standard",
+    logoUrl: "", plan: DEFAULT_PLAN_CODE,
     adminEmail: "", adminFullName: "",
     departments: [...DEFAULT_DEPTS],
     modules: [...DEFAULT_MODULES],
@@ -138,7 +177,7 @@ export default function TenantsPage() {
 
   const handleDeleteTenant = async (t: Tenant) => {
     const confirmText = prompt(
-      `This will ARCHIVE "${t.name}" and hide it from default views.\n\nData will be preserved for 30 days, after which a super-admin may permanently purge it.\n\nThis action can be undone during the grace period.\n\nType the slug "${t.slug}" to confirm:`
+      `This will ARCHIVE "${t.name}" and hide it from default views.\n\nData will be preserved for 60 days, after which a super-admin may permanently purge it.\n\nThis action can be undone during the grace period.\n\nType the slug "${t.slug}" to confirm:`
     );
     if (confirmText !== t.slug) {
       if (confirmText !== null) alert("Slug did not match. Archive cancelled.");
@@ -198,8 +237,9 @@ export default function TenantsPage() {
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (planFilter !== "all") params.set("plan", planFilter);
       if (statusFilter !== "all") params.set("status", statusFilter);
-      const res = await fetch(`/api/tenants?${params.toString()}`);
-      const data = await res.json();
+      const res = await fetch(`/api/tenants?${params.toString()}`, { cache: "no-store" });
+      const data = await readJsonResponse(res, "Failed to fetch tenants");
+      if (!res.ok) throw new Error(data?.error || "Failed to fetch tenants");
       setTenants(Array.isArray(data) ? data : data.tenants || []);
     } catch (error) {
       console.error("Failed to fetch tenants:", error);
@@ -210,15 +250,25 @@ export default function TenantsPage() {
     setRunsLoading(true);
     try {
       const res = await fetch("/api/provisioning-runs?limit=6");
-      const data = await res.json();
+      const data = await readJsonResponse(res, "Failed to fetch provisioning runs");
       setRuns(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error("Failed to fetch runs:", e);
     } finally { setRunsLoading(false); }
   };
 
+  const fetchPlans = async () => {
+    try {
+      const res = await fetch("/api/subscription-plans", { cache: "no-store", credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data?.plans)) setPlans(data.plans);
+    } catch (error) {
+      console.error("Failed to fetch subscription plans:", error);
+    }
+  };
+
   useEffect(() => { fetchTenants(); }, [debouncedSearch, planFilter, statusFilter]);
-  useEffect(() => { fetchRuns(); }, []);
+  useEffect(() => { fetchRuns(); fetchPlans(); }, []);
 
   const stats = useMemo(() => {
     const active = tenants.filter(t => t.isActive).length;
@@ -234,7 +284,7 @@ export default function TenantsPage() {
     setForm({
       name: "", contactEmail: "", contactPhone: "",
       address: "", city: "", country: "", timezone: "UTC",
-      logoUrl: "", plan: "Standard",
+      logoUrl: "", plan: plans.find((plan) => plan.isActive)?.code || DEFAULT_PLAN_CODE,
       adminEmail: "", adminFullName: "",
       departments: [...DEFAULT_DEPTS], modules: [...DEFAULT_MODULES],
     });
@@ -253,10 +303,11 @@ export default function TenantsPage() {
       setErrors(v);
       // jump to earliest step containing an error
       const stepFields: Record<number, string[]> = {
-        0: ["name", "plan"],
-        1: ["contactEmail"],
-        3: ["logoUrl"],
-        4: ["adminFullName", "adminEmail"],
+        0: ["name"],
+        1: ["plan"],
+        2: ["contactEmail"],
+        4: ["logoUrl"],
+        5: ["adminFullName", "adminEmail"],
       };
       const failingStep = Object.entries(stepFields).find(([, fields]) => fields.some(f => v[f]));
       if (failingStep) setStep(parseInt(failingStep[0], 10));
@@ -323,12 +374,46 @@ export default function TenantsPage() {
     startProvisioning();
   }, [startProvisioning]);
 
+  const retryProvisioningRun = useCallback((run: ProvisioningRun) => {
+    const input = run.metadata?.input;
+    if (!input) {
+      alert("This provisioning run does not include retryable input metadata.");
+      return;
+    }
+    const retryPayload = {
+      name: input.name || "",
+      contactEmail: input.contactEmail || "",
+      contactPhone: input.contactPhone || "",
+      address: input.address || "",
+      city: input.city || "",
+      country: input.country || "",
+      timezone: input.timezone || "UTC",
+      logoUrl: input.logoUrl || "",
+      plan: input.plan || DEFAULT_PLAN_CODE,
+      adminEmail: input.adminEmail || "",
+      adminFullName: input.adminFullName || "",
+      departments: input.departments || input.seedDepartments || [...DEFAULT_DEPTS],
+      seedDepartments: input.seedDepartments || input.departments || [...DEFAULT_DEPTS],
+      modules: input.modules || [...DEFAULT_MODULES],
+    };
+    const tenantName = retryPayload.name || run.tenant?.name || "this tenant";
+    if (!confirm(`Retry provisioning for "${tenantName}" using the saved provisioning input?`)) return;
+    setForm(retryPayload);
+    setStep(8);
+    setProvisionResult(null);
+    setProvisionError(null);
+    setStageStatus(emptyStageMap());
+    setErrors({});
+    setWizardOpen(true);
+    void startProvisioning(retryPayload);
+  }, [startProvisioning]);
+
   const handleBulkDelete = async () => {
     const selectedList = tenants.filter(t => selectedTenants.has(t.id));
     if (selectedList.length === 0) return;
 
     const confirmText = prompt(
-      `This will ARCHIVE ${selectedList.length} tenant(s) and hide them from default views.\n\nData will be preserved for 30 days, after which a super-admin may permanently purge them.\n\nThis action can be undone during the grace period.\n\nType "ARCHIVE ${selectedList.length}" to confirm:`
+      `This will ARCHIVE ${selectedList.length} tenant(s) and hide them from default views.\n\nData will be preserved for 60 days, after which a super-admin may permanently purge them.\n\nThis action can be undone during the grace period.\n\nType "ARCHIVE ${selectedList.length}" to confirm:`
     );
     if (confirmText !== `ARCHIVE ${selectedList.length}`) {
       if (confirmText !== null) alert("Confirmation failed. Bulk archive cancelled.");
@@ -379,8 +464,9 @@ export default function TenantsPage() {
     setSelectedTenants(newSelected);
   };
 
-  const totalSteps = 8;
-  const stepTitles = ["Identity", "Contact", "Address", "Branding", "Admin", "Departments", "Modules", "Review"];
+  const totalSteps = 9;
+  const stepTitles = ["Identity", "Plan", "Contact", "Address", "Branding", "Admin", "Departments", "Modules", "Review"];
+  const selectedPlan = plans.find((plan) => plan.code === form.plan || plan.name === form.plan || plan.id === form.plan);
 
   return (
     <div className="min-h-screen bg-subtle -m-6 p-4 md:p-8">
@@ -390,9 +476,17 @@ export default function TenantsPage() {
             <h1 className="text-3xl font-bold text-foreground">Tenant Registry</h1>
             <p className="text-muted-foreground text-sm mt-1 font-medium">Provision and manage isolated hospital environments.</p>
           </div>
-          <button onClick={openWizard} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-md hover:opacity-90 transition-all active:scale-95" style={{ backgroundColor: orange }}>
-            <Plus className="size-4" /> Provision New Tenant
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/tenants/deleted" className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-border bg-card text-sm font-semibold text-foreground shadow-sm hover:bg-muted transition-all active:scale-95">
+              <Trash2 className="size-4" /> Deleted Tenants
+            </Link>
+            <Link href="/tenants/subscription-plans" className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-border bg-card text-sm font-semibold text-foreground shadow-sm hover:bg-muted transition-all active:scale-95">
+              <CreditCard className="size-4" /> Subscription Plans
+            </Link>
+            <button onClick={openWizard} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-semibold shadow-md hover:opacity-90 transition-all active:scale-95" style={{ backgroundColor: orange }}>
+              <Plus className="size-4" /> Provision New Tenant
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -432,6 +526,9 @@ export default function TenantsPage() {
                     <option value="Basic">Basic</option>
                     <option value="Standard">Standard</option>
                     <option value="Premium">Premium</option>
+                    {plans.map((plan) => (
+                      <option key={plan.id} value={plan.name}>{plan.name}</option>
+                    ))}
                   </select>
                   <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300">
                     <option value="all">All Status</option>
@@ -442,7 +539,7 @@ export default function TenantsPage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 border-b border-border">
                   <tr className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
@@ -486,8 +583,12 @@ export default function TenantsPage() {
                       </td>
                       <td className="px-5 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-3">
-                          <div className="size-9 rounded-lg bg-muted flex items-center justify-center text-muted-foreground border border-border shrink-0">
-                            <Building2 className="size-4" />
+                          <div className="size-9 rounded-lg bg-muted flex items-center justify-center text-muted-foreground border border-border shrink-0 overflow-hidden">
+                            {t.logoUrl ? (
+                              <img src={t.logoUrl} alt={`${t.name} logo`} className="h-full w-full object-cover" />
+                            ) : (
+                              <Building2 className="size-4" />
+                            )}
                           </div>
                           <div>
                             <p className="font-semibold text-foreground">{t.name}</p>
@@ -584,11 +685,26 @@ export default function TenantsPage() {
                       </div>
                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${statusChip}`}>{r.status}</span>
                     </div>
-                    <div className="flex items-center justify-between mt-2 text-[11px] text-muted-foreground">
-                      <span className="inline-flex items-center gap-1"><Clock className="size-3" />{new Date(r.startedAt).toLocaleString()}</span>
-                      {r.tenant?.slug && (
-                        <Link href={`/tenants/${r.tenant.slug}`} className="text-orange-600 hover:underline font-semibold">View</Link>
-                      )}
+                    <div className="flex items-center justify-between gap-2 mt-2 text-[11px] text-muted-foreground">
+                      <span className="inline-flex items-center gap-1 min-w-0 truncate"><Clock className="size-3 shrink-0" />{new Date(r.startedAt).toLocaleString()}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {r.status === "failed" && (
+                          <button
+                            type="button"
+                            onClick={() => retryProvisioningRun(r)}
+                            className="text-red-600 hover:underline font-semibold"
+                          >
+                            Retry
+                          </button>
+                        )}
+                        {r.tenant?.slug && (
+                          <Link href={`/tenants/${r.tenant.slug}`} className="text-orange-600 hover:underline font-semibold">View</Link>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                      <span>Stage: <span className="font-medium text-foreground">{r.stage || (r.status === "completed" ? "complete" : "pending")}</span></span>
+                      {r.completedAt && <span>Completed: {new Date(r.completedAt).toLocaleString()}</span>}
                     </div>
                     {r.status === "failed" && r.errorMessage && (
                       <p className="mt-2 text-[11px] text-red-600 bg-red-50 border border-red-100 rounded px-2 py-1">
@@ -693,6 +809,7 @@ export default function TenantsPage() {
                   <Field label="Tenant URL (development)" value={`http://${provisionResult.tenant?.slug}.localhost:3000`} />
                   <Field label="Admin Email" value={provisionResult.admin?.email} />
                   <Field label="Temporary Password" value={provisionResult.admin?.tempPassword} mono />
+                  {provisionResult.tenant?.invoiceNumber && <Field label="Subscription Invoice" value={`${provisionResult.tenant.invoiceNumber} (${provisionResult.tenant.invoiceStatus})`} />}
                 </div>
               )}
 
@@ -701,34 +818,62 @@ export default function TenantsPage() {
                 <div className="space-y-4">
                   {step === 0 && <>
                     <TextField label="Hospital Name *" value={form.name} onChange={(v: string) => setForm({ ...form, name: v })} placeholder="Mountain Peak Hospital" error={errors.name} />
-                    <SelectField label="Plan *" value={form.plan} onChange={(v: string) => setForm({ ...form, plan: v })} options={["Basic", "Standard", "Premium"]} error={errors.plan} />
                   </>}
                   {step === 1 && <>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {plans.map((plan) => (
+                        <button
+                          key={plan.id}
+                          type="button"
+                          onClick={() => setForm({ ...form, plan: plan.code, modules: Array.isArray(plan.modules) && plan.modules.length ? plan.modules : form.modules })}
+                          className={`rounded-xl border p-4 text-left transition hover:border-orange-300 ${form.plan === plan.code ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10" : "border-border bg-background"}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-foreground">{plan.name}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{plan.description}</p>
+                            </div>
+                            <span className="rounded-full bg-muted px-2 py-1 text-xs font-semibold text-foreground">
+                              {plan.currency} {Number(plan.monthlyPrice).toLocaleString()}/mo
+                            </span>
+                          </div>
+                          <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-muted-foreground">
+                            <span>{plan.staffLimit.toLocaleString()} staff</span>
+                            <span>{plan.clientLimit.toLocaleString()} clients</span>
+                            <span>{plan.storageGb.toLocaleString()}GB</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    {errors.plan && <p className="text-xs text-red-600">{errors.plan}</p>}
+                    {plans.length === 0 && <SelectField label="Plan *" value={form.plan} onChange={(v: string) => setForm({ ...form, plan: v })} options={["Basic", "Standard", "Premium"]} error={errors.plan} />}
+                  </>}
+                  {step === 2 && <>
                     <TextField label="Contact Email *" value={form.contactEmail} onChange={(v: string) => setForm({ ...form, contactEmail: v })} placeholder="contact@hospital.com" error={errors.contactEmail} />
                     <TextField label="Contact Phone" value={form.contactPhone} onChange={(v: string) => setForm({ ...form, contactPhone: v })} placeholder="+1 555 123 4567" type="phone" />
                   </>}
-                  {step === 2 && <>
-                    <TextField label="Address" value={form.address} onChange={(v: string) => setForm({ ...form, address: v })} />
-                    <div className="grid grid-cols-2 gap-3">
-                      <TextField label="City" value={form.city} onChange={(v: string) => setForm({ ...form, city: v })} />
-                      <TextField label="Country" value={form.country} onChange={(v: string) => setForm({ ...form, country: v })} />
-                    </div>
+                  {step === 3 && <>
+                    <AddressFields
+                      value={{ address: form.address, city: form.city, country: form.country }}
+                      onChange={(next) => setForm({ ...form, address: next.address, city: next.city, country: next.country })}
+                      className="grid grid-cols-1 gap-3 md:grid-cols-2"
+                    />
                     <TextField label="Timezone" value={form.timezone} onChange={(v: string) => setForm({ ...form, timezone: v })} />
                   </>}
-                  {step === 3 && <>
+                  {step === 4 && <>
                     <TextField label="Logo URL (optional)" value={form.logoUrl} onChange={(v: string) => setForm({ ...form, logoUrl: v })} placeholder="https://..." error={errors.logoUrl} />
                   </>}
-                  {step === 4 && <>
+                  {step === 5 && <>
                     <TextField label="Admin Full Name *" value={form.adminFullName} onChange={(v: string) => setForm({ ...form, adminFullName: v })} error={errors.adminFullName} />
                     <TextField label="Admin Email *" value={form.adminEmail} onChange={(v: string) => setForm({ ...form, adminEmail: v })} placeholder="admin@hospital.com" error={errors.adminEmail} />
                     <p className="text-xs text-muted-foreground">A temporary password will be generated and shown once at the end.</p>
                   </>}
-                  {step === 5 && <ChipsEditor label="Departments" items={form.departments} onChange={(v: string[]) => setForm({ ...form, departments: v })} />}
-                  {step === 6 && <ChipsEditor label="Modules" items={form.modules} onChange={(v: string[]) => setForm({ ...form, modules: v })} />}
-                  {step === 7 && (
+                  {step === 6 && <ChipsEditor label="Departments" items={form.departments} onChange={(v: string[]) => setForm({ ...form, departments: v })} />}
+                  {step === 7 && <ChipsEditor label="Modules" items={form.modules} onChange={(v: string[]) => setForm({ ...form, modules: v })} />}
+                  {step === 8 && (
                     <div className="space-y-2 text-sm">
                       <Row k="Hospital" v={form.name} />
-                      <Row k="Plan" v={form.plan} />
+                      <Row k="Plan" v={selectedPlan ? `${selectedPlan.name} (${selectedPlan.currency} ${Number(selectedPlan.monthlyPrice).toLocaleString()}/mo)` : form.plan} />
                       <Row k="Contact" v={form.contactEmail} />
                       <Row k="Admin" v={`${form.adminFullName} <${form.adminEmail}>`} />
                       <Row k="Departments" v={form.departments.join(", ")} />

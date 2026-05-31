@@ -75,13 +75,41 @@ export async function POST(request: NextRequest) {
   }
 
   const tenant = tenantSlug ? await getTenantBySlug(tenantSlug) : (user.tenantId ? await db.query.tenants.findFirst({ where: eq(tenants.id, user.tenantId) }) : null);
+  if (tenantSlug && (!tenant || tenant.isActive === false || tenant.deletedAt)) {
+    return NextResponse.json({
+      allowed: false,
+      reason: "tenant_inactive",
+      error: "This tenant is archived or unavailable.",
+    }, { status: 403 });
+  }
+  if (tenant && user.tenantId && user.tenantId !== tenant.id) {
+    return NextResponse.json({
+      allowed: false,
+      reason: "wrong_tenant",
+      error: "This account does not belong to this tenant.",
+    }, { status: 403 });
+  }
   const tenantId = tenant?.id || user.tenantId || null;
   const tenantSecurity = tenantId ? await getTenantSecuritySettings(tenantId) : null;
   const mergedSettings = await getUserMergedSettings(user.id);
   const lockoutUntil = mergedSettings.security.lockoutUntil ? new Date(mergedSettings.security.lockoutUntil) : null;
   const isLocked = !!lockoutUntil && !Number.isNaN(lockoutUntil.getTime()) && lockoutUntil.getTime() > Date.now();
+  const lockExpired = !!lockoutUntil && !Number.isNaN(lockoutUntil.getTime()) && lockoutUntil.getTime() <= Date.now();
+  const effectiveSettings = lockExpired
+    ? mergeUserSettings({
+        ...mergedSettings,
+        security: {
+          ...mergedSettings.security,
+          failedLoginAttempts: 0,
+          lockoutUntil: "",
+        },
+      })
+    : mergedSettings;
+  if (lockExpired) {
+    await persistUserMergedSettings(user.id, effectiveSettings);
+  }
   const expiry = getPasswordExpiryInfo(
-    mergedSettings.security.passwordLastChanged,
+    effectiveSettings.security.passwordLastChanged,
     Boolean(tenantSecurity?.passwordExpirationEnabled),
     Number(tenantSecurity?.passwordExpirationDays || 90)
   );
@@ -99,6 +127,7 @@ export async function POST(request: NextRequest) {
         allowed: false,
         reason: "locked",
         lockoutUntil: lockoutUntil?.toISOString() || null,
+        retryAfterSeconds: lockoutUntil ? Math.max(0, Math.ceil((lockoutUntil.getTime() - Date.now()) / 1000)) : 0,
       });
     }
     return NextResponse.json({
@@ -110,17 +139,17 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "record-failure") {
-    const currentAttempts = Number(mergedSettings.security.failedLoginAttempts || 0) + 1;
+    const currentAttempts = Number(effectiveSettings.security.failedLoginAttempts || 0) + 1;
     const maxAttempts = Number(tenantSecurity?.maxFailedLoginAttempts || 5);
     const loginLimitsEnabled = (tenantSecurity as any)?.loginAttemptLimitsEnabled === false ? false : true;
     const nextSettings = mergeUserSettings({
-      ...mergedSettings,
+      ...effectiveSettings,
       security: {
-        ...mergedSettings.security,
+        ...effectiveSettings.security,
         failedLoginAttempts: currentAttempts,
         lockoutUntil: loginLimitsEnabled && currentAttempts >= maxAttempts
           ? new Date(Date.now() + 15 * 60 * 1000).toISOString()
-          : mergedSettings.security.lockoutUntil,
+          : effectiveSettings.security.lockoutUntil,
       },
     });
     await persistUserMergedSettings(user.id, nextSettings);
@@ -134,13 +163,13 @@ export async function POST(request: NextRequest) {
 
   if (action === "record-success") {
     const nextSettings = mergeUserSettings({
-      ...mergedSettings,
+      ...effectiveSettings,
       security: {
-        ...mergedSettings.security,
+        ...effectiveSettings.security,
         failedLoginAttempts: 0,
         lockoutUntil: "",
-        passwordLastChanged: mergedSettings.security.passwordLastChanged || new Date().toISOString(),
-        forcePasswordChange: expiry.expired ? true : mergedSettings.security.forcePasswordChange,
+        passwordLastChanged: effectiveSettings.security.passwordLastChanged || new Date().toISOString(),
+        forcePasswordChange: expiry.expired ? true : effectiveSettings.security.forcePasswordChange,
       },
     });
     await persistUserMergedSettings(user.id, nextSettings);

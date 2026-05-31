@@ -1,231 +1,191 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/ui";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Shield, CheckCircle, AlertTriangle, XCircle, FileText, Calendar, Users, Lock, Eye, Download } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle,
+  Download,
+  FileText,
+  Filter,
+  RefreshCw,
+  Search,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
+  Users,
+  XCircle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface ComplianceStatus {
-  overall: number;
-  hipaa: number;
-  gdpr: number;
-  hipaa_compliance: number;
-  gdpr_compliance: number;
-  last_audit: string;
-  next_audit: string;
+type ComplianceStatus = "compliant" | "non_compliant" | "warning" | "pending";
+
+interface CompliancePayload {
+  generatedAt: string;
+  status: {
+    overall: number;
+    hipaa: number;
+    gdpr: number;
+    auditReadiness: number;
+    security: number;
+  };
+  summary: Record<string, number>;
+  checks: Array<{
+    id: string;
+    category: string;
+    requirement: string;
+    status: ComplianceStatus;
+    severity: "high" | "medium" | "low";
+    score: number;
+    details: string;
+  }>;
+  tenantMatrix: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    plan: string;
+    isActive: boolean;
+    usersCount: number;
+    openSecurityEvents: number;
+    criticalSecurityEvents: number;
+    openAlerts: number;
+    failedActivity: number;
+    lastActivityAt: string | null;
+    riskScore: number;
+    riskLevel: "high" | "medium" | "low";
+  }>;
+  highRiskTenants: CompliancePayload["tenantMatrix"];
+  recentSecurityEvents: Array<Record<string, any>>;
+  recentActivity: Array<Record<string, any>>;
+  platformFeedback: Array<Record<string, any>>;
 }
 
-interface ComplianceCheck {
-  id: string;
-  category: string;
-  requirement: string;
-  status: "compliant" | "non_compliant" | "pending" | "warning";
-  last_checked: string;
-  details: string;
-  severity: "high" | "medium" | "low";
+function formatDate(value?: string | null) {
+  if (!value) return "No activity";
+  return new Date(value).toLocaleString();
 }
 
-interface AuditLog {
-  id: string;
-  timestamp: string;
-  user: string;
-  action: string;
-  resource: string;
-  ip_address: string;
-  user_agent: string;
-  compliance_flag: boolean;
+function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
+  const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+  const csv = [
+    headers.join(","),
+    ...rows.map((row) =>
+      headers
+        .map((header) => {
+          const value = row[header];
+          return `"${String(value ?? "").replace(/"/g, '""')}"`;
+        })
+        .join(",")
+    ),
+  ].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 export default function CompliancePage() {
-  const [activeTab, setActiveTab] = useState("checks");
-  const { data: complianceData, isLoading } = useQuery({
-    queryKey: ["compliance"],
-    queryFn: async () => {
-      // This would typically fetch from compliance APIs
-      return {
-        status: {
-          overall: 98.5,
-          hipaa: 99.2,
-          gdpr: 97.8,
-          hipaa_compliance: 99.2,
-          gdpr_compliance: 97.8,
-          last_audit: "2024-04-01",
-          next_audit: "2024-07-01",
-        } as ComplianceStatus,
-        checks: [
-          {
-            id: "1",
-            category: "Data Encryption",
-            requirement: "All PHI data must be encrypted at rest and in transit",
-            status: "compliant",
-            last_checked: "2024-04-15",
-            details: "AES-256 encryption implemented for all databases and data transfers",
-            severity: "high",
-          },
-          {
-            id: "2",
-            category: "Access Controls",
-            requirement: "Role-based access control must be enforced",
-            status: "compliant",
-            last_checked: "2024-04-15",
-            details: "RBAC system active with 8 roles and 35 permissions configured",
-            severity: "high",
-          },
-          {
-            id: "3",
-            category: "Audit Logging",
-            requirement: "All access to PHI must be logged",
-            status: "compliant",
-            last_checked: "2024-04-15",
-            details: "Comprehensive audit logging implemented for all PHI access",
-            severity: "high",
-          },
-          {
-            id: "4",
-            category: "Data Retention",
-            requirement: "Data retention policies must comply with regulations",
-            status: "warning",
-            last_checked: "2024-04-10",
-            details: "Retention policies need review for GDPR compliance",
-            severity: "medium",
-          },
-          {
-            id: "5",
-            category: "Consent Management",
-            requirement: "User consent must be properly managed",
-            status: "compliant",
-            last_checked: "2024-04-12",
-            details: "Consent management system fully implemented",
-            severity: "medium",
-          },
-          {
-            id: "6",
-            category: "Incident Response",
-            requirement: "Incident response plan must be documented",
-            status: "pending",
-            last_checked: "2024-03-15",
-            details: "Annual incident response plan review due",
-            severity: "medium",
-          },
-        ] as ComplianceCheck[],
-        auditLogs: [
-          {
-            id: "1",
-            timestamp: "2024-04-15T10:30:00Z",
-            user: "Dr. Sarah Smith",
-            action: "viewed",
-            resource: "Patient Record #P-1234",
-            ip_address: "192.168.1.100",
-            user_agent: "Chrome/91.0",
-            compliance_flag: false,
-          },
-          {
-            id: "2",
-            timestamp: "2024-04-15T10:25:00Z",
-            user: "Nurse John Johnson",
-            action: "updated",
-            resource: "Vitals Record #V-5678",
-            ip_address: "192.168.1.101",
-            user_agent: "Safari/14.0",
-            compliance_flag: false,
-          },
-          {
-            id: "3",
-            timestamp: "2024-04-15T10:20:00Z",
-            user: "Admin Michael Brown",
-            action: "exported",
-            resource: "Patient Data Report",
-            ip_address: "192.168.1.102",
-            user_agent: "Firefox/89.0",
-            compliance_flag: true,
-          },
-          {
-            id: "4",
-            timestamp: "2024-04-15T10:15:00Z",
-            user: "Dr. Emily Davis",
-            action: "accessed",
-            resource: "Lab Results #L-9012",
-            ip_address: "192.168.1.103",
-            user_agent: "Edge/91.0",
-            compliance_flag: false,
-          },
-        ] as AuditLog[],
-      };
+  const [activeTab, setActiveTab] = useState<"checks" | "tenants" | "security" | "reports">("checks");
+  const [search, setSearch] = useState("");
+  const [riskFilter, setRiskFilter] = useState<"all" | "high" | "medium" | "low">("all");
+
+  const { data, isLoading, isFetching, error, refetch } = useQuery({
+    queryKey: ["super-admin-compliance"],
+    queryFn: async (): Promise<CompliancePayload> => {
+      const response = await fetch("/api/super-admin/compliance", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || "Failed to load compliance data");
+      return payload;
     },
   });
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "compliant":
-        return <CheckCircle className="h-4 w-4 text-green-500" />;
-      case "non_compliant":
-        return <XCircle className="h-4 w-4 text-red-500" />;
-      case "warning":
-        return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
-      case "pending":
-        return <AlertTriangle className="h-4 w-4 text-gray-500" />;
-      default:
-        return <AlertTriangle className="h-4 w-4 text-gray-500" />;
-    }
+  const filteredTenants = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return (data?.tenantMatrix || []).filter((tenant) => {
+      const matchesRisk = riskFilter === "all" || tenant.riskLevel === riskFilter;
+      const matchesSearch =
+        !needle ||
+        tenant.name.toLowerCase().includes(needle) ||
+        tenant.slug.toLowerCase().includes(needle) ||
+        String(tenant.plan || "").toLowerCase().includes(needle);
+      return matchesRisk && matchesSearch;
+    });
+  }, [data?.tenantMatrix, riskFilter, search]);
+
+  const statusIcon = (status: ComplianceStatus) => {
+    if (status === "compliant") return <CheckCircle className="h-4 w-4 text-emerald-600" />;
+    if (status === "non_compliant") return <XCircle className="h-4 w-4 text-destructive" />;
+    if (status === "warning") return <AlertTriangle className="h-4 w-4 text-amber-600" />;
+    return <ShieldAlert className="h-4 w-4 text-muted-foreground" />;
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "compliant":
-        return <Badge variant="default" className="bg-green-100 text-green-800">Compliant</Badge>;
-      case "non_compliant":
-        return <Badge variant="destructive">Non-Compliant</Badge>;
-      case "warning":
-        return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">Warning</Badge>;
-      case "pending":
-        return <Badge variant="outline">Pending</Badge>;
-      default:
-        return <Badge variant="outline">Unknown</Badge>;
-    }
+  const statusBadge = (status: ComplianceStatus) => {
+    if (status === "compliant") return <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Compliant</Badge>;
+    if (status === "non_compliant") return <Badge variant="destructive">Non-compliant</Badge>;
+    if (status === "warning") return <Badge variant="secondary">Warning</Badge>;
+    return <Badge variant="outline">Pending</Badge>;
   };
 
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case "high":
-        return "text-red-600";
-      case "medium":
-        return "text-yellow-600";
-      case "low":
-        return "text-green-600";
-      default:
-        return "text-gray-600";
-    }
+  const riskBadge = (risk: string) => {
+    if (risk === "high") return <Badge variant="destructive">High risk</Badge>;
+    if (risk === "medium") return <Badge variant="secondary">Medium risk</Badge>;
+    return <Badge variant="outline">Low risk</Badge>;
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString();
-  };
-
-  const formatDateTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString();
+  const exportCompliance = () => {
+    if (!data) return;
+    downloadCsv(
+      `platform-compliance-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        ...data.checks.map((check) => ({
+          section: "check",
+          name: check.category,
+          status: check.status,
+          severity: check.severity,
+          score: check.score,
+          details: check.details,
+        })),
+        ...data.tenantMatrix.map((tenant) => ({
+          section: "tenant",
+          name: tenant.name,
+          slug: tenant.slug,
+          status: tenant.isActive ? "active" : "inactive",
+          risk: tenant.riskLevel,
+          score: tenant.riskScore,
+          criticalSecurityEvents: tenant.criticalSecurityEvents,
+          failedActivity: tenant.failedActivity,
+        })),
+      ]
+    );
   };
 
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <PageHeader
-          title="Compliance & Security"
-          subtitle="Monitor regulatory compliance and system security"
-        />
-        <div className="grid grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <Card key={i} className="animate-pulse">
+        <PageHeader title="Compliance" subtitle="Platform-wide compliance posture and tenant risk monitoring" />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          {[0, 1, 2, 3].map((item) => (
+            <Card key={item} className="animate-pulse">
               <CardContent className="p-6">
-                <div className="h-4 bg-gray-200 rounded mb-2"></div>
-                <div className="h-8 bg-gray-200 rounded mb-1"></div>
-                <div className="h-3 bg-gray-200 rounded"></div>
+                <div className="mb-3 h-4 rounded bg-muted" />
+                <div className="mb-3 h-8 rounded bg-muted" />
+                <div className="h-2 rounded bg-muted" />
               </CardContent>
             </Card>
           ))}
@@ -236,257 +196,231 @@ export default function CompliancePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Compliance & Security"
-        subtitle="Monitor regulatory compliance and system security"
-      />
+      <PageHeader title="Compliance" subtitle="Platform-wide compliance posture, tenant risk, audit readiness, and security controls" />
 
-      {/* Compliance Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {error && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{(error as Error).message}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+          <RefreshCw className={cn("mr-2 h-4 w-4", isFetching && "animate-spin")} />
+          Refresh
+        </Button>
+        <Button variant="outline" onClick={exportCompliance} disabled={!data}>
+          <Download className="mr-2 h-4 w-4" />
+          Export CSV
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+        {[
+          { label: "Overall", value: data?.status.overall || 0, icon: Shield, note: "Weighted platform score" },
+          { label: "HIPAA", value: data?.status.hipaa || 0, icon: ShieldCheck, note: "Healthcare controls" },
+          { label: "GDPR", value: data?.status.gdpr || 0, icon: FileText, note: "Privacy controls" },
+          { label: "Audit Readiness", value: data?.status.auditReadiness || 0, icon: CheckCircle, note: "Traceability coverage" },
+          { label: "Security", value: data?.status.security || 0, icon: ShieldAlert, note: "Open security risk" },
+        ].map((card) => (
+          <Card key={card.label}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
+              <card.icon className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{card.value}%</div>
+              <Progress value={card.value} className="mt-2" />
+              <p className="mt-2 text-xs text-muted-foreground">{card.note}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Overall Compliance</CardTitle>
-            <Shield className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{complianceData?.status?.overall}%</div>
-            <Progress value={complianceData?.status?.overall} className="mt-2" />
-            <p className="text-xs text-muted-foreground mt-1">System-wide compliance</p>
-          </CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Active Tenants</CardTitle></CardHeader>
+          <CardContent><div className="text-2xl font-bold">{data?.summary.activeTenants?.toLocaleString() || 0}</div><p className="text-xs text-muted-foreground">of {data?.summary.totalTenants?.toLocaleString() || 0} total</p></CardContent>
         </Card>
-
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">HIPAA Compliance</CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{complianceData?.status?.hipaa}%</div>
-            <Progress value={complianceData?.status?.hipaa} className="mt-2" />
-            <p className="text-xs text-muted-foreground mt-1">Healthcare data protection</p>
-          </CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Audit Events</CardTitle></CardHeader>
+          <CardContent><div className="text-2xl font-bold">{data?.summary.auditEvents?.toLocaleString() || 0}</div><p className="text-xs text-muted-foreground">Audit + activity logs</p></CardContent>
         </Card>
-
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">GDPR Compliance</CardTitle>
-            <Lock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{complianceData?.status?.gdpr}%</div>
-            <Progress value={complianceData?.status?.gdpr} className="mt-2" />
-            <p className="text-xs text-muted-foreground mt-1">Data privacy regulations</p>
-          </CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Open Security Events</CardTitle></CardHeader>
+          <CardContent><div className="text-2xl font-bold text-amber-600">{data?.summary.openSecurityEvents?.toLocaleString() || 0}</div><p className="text-xs text-muted-foreground">{data?.summary.criticalSecurityEvents || 0} critical/high</p></CardContent>
         </Card>
-
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Audit Status</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">Active</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Next: {formatDate(complianceData?.status?.next_audit || "")}
-            </p>
-          </CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Platform Feedback</CardTitle></CardHeader>
+          <CardContent><div className="text-2xl font-bold">{data?.summary.openPlatformFeedback?.toLocaleString() || 0}</div><p className="text-xs text-muted-foreground">Open platform items</p></CardContent>
         </Card>
       </div>
 
-      {/* Compliance Alerts */}
-      {complianceData?.checks?.some(check => check.status === "non_compliant" || check.status === "warning") && (
+      {(data?.summary.criticalSecurityEvents || 0) > 0 && (
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
-            {complianceData.checks.filter(check => check.status === "non_compliant").length} critical compliance issues and{" "}
-            {complianceData.checks.filter(check => check.status === "warning").length} warnings require attention.
+            {data?.summary.criticalSecurityEvents} critical/high security events are unresolved across the platform.
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Compliance Tabs */}
-      <div className="flex justify-center mb-6">
-        <div className="inline-flex flex-wrap gap-2 p-1 bg-muted rounded-full">
-          {[
-            { id: "checks", label: "Compliance Checks" },
-            { id: "audit", label: "Audit Logs" },
-            { id: "reports", label: "Reports" },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "px-4 py-2 text-sm font-medium rounded-full transition-all duration-200",
-                activeTab === tab.id
-                  ? "bg-orange-500 text-white shadow-sm dark:bg-orange-600"
-                  : "text-muted-foreground hover:text-foreground hover:bg-background/50"
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      <div className="flex flex-wrap gap-2 rounded-lg border bg-card p-2">
+        {[
+          ["checks", "Compliance Checks"],
+          ["tenants", "Tenant Risk Matrix"],
+          ["security", "Security & Activity"],
+          ["reports", "Reports"],
+        ].map(([id, label]) => (
+          <Button key={id} variant={activeTab === id ? "default" : "ghost"} onClick={() => setActiveTab(id as any)}>
+            {label}
+          </Button>
+        ))}
       </div>
 
       {activeTab === "checks" && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Regulatory Compliance Checks</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {complianceData?.checks?.map((check) => (
-                  <div key={check.id} className="flex items-start space-x-4 p-4 border rounded-lg">
-                    <div className="mt-1">
-                      {getStatusIcon(check.status)}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold">{check.category}</h3>
-                        {getStatusBadge(check.status)}
-                      </div>
-                      <p className="text-sm text-gray-600 mb-2">{check.requirement}</p>
-                      <p className="text-xs text-gray-500 mb-2">{check.details}</p>
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>Last checked: {formatDate(check.last_checked)}</span>
-                        <span className={getSeverityColor(check.severity)}>
-                          Severity: {check.severity.toUpperCase()}
-                        </span>
-                      </div>
+        <Card>
+          <CardHeader><CardTitle>Regulatory Control Checks</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            {data?.checks.map((check) => (
+              <div key={check.id} className="rounded-lg border p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="flex gap-3">
+                    <div className="mt-1">{statusIcon(check.status)}</div>
+                    <div>
+                      <h3 className="font-semibold">{check.category}</h3>
+                      <p className="text-sm text-muted-foreground">{check.requirement}</p>
+                      <p className="mt-2 text-sm">{check.details}</p>
                     </div>
                   </div>
-                ))}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {statusBadge(check.status)}
+                    <Badge variant="outline">{check.severity} severity</Badge>
+                  </div>
+                </div>
+                <Progress value={check.score} className="mt-4" />
               </div>
-            </CardContent>
-          </Card>
-        </div>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
-      {activeTab === "audit" && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Audit Activity</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="border rounded-lg">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Timestamp</TableHead>
-                      <TableHead>User</TableHead>
-                      <TableHead>Action</TableHead>
-                      <TableHead>Resource</TableHead>
-                      <TableHead>IP Address</TableHead>
-                      <TableHead>Flag</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {complianceData?.auditLogs?.map((log) => (
-                      <TableRow key={log.id}>
-                        <TableCell className="text-sm">
-                          {formatDateTime(log.timestamp)}
-                        </TableCell>
-                        <TableCell className="font-medium">{log.user}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{log.action}</Badge>
-                        </TableCell>
-                        <TableCell className="text-sm max-w-xs truncate">
-                          {log.resource}
-                        </TableCell>
-                        <TableCell className="text-sm font-mono">
-                          {log.ip_address}
-                        </TableCell>
-                        <TableCell>
-                          {log.compliance_flag && (
-                            <Badge variant="destructive" className="text-xs">
-                              Flagged
-                            </Badge>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+      {activeTab === "tenants" && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <CardTitle>Tenant Risk Matrix</CardTitle>
+              <div className="flex flex-wrap gap-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input placeholder="Search tenant or plan" value={search} onChange={(event) => setSearch(event.target.value)} className="w-72 pl-10" />
+                </div>
+                {(["all", "high", "medium", "low"] as const).map((risk) => (
+                  <Button key={risk} variant={riskFilter === risk ? "default" : "outline"} onClick={() => setRiskFilter(risk)}>
+                    <Filter className="mr-2 h-4 w-4" />
+                    {risk}
+                  </Button>
+                ))}
               </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tenant</TableHead>
+                    <TableHead>Plan</TableHead>
+                    <TableHead>Users</TableHead>
+                    <TableHead>Security</TableHead>
+                    <TableHead>Failed Activity</TableHead>
+                    <TableHead>Risk</TableHead>
+                    <TableHead>Last Activity</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredTenants.length === 0 ? (
+                    <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">No tenant risk records found.</TableCell></TableRow>
+                  ) : (
+                    filteredTenants.map((tenant) => (
+                      <TableRow key={tenant.id}>
+                        <TableCell><div className="font-medium">{tenant.name}</div><div className="text-xs text-muted-foreground">{tenant.slug}</div></TableCell>
+                        <TableCell><Badge variant="outline">{tenant.plan}</Badge></TableCell>
+                        <TableCell>{tenant.usersCount.toLocaleString()}</TableCell>
+                        <TableCell>{tenant.openSecurityEvents} open, {tenant.criticalSecurityEvents} critical</TableCell>
+                        <TableCell>{tenant.failedActivity.toLocaleString()}</TableCell>
+                        <TableCell>{riskBadge(tenant.riskLevel)}<div className="mt-1 text-xs text-muted-foreground">{tenant.riskScore}/100</div></TableCell>
+                        <TableCell>{formatDate(tenant.lastActivityAt)}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {activeTab === "security" && (
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <Card>
+            <CardHeader><CardTitle>Recent Security Events</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              {(data?.recentSecurityEvents || []).map((event) => (
+                <div key={event.id} className="rounded-lg border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div><p className="font-medium">{event.event_type}</p><p className="text-sm text-muted-foreground">{event.tenant_name || "Platform"} · {event.user_name || event.user_email || "System"}</p></div>
+                    <Badge variant={String(event.severity).toLowerCase() === "critical" ? "destructive" : "secondary"}>{event.severity || "medium"}</Badge>
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">{event.description || "No description recorded."}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{formatDate(event.created_at)}</p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Recent Platform Activity</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              {(data?.recentActivity || []).map((activity) => (
+                <div key={activity.id} className="rounded-lg border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div><p className="font-medium">{activity.action}</p><p className="text-sm text-muted-foreground">{activity.tenant_name || "Platform"} · {activity.user_name || activity.user_email || "System"}</p></div>
+                    <Badge variant={String(activity.status).toLowerCase() === "success" ? "outline" : "destructive"}>{activity.status || "success"}</Badge>
+                  </div>
+                  <p className="mt-2 text-sm text-muted-foreground">{activity.description || activity.resource || "No details recorded."}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{formatDate(activity.timestamp)}</p>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </div>
       )}
 
       {activeTab === "reports" && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Compliance Reports</CardTitle>
-              </CardHeader>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {[
+            { title: "HIPAA Executive Report", desc: "Exports scorecards, risk tenants, audit coverage, and open security exceptions." },
+            { title: "GDPR Data Protection Report", desc: "Exports tenant status, feedback risk, privacy readiness, and incident indicators." },
+            { title: "Security Operations Report", desc: "Exports recent security events, failed activity, and unresolved alert exposure." },
+          ].map((report) => (
+            <Card key={report.title}>
+              <CardHeader><CardTitle>{report.title}</CardTitle></CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <h3 className="font-semibold">HIPAA Compliance Report</h3>
-                    <p className="text-sm text-gray-600">Quarterly compliance assessment</p>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    <Download className="h-4 w-4 mr-2" />
-                    Download
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <h3 className="font-semibold">GDPR Compliance Report</h3>
-                    <p className="text-sm text-gray-600">Data privacy compliance check</p>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    <Download className="h-4 w-4 mr-2" />
-                    Download
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <h3 className="font-semibold">Security Audit Report</h3>
-                    <p className="text-sm text-gray-600">System security assessment</p>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    <Download className="h-4 w-4 mr-2" />
-                    Download
-                  </Button>
-                </div>
+                <p className="text-sm text-muted-foreground">{report.desc}</p>
+                <Button className="w-full" variant="outline" onClick={exportCompliance}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Generate Report
+                </Button>
               </CardContent>
             </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Scheduled Audits</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center space-x-4 p-4 border rounded-lg">
-                  <Calendar className="h-5 w-5 text-blue-500" />
-                  <div>
-                    <h3 className="font-semibold">Quarterly HIPAA Audit</h3>
-                    <p className="text-sm text-gray-600">Due: July 1, 2024</p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-4 p-4 border rounded-lg">
-                  <Calendar className="h-5 w-5 text-green-500" />
-                  <div>
-                    <h3 className="font-semibold">Annual Security Review</h3>
-                    <p className="text-sm text-gray-600">Due: December 31, 2024</p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-4 p-4 border rounded-lg">
-                  <Calendar className="h-5 w-5 text-orange-500" />
-                  <div>
-                    <h3 className="font-semibold">GDPR Compliance Check</h3>
-                    <p className="text-sm text-gray-600">Due: May 25, 2024</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+          ))}
         </div>
       )}
+
+      <div className="text-xs text-muted-foreground">
+        Last generated: {formatDate(data?.generatedAt)}
+      </div>
     </div>
   );
 }

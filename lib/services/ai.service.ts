@@ -3,9 +3,14 @@ import { db } from "@/lib/db";
 import { aiLogs } from "@/lib/db/schema";
 import { PatientService } from "./patient.service";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+function getOpenAIClient() {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is not configured");
+  }
+
+  return new OpenAI({ apiKey });
+}
 
 function buildPatientContext(patient: any) {
   return {
@@ -80,12 +85,12 @@ export class AIService {
 
     const context = buildPatientContext(patient);
 
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAIClient().chat.completions.create({
       model: "gpt-4",
       messages: [{ role: "user", content: summaryPrompt(context) }],
     });
 
-    const output = JSON.parse(response.choices[0].message.content);
+    const output = JSON.parse(response.choices[0].message.content || "{}");
 
     await db.insert(aiLogs).values({
       patientId,
@@ -103,12 +108,12 @@ export class AIService {
 
     const context = buildPatientContext(patient);
 
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAIClient().chat.completions.create({
       model: "gpt-4",
       messages: [{ role: "user", content: diagnosisPrompt(context, symptoms) }],
     });
 
-    const output = JSON.parse(response.choices[0].message.content);
+    const output = JSON.parse(response.choices[0].message.content || "{}");
 
     await db.insert(aiLogs).values({
       patientId,

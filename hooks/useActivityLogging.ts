@@ -21,6 +21,7 @@ export function useActivityLogging() {
   // Initialize fingerprinting on mount
   useEffect(() => {
     if (!session?.user?.email) return;
+    const user = session.user as any;
 
     const initFingerprintAndSession = async () => {
       try {
@@ -29,8 +30,8 @@ export function useActivityLogging() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            userId: session.user.id,
-            tenantId: session.user.tenantId,
+            userId: user.id,
+            tenantId: user.tenantId,
             screenResolution: `${typeof window !== "undefined" ? window.innerWidth : 0}x${typeof window !== "undefined" ? window.innerHeight : 0}`,
             language: typeof navigator !== "undefined" ? navigator.language : "en",
             timezone: Intl?.DateTimeFormat?.().resolvedOptions?.().timeZone,
@@ -47,8 +48,8 @@ export function useActivityLogging() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            userId: session.user.id,
-            tenantId: session.user.tenantId,
+            userId: user.id,
+            tenantId: user.tenantId,
             deviceFingerprintId: fingerprintIdRef.current,
           }),
         });
@@ -68,14 +69,15 @@ export function useActivityLogging() {
   // Log activity function
   const logActivity = async (options: ActivityLogOptions) => {
     if (!session?.user) return;
+    const user = session.user as any;
 
     try {
       await fetch("/api/activity-logging", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: session.user.id,
-          tenantId: session.user.tenantId,
+          userId: user.id,
+          tenantId: user.tenantId,
           deviceFingerprintId: fingerprintIdRef.current,
           userSessionId: sessionIdRef.current,
           ...options,

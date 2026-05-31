@@ -5,8 +5,16 @@ import { db } from "@/lib/db";
 import { users, userRoles, roles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { inferCountryFromCity } from "@/lib/address-city-inference";
 
 const service = new TenantService();
+
+function normalizeTenantAddress<T extends { city?: string; country?: string }>(data: T): T {
+  return {
+    ...data,
+    country: data.country || inferCountryFromCity(data.city) || data.country,
+  };
+}
 
 const createTenantSchema = z.object({
   name: z.string().min(1),
@@ -15,6 +23,10 @@ const createTenantSchema = z.object({
   contactEmail: z.string().email().optional(),
   contactPhone: z.string().optional(),
   address: z.string().optional(),
+  city: z.string().optional(),
+  country: z.string().optional(),
+  timezone: z.string().optional(),
+  logoUrl: z.string().url().optional().or(z.literal("")),
 });
 
 const updateTenantSchema = z.object({
@@ -24,6 +36,10 @@ const updateTenantSchema = z.object({
   contactEmail: z.string().email().optional(),
   contactPhone: z.string().optional(),
   address: z.string().optional(),
+  city: z.string().optional(),
+  country: z.string().optional(),
+  timezone: z.string().optional(),
+  logoUrl: z.string().url().optional().or(z.literal("")),
   isActive: z.boolean().optional(),
 });
 
@@ -33,6 +49,7 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get("search") || undefined;
     const plan = searchParams.get("plan") || undefined;
     const status = searchParams.get("status") ? searchParams.get("status") === "true" : undefined;
+    const deleted = searchParams.get("deleted") === "true";
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : undefined;
     const offset = searchParams.get("offset") ? parseInt(searchParams.get("offset")!) : undefined;
 
@@ -80,7 +97,8 @@ export async function GET(request: NextRequest) {
       status,
       limit,
       offset,
-      tenantId: isSuperAdmin ? undefined : userTenantId // Only scope if not super admin
+      tenantId: isSuperAdmin ? undefined : userTenantId, // Only scope if not super admin
+      deleted,
     });
     return NextResponse.json(tenants);
   } catch (error) {
@@ -93,11 +111,11 @@ export async function POST(request: NextRequest) {
   try {
     const data = await request.json();
     const validatedData = createTenantSchema.parse(data);
-    const tenant = await service.createTenant(validatedData);
+    const tenant = await service.createTenant(normalizeTenantAddress(validatedData));
     return NextResponse.json(tenant[0]);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid data", details: error.errors }, { status: 400 });
+      return NextResponse.json({ error: "Invalid data", details: error.issues }, { status: 400 });
     }
     console.error("Error creating tenant:", error);
     return NextResponse.json({ error: "Failed to create tenant" }, { status: 500 });
@@ -116,11 +134,11 @@ export async function PUT(request: NextRequest) {
 
     const data = await request.json();
     const validatedData = updateTenantSchema.parse(data);
-    const tenant = await service.updateTenant(id, validatedData);
+    const tenant = await service.updateTenant(id, normalizeTenantAddress(validatedData));
     return NextResponse.json(tenant[0]);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid data", details: error.errors }, { status: 400 });
+      return NextResponse.json({ error: "Invalid data", details: error.issues }, { status: 400 });
     }
     console.error("Error updating tenant:", error);
     return NextResponse.json({ error: "Failed to update tenant" }, { status: 500 });

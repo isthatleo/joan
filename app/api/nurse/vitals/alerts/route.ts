@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
     patientName: row.patientName,
     room: row.room,
     alertType: row.status === "critical" ? "Critical vitals" : "Warning vitals",
-    value: `BP ${row.bloodPressure} · HR ${row.heartRate}`,
+    value: `BP ${row.bloodPressure} - HR ${row.heartRate}`,
     unit: "",
     recordedAt: row.recordedAt,
     status: row.status,

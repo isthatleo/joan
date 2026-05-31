@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    let query = db
+    const query = db
       .select({
         id: patients.id,
         firstName: patients.firstName,

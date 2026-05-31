@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     const sessionToken = generateSessionToken();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
-    const session = await db.insert(userSessions).values({
+    await db.insert(userSessions).values({
       tenantId,
       userId,
       deviceFingerprintId,

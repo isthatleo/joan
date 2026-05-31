@@ -24,7 +24,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
 const createSchema = z.object({
   provider: z.string().min(1),
-  config: z.record(z.any()).optional(),
+  config: z.record(z.string(), z.any()).optional(),
 });
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json(integration);
   } catch (e) {
     if (e instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid data", details: e.errors }, { status: 400 });
+      return NextResponse.json({ error: "Invalid data", details: e.issues }, { status: 400 });
     }
     console.error("[tenant integrations POST]", e);
     return NextResponse.json({ error: "Failed to create integration" }, { status: 500 });

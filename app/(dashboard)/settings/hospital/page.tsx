@@ -17,6 +17,7 @@ import { useTheme } from "next-themes";
 import { IntegrationManager } from "@/components/integrations/integration-manager";
 import { CurrencySelect } from "@/components/forms/CurrencySelect";
 import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
+import { AddressFields } from "@/components/forms/AddressFields";
 
 /* ============ Types ============ */
 type SectionId =
@@ -1199,55 +1200,30 @@ function ContactInfoSection({
         <h4 className="text-sm font-semibold mb-3 text-foreground">
           Physical Address
         </h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Street Address">
-            <TextInput
-              value={settings.contact.address}
-              onChange={(e) =>
-                onSettingsChange({
-                  contact: { ...settings.contact, address: e.target.value },
-                })
-              }
-              placeholder="123 Hospital Road"
-            />
-          </Field>
-          <Field label="City">
-            <TextInput
-              value={settings.contact.city}
-              onChange={(e) =>
-                onSettingsChange({
-                  contact: { ...settings.contact, city: e.target.value },
-                })
-              }
-              placeholder="Nairobi"
-            />
-          </Field>
-          <Field label="Country">
-            <TextInput
-              value={settings.contact.country}
-              onChange={(e) =>
-                onSettingsChange({
-                  contact: { ...settings.contact, country: e.target.value },
-                })
-              }
-              placeholder="Kenya"
-            />
-          </Field>
-          <Field label="Postal Code">
-            <TextInput
-              value={settings.contact.postalCode}
-              onChange={(e) =>
-                onSettingsChange({
-                  contact: {
-                    ...settings.contact,
-                    postalCode: e.target.value,
-                  },
-                })
-              }
-              placeholder="00100"
-            />
-          </Field>
-        </div>
+        <AddressFields
+          value={{
+            address: settings.contact.address,
+            city: settings.contact.city,
+            country: settings.contact.country,
+          }}
+          postalCode={settings.contact.postalCode}
+          includePostalCode
+          onPostalCodeChange={(postalCode) =>
+            onSettingsChange({
+              contact: { ...settings.contact, postalCode },
+            })
+          }
+          onChange={(next) =>
+            onSettingsChange({
+              contact: {
+                ...settings.contact,
+                address: next.address,
+                city: next.city,
+                country: next.country,
+              },
+            })
+          }
+        />
       </div>
     </Card>
   );

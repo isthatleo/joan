@@ -17,6 +17,8 @@ type RoleLookup = {
   role: AppRole | null;
   tenantId: string | null;
   userId: string | null;
+  user?: CachedBootstrap["user"] | null;
+  settings?: any | null;
 };
 
 type CachedBootstrap = {
@@ -35,13 +37,15 @@ type CachedBootstrap = {
 };
 
 const AUTH_BOOTSTRAP_CACHE_KEY = "auth_bootstrap_cache";
+const DEVICE_FINGERPRINT_CACHE_KEY = "device_fingerprint_cache";
 
-async function fetchRole(email: string, userId: string, tenantSlug?: string | null): Promise<RoleLookup> {
+async function fetchRole(email: string, userId: string, tenantSlug?: string | null, requestedRole?: AppRole | null): Promise<RoleLookup> {
   try {
-    const response = await fetch("/api/auth/role", {
+    const response = await fetch("/api/auth/bootstrap", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, userId, tenantSlug }),
+      credentials: "include",
+      body: JSON.stringify({ email, userId, tenantSlug, requestedRole }),
     });
 
     if (!response.ok) {
@@ -54,41 +58,11 @@ async function fetchRole(email: string, userId: string, tenantSlug?: string | nu
       role: (data.role as AppRole) || null,
       tenantId: (data.tenantId as string | null | undefined) ?? null,
       userId: (data.userId as string | null | undefined) ?? null,
+      user: data.user || null,
+      settings: data.settings || null,
     };
   } catch {
     return { role: null, tenantId: null, userId: null };
-  }
-}
-
-async function fetchUserProfile(userId: string) {
-  try {
-    const response = await fetch(`/api/users/profile?userId=${userId}`, {
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-async function fetchUserSettings() {
-  try {
-    const response = await fetch("/api/users/settings", {
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      return null;
-    }
-
-    return await response.json();
-  } catch {
-    return null;
   }
 }
 
@@ -136,6 +110,70 @@ function writeBootstrapCache(value: CachedBootstrap) {
   } catch {}
 }
 
+function getDeviceMetadata() {
+  if (typeof window === "undefined") {
+    return { screenResolution: "unknown", language: "unknown", timezone: "UTC" };
+  }
+
+  return {
+    screenResolution: `${window.screen.width}x${window.screen.height}`,
+    language: navigator.language || "unknown",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+  };
+}
+
+async function registerDeviceFingerprint(user: CachedBootstrap["user"]) {
+  if (typeof window === "undefined" || !user?.id) return;
+
+  const cacheKey = `${user.id}:${user.tenantId || "platform"}`;
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(DEVICE_FINGERPRINT_CACHE_KEY) || "null");
+    if (cached?.cacheKey === cacheKey && cached?.fingerprintId) {
+      return;
+    }
+  } catch {}
+
+  try {
+    const fingerprintResponse = await fetch("/api/fingerprinting", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        userId: user.id,
+        tenantId: user.tenantId || null,
+        ...getDeviceMetadata(),
+      }),
+    });
+    const fingerprintPayload = await fingerprintResponse.json().catch(() => null);
+    if (!fingerprintResponse.ok || !fingerprintPayload?.fingerprintId) return;
+
+    sessionStorage.setItem(
+      DEVICE_FINGERPRINT_CACHE_KEY,
+      JSON.stringify({
+        cacheKey,
+        fingerprintId: fingerprintPayload.fingerprintId,
+        isNewDevice: Boolean(fingerprintPayload.isNewDevice),
+        recordedAt: new Date().toISOString(),
+      })
+    );
+
+    if (user.tenantId) {
+      await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          userId: user.id,
+          tenantId: user.tenantId,
+          deviceFingerprintId: fingerprintPayload.fingerprintId,
+        }),
+      }).catch(() => null);
+    }
+  } catch {
+    // Fingerprinting must never block dashboard rendering.
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { user: currentUser, setUser, setLoading, logout } = useAuthStore();
   const router = useRouter();
@@ -162,23 +200,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    let pendingSessionTimeout: number | null = null;
 
     async function hydrateAuthenticatedUser(activeUser: any, tenantSlug: string | null) {
+      const requestedRole: AppRole | null = /^\/(?:tenant\/[^/]+\/)?admin(?:\/|$)/.test(pathname) ? "hospital_admin" : null;
       const cached = readBootstrapCache(activeUser.email, tenantSlug);
 
-      if (cached) {
+      if (cached && (!requestedRole || cached.user.role === requestedRole)) {
         applyUserPreferences(cached.settings);
         setUser(cached.user);
         setLoading(false);
+        void registerDeviceFingerprint(cached.user);
       }
 
-      const roleData = await fetchRole(activeUser.email, activeUser.id, tenantSlug);
+      const roleData = await fetchRole(activeUser.email, activeUser.id, tenantSlug, requestedRole);
       if (cancelled) {
         return;
       }
 
       const appUserId = roleData.userId || activeUser.id;
-      const basicUser = {
+      const basicUser = roleData.user || {
         id: appUserId,
         email: activeUser.email,
         fullName: activeUser.name || cached?.user.fullName || activeUser.email,
@@ -187,28 +228,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         hospitalId: roleData.tenantId || cached?.user.hospitalId || undefined,
         avatar: cached?.user.avatar || null,
       };
-
-      setUser(basicUser);
-      setLoading(false);
-
-      const [profile, settings] = await Promise.all([fetchUserProfile(appUserId), fetchUserSettings()]);
-      if (cancelled) {
-        return;
-      }
+      const settings = roleData.settings ?? cached?.settings ?? null;
 
       applyUserPreferences(settings);
+      setUser(basicUser);
+      setLoading(false);
+      void registerDeviceFingerprint(basicUser);
 
-      const enrichedUser = {
-        ...basicUser,
-        fullName: activeUser.name || profile?.fullName || basicUser.fullName,
-        avatar: profile?.avatar || basicUser.avatar || null,
-      };
-
-      setUser(enrichedUser);
       writeBootstrapCache({
         email: activeUser.email,
         tenantSlug,
-        user: enrichedUser,
+        user: basicUser,
         settings,
       });
 
@@ -225,6 +255,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function syncSession() {
       if (session.isPending) {
         setLoading(true);
+        pendingSessionTimeout = window.setTimeout(async () => {
+          if (cancelled) return;
+
+          try {
+            const controller = new AbortController();
+            const timeout = window.setTimeout(() => controller.abort(), 3_000);
+            const response = await fetch("/api/auth/get-session", {
+              credentials: "include",
+              cache: "no-store",
+              signal: controller.signal,
+            });
+            window.clearTimeout(timeout);
+
+            const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+            const storedSlug = typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null;
+            const tenantSlug = resolveTenantSlug(pathname, hostname, storedSlug);
+            const data = response.ok ? await response.json().catch(() => null) : null;
+
+            if (cancelled) return;
+
+            if (data?.user) {
+              await hydrateAuthenticatedUser(data.user, tenantSlug);
+              hydratedSessionKeyRef.current = `${data.user.email}:${tenantSlug || ""}`;
+              return;
+            }
+
+            logout();
+            if (!isPublicAuthRoute) {
+              router.replace(getResolvedTenantLoginPath(pathname, hostname, storedSlug));
+            }
+          } catch {
+            if (cancelled) return;
+            const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+            const storedSlug = typeof window !== "undefined" ? sessionStorage.getItem("active_tenant_slug") : null;
+            logout();
+            if (!isPublicAuthRoute) {
+              router.replace(getResolvedTenantLoginPath(pathname, hostname, storedSlug));
+            }
+          }
+        }, 5_000);
         return;
       }
 
@@ -296,6 +366,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       cancelled = true;
+      if (pendingSessionTimeout) {
+        window.clearTimeout(pendingSessionTimeout);
+      }
     };
   }, [currentUser?.email, currentUser?.role, isPublicAuthRoute, logout, pathname, router, session.data, session.isPending, setLoading, setUser]);
 

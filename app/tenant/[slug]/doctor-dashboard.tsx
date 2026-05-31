@@ -71,84 +71,61 @@ export function DoctorDashboard() {
 
   const loadDashboardData = async () => {
     try {
-      // Load mock data for now - in a real app, these would be API calls
+      setLoading(true);
+      const response = await fetch("/api/doctor/dashboard", { cache: "no-store" });
+      if (!response.ok) throw new Error("Failed to load doctor dashboard");
+      const data = await response.json();
+      const apiMetrics = data.metrics || {};
+      const appointments = Array.isArray(data.todayAppointments) ? data.todayAppointments : [];
+      const labOrders = Array.isArray(data.recentLabOrders) ? data.recentLabOrders : [];
+      const prescriptions = Array.isArray(data.recentPrescriptions) ? data.recentPrescriptions : [];
+      const queue = Array.isArray(data.queueSnapshot) ? data.queueSnapshot : [];
+
       setMetrics({
-        totalPatients: 145,
-        todaysAppointments: 8,
-        pendingPrescriptions: 12,
-        completedVisits: 23,
-        urgentCases: 2,
-        averageConsultationTime: 18,
+        totalPatients: Number(apiMetrics.totalPatients || 0),
+        todaysAppointments: Number(apiMetrics.appointmentsToday || 0),
+        pendingPrescriptions: Number(apiMetrics.recentPrescriptions || 0),
+        completedVisits: Number(apiMetrics.completedToday || 0),
+        urgentCases: queue.filter((entry: any) => entry.priority === "urgent" || entry.priority === "emergency").length,
+        averageConsultationTime: Number(apiMetrics.averageConsultationTime || 0),
       });
 
-      setTodaysAppointments([
-        {
-          id: "apt-1",
-          patientName: "John Doe",
-          patientId: "pat-1",
-          time: "09:00",
-          type: "Follow-up",
-          status: "scheduled",
-        },
-        {
-          id: "apt-2",
-          patientName: "Jane Smith",
-          patientId: "pat-2",
-          time: "10:30",
-          type: "Consultation",
-          status: "in_progress",
-        },
-        {
-          id: "apt-3",
-          patientName: "Bob Johnson",
-          patientId: "pat-3",
-          time: "14:00",
-          type: "Check-up",
-          status: "scheduled",
-        },
-      ]);
+      setTodaysAppointments(appointments.map((appointment: any) => ({
+        id: appointment.id,
+        patientName: appointment.patientName || "Patient",
+        patientId: appointment.patientId,
+        time: appointment.scheduledAt ? new Date(appointment.scheduledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Unscheduled",
+        type: "Appointment",
+        status: appointment.status || "scheduled",
+      })));
 
       setRecentActivity([
-        {
-          id: "act-1",
-          type: "prescription",
-          title: "Prescribed Amoxicillin",
-          description: "500mg twice daily for 7 days",
-          timestamp: "2 hours ago",
-          patientName: "John Doe",
-        },
-        {
-          id: "act-2",
-          type: "visit",
-          title: "Completed consultation",
-          description: "Hypertension follow-up",
-          timestamp: "4 hours ago",
-          patientName: "Jane Smith",
-        },
-        {
-          id: "act-3",
-          type: "appointment",
-          title: "Scheduled follow-up",
-          description: "In 2 weeks for blood work review",
-          timestamp: "6 hours ago",
-          patientName: "Bob Johnson",
-        },
-      ]);
+        ...prescriptions.map((item: any) => ({
+          id: `rx-${item.id}`,
+          type: "prescription" as const,
+          title: "Prescription issued",
+          description: item.prescribedAt ? new Date(item.prescribedAt).toLocaleString() : "Prescription recorded",
+          timestamp: item.prescribedAt ? new Date(item.prescribedAt).toLocaleString() : "",
+          patientName: item.patientName || "Patient",
+        })),
+        ...labOrders.map((item: any) => ({
+          id: `lab-${item.id}`,
+          type: "note" as const,
+          title: "Lab order updated",
+          description: item.status || "Lab order recorded",
+          timestamp: item.orderedAt ? new Date(item.orderedAt).toLocaleString() : "",
+          patientName: item.patientName || "Patient",
+        })),
+      ].slice(0, 6));
 
-      setAlerts([
-        {
-          id: "alert-1",
-          type: "warning",
-          title: "Urgent Case",
-          message: "Patient Sarah Wilson requires immediate attention - severe allergic reaction",
-        },
-        {
-          id: "alert-2",
-          type: "info",
-          title: "Medication Alert",
-          message: "Low stock alert for Ibuprofen 200mg tablets",
-        },
-      ]);
+      setAlerts(queue
+        .filter((entry: any) => entry.priority === "urgent" || entry.priority === "emergency")
+        .map((entry: any) => ({
+          id: entry.id,
+          type: "warning" as const,
+          title: "Urgent queue case",
+          message: `${entry.patientName || "Patient"} is waiting in queue ${entry.queueNumber || ""}`.trim(),
+        })));
     } catch (error) {
       console.error("Failed to load dashboard data:", error);
     } finally {

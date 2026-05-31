@@ -145,7 +145,7 @@ async function loadPrescription(id: string, doctorId: string, tenantId: string) 
   };
 }
 
-export async function GET(request: NextRequest, context: RouteContext<"/api/doctor/prescriptions/[id]">) {
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const doctorContext = await resolveDoctorContext(request.headers);
   if (!doctorContext.ok) {
     return NextResponse.json({ error: doctorContext.error }, { status: doctorContext.status });
@@ -167,7 +167,7 @@ export async function GET(request: NextRequest, context: RouteContext<"/api/doct
   }
 }
 
-export async function PATCH(request: NextRequest, context: RouteContext<"/api/doctor/prescriptions/[id]">) {
+export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const doctorContext = await resolveDoctorContext(request.headers);
   if (!doctorContext.ok) {
     return NextResponse.json({ error: doctorContext.error }, { status: doctorContext.status });
@@ -254,7 +254,7 @@ export async function PATCH(request: NextRequest, context: RouteContext<"/api/do
   }
 }
 
-export async function DELETE(request: NextRequest, context: RouteContext<"/api/doctor/prescriptions/[id]">) {
+export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const doctorContext = await resolveDoctorContext(request.headers);
   if (!doctorContext.ok) {
     return NextResponse.json({ error: doctorContext.error }, { status: doctorContext.status });

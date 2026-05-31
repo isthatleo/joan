@@ -260,19 +260,21 @@ export class NotificationService {
       // Create notifications for doctors and admins
       const notifications = [];
 
-      for (const appointment of todaysAppointments) {
+      for (const appointmentRow of todaysAppointments) {
+        const appointment = appointmentRow as any;
+        const scheduledAt = appointment.scheduledAt ? new Date(appointment.scheduledAt) : new Date();
         // Notify the assigned doctor
         if (appointment.doctorId) {
           const doctorNotification = await this.createNotification({
             userId: appointment.doctorId,
             type: "appointment",
             title: "Today's Appointment Reminder",
-            message: `You have an appointment with ${appointment.patient?.firstName} ${appointment.patient?.lastName} at ${appointment.scheduledAt.toLocaleTimeString()}`,
+            message: `You have an appointment with ${appointment.patient?.firstName || ""} ${appointment.patient?.lastName || ""} at ${scheduledAt.toLocaleTimeString()}`,
             metadata: {
               appointmentId: appointment.id,
               patientId: appointment.patientId,
               action: "reminder",
-              time: appointment.scheduledAt.toISOString()
+              time: scheduledAt.toISOString()
             }
           });
           notifications.push(doctorNotification);
@@ -288,13 +290,13 @@ export class NotificationService {
             userId: admin.id,
             type: "appointment",
             title: "Today's Appointments Overview",
-            message: `Appointment scheduled: ${appointment.patient?.firstName} ${appointment.patient?.lastName} with ${appointment.doctor?.fullName} at ${appointment.scheduledAt.toLocaleTimeString()}`,
+            message: `Appointment scheduled: ${appointment.patient?.firstName || ""} ${appointment.patient?.lastName || ""} with ${appointment.doctor?.fullName || ""} at ${scheduledAt.toLocaleTimeString()}`,
             metadata: {
               appointmentId: appointment.id,
               patientId: appointment.patientId,
               doctorId: appointment.doctorId,
               action: "overview",
-              time: appointment.scheduledAt.toISOString()
+              time: scheduledAt.toISOString()
             }
           });
           notifications.push(adminNotification);

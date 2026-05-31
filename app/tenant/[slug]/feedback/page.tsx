@@ -96,7 +96,9 @@ const platformTypeOptions = [
   { value: "feature_request", label: "Feature request" },
   { value: "feature_improvement", label: "Feature improvement" },
   { value: "improvement", label: "Workflow improvement" },
-  { value: "general", label: "General platform feedback" },
+  { value: "integration_issue", label: "Integration issue" },
+  { value: "platform_billing", label: "Platform billing issue" },
+  { value: "platform_general", label: "General platform feedback" },
 ];
 
 function formatDate(value?: string) {

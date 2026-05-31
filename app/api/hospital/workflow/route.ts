@@ -16,6 +16,18 @@ const workflowSchema = z.object({
   backupFrequency: z.enum(["daily", "weekly", "monthly"]).optional(),
 });
 
+type WorkflowSettings = z.infer<typeof workflowSchema> & {
+  automationEnabled: boolean;
+  appointmentReminders: boolean;
+  prescriptionAlerts: boolean;
+  patientNotifications: boolean;
+  staffNotifications: boolean;
+  billingAutomation: boolean;
+  reportGeneration: boolean;
+  dataBackupEnabled: boolean;
+  backupFrequency: "daily" | "weekly" | "monthly";
+};
+
 // GET workflow settings
 export async function GET(request: NextRequest) {
   try {
@@ -49,7 +61,7 @@ export async function GET(request: NextRequest) {
         )
       );
 
-    const defaults = {
+    const defaults: WorkflowSettings = {
       automationEnabled: true,
       appointmentReminders: true,
       prescriptionAlerts: true,
@@ -58,7 +70,7 @@ export async function GET(request: NextRequest) {
       billingAutomation: false,
       reportGeneration: false,
       dataBackupEnabled: true,
-      backupFrequency: "daily" as const,
+      backupFrequency: "daily",
     };
 
     if (setting.length === 0) {
@@ -110,7 +122,7 @@ export async function PUT(request: NextRequest) {
       );
 
     // Merge with existing
-    let workflow = {
+    let workflow: WorkflowSettings = {
       automationEnabled: true,
       appointmentReminders: true,
       prescriptionAlerts: true,
@@ -119,7 +131,7 @@ export async function PUT(request: NextRequest) {
       billingAutomation: false,
       reportGeneration: false,
       dataBackupEnabled: true,
-      backupFrequency: "daily" as const,
+      backupFrequency: "daily",
     };
 
     if (existing.length > 0) {
@@ -160,7 +172,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid settings", details: error.errors },
+        { error: "Invalid settings", details: error.issues },
         { status: 400 }
       );
     }

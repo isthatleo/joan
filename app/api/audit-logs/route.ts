@@ -13,7 +13,7 @@ const logActionSchema = z.object({
   action: z.string().min(1),
   entity: z.string().min(1),
   entityId: z.string().optional(),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
 });
 
 export async function GET(request: NextRequest) {
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(log[0], { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid data", details: error.errors }, { status: 400 });
+      return NextResponse.json({ error: "Invalid data", details: error.issues }, { status: 400 });
     }
     console.error("Error logging action:", error);
     return NextResponse.json({ error: "Failed to log action" }, { status: 500 });

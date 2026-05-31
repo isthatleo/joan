@@ -28,7 +28,7 @@ function normalizeStatus(value?: string | null) {
   return String(value || "pending").trim().toLowerCase().replace(/[\s-]+/g, "_");
 }
 
-async function getPharmacyData(tenantId: string, request: NextRequest) {
+export async function getPharmacyData(tenantId: string, request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const statusFilter = normalizeStatus(searchParams.get("status") || "all");
   const priorityFilter = String(searchParams.get("priority") || "all").toLowerCase();

@@ -53,25 +53,83 @@ function mapFeedback(record: FeedbackRecord) {
     resolvedAt: record.resolvedAt,
     resolution: record.resolution,
     patientFeedback: Boolean(record.patientFeedback),
+    destination: record.scope === "platform" ? "super_admin" : "hospital_admin",
+    destinationLabel: record.scope === "platform" ? "Super admin" : "Hospital admin",
   };
 }
 
 export class FeedbackService {
   static readonly PLATFORM_TYPES = new Set([
     "bug",
+    "system_bug",
+    "platform_bug",
     "feature_request",
     "feature_improvement",
     "feature_addition",
+    "platform_improvement",
     "improvement",
+    "integration_issue",
+    "platform_billing",
+    "platform_general",
+    "security_issue",
+  ]);
+
+  static readonly TENANT_TYPES = new Set([
+    "service",
+    "service_issue",
+    "service_delivery",
+    "service_improvement",
+    "staff",
+    "staff_conduct",
+    "wait_time",
+    "billing",
+    "care_quality",
+    "facility",
+    "appointment",
+    "communication",
+    "general",
   ]);
 
   resolveScope(type: string, requestedScope?: string | null) {
+    const normalizedType = String(type || "").toLowerCase();
     const normalizedRequestedScope = String(requestedScope || "").toLowerCase();
-    if (normalizedRequestedScope === "platform" || normalizedRequestedScope === "tenant") {
-      return normalizedRequestedScope;
+
+    if (FeedbackService.TENANT_TYPES.has(normalizedType)) return "tenant";
+    if (normalizedRequestedScope === "tenant") return "tenant";
+    if (normalizedRequestedScope === "platform") {
+      return "platform";
     }
 
-    return FeedbackService.PLATFORM_TYPES.has(String(type).toLowerCase()) ? "platform" : "tenant";
+    if (FeedbackService.PLATFORM_TYPES.has(normalizedType)) return "platform";
+    return "tenant";
+  }
+
+  getRoutingInfo(type: string, scope?: string | null, forcePatientFeedback?: boolean) {
+    if (forcePatientFeedback) {
+      return {
+        scope: "tenant" as const,
+        destination: "hospital_admin" as const,
+        label: "Hospital admin",
+        reason: "Service/customer feedback is handled by the tenant hospital administration.",
+      };
+    }
+
+    const resolvedScope = this.resolveScope(type, scope);
+    if (resolvedScope === "platform") {
+      return {
+        scope: "platform" as const,
+        destination: "super_admin" as const,
+        label: "Super admin",
+        reason: "Platform bugs, feature requests, integrations, and product improvements are handled by super admins.",
+      };
+    }
+
+    return {
+      scope: "tenant" as const,
+      destination: "hospital_admin" as const,
+      label: "Hospital admin",
+      reason: "Service delivery, staff, wait time, care quality, appointment, billing, and operational feedback stays with hospital admins.",
+    };
   }
 
   async createFeedback(data: {
@@ -87,7 +145,8 @@ export class FeedbackService {
     forcePatientFeedback?: boolean;
   }) {
     let patientFeedback = data.forcePatientFeedback || false;
-    const scope = this.resolveScope(data.type, data.scope);
+    const routing = this.getRoutingInfo(data.type, data.scope, patientFeedback);
+    const scope = routing.scope;
 
     if (!patientFeedback && data.userId) {
       const [roleRow] = await db

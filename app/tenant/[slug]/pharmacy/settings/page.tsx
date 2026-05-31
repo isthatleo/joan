@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   Settings, Save, Loader2, Bell, Eye, Package, Pill,
-  AlertCircle, Toggle2, Clock, Users, BarChart3
+  AlertCircle, ToggleLeft, Clock, Users, BarChart3
 } from "lucide-react";
 
 const orange = "#F97316";
@@ -82,12 +82,12 @@ export default function SettingsPage() {
   const handleSettingChange = (key: string, value: any) => {
     if (!settings) return;
     const keys = key.split(".");
-    const newSettings = { ...settings };
+    const newSettings: any = { ...settings };
     if (keys.length === 1) {
       newSettings[key as keyof PharmacistSettings] = value;
     } else {
       const parent = keys[0] as keyof PharmacistSettings;
-      newSettings[parent] = { ...newSettings[parent], [keys[1]]: value };
+      newSettings[parent] = { ...(newSettings[parent] || {}), [keys[1]]: value };
     }
     setSettings(newSettings);
   };
