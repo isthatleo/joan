@@ -286,7 +286,7 @@ export default function AccountantFinancePage() {
 
       {showForm && (
         <form onSubmit={submitForm} className="grid gap-3 rounded-lg border bg-card p-4 sm:grid-cols-3">
-          <FinanceFormFields tab={tab} formState={formState} onChange={onFormChange} />
+          <FinanceFormFields tab={tab} formState={formState} onChange={onFormChange} setFormState={setFormState} />
           <div className="flex justify-end gap-2 sm:col-span-3">
             <button
               type="button"
@@ -416,10 +416,12 @@ function FinanceFormFields({
   tab,
   formState,
   onChange,
+  setFormState,
 }: {
   tab: Tab;
   formState: FormState;
   onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
+  setFormState: React.Dispatch<React.SetStateAction<FormState>>;
 }) {
   if (tab === "expenses") {
     return (

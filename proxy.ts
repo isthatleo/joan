@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const hostname = request.headers.get("host") || "";
   const url = request.nextUrl.clone();
 
-  // Skip API routes, static files, and Next.js internals
   if (
     url.pathname.startsWith("/api/") ||
     url.pathname.startsWith("/_next/") ||
@@ -18,7 +17,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Extract subdomain
   const subdomain = getSubdomain(hostname);
 
   if (subdomain) {
@@ -31,10 +29,8 @@ export async function middleware(request: NextRequest) {
 }
 
 function getSubdomain(hostname: string): string | null {
-  // Remove port if present
   const host = hostname.split(":")[0].toLowerCase();
 
-  // In development: subdomain.localhost
   if (host.endsWith(".localhost")) {
     const parts = host.split(".");
     if (parts.length >= 2) {
@@ -42,19 +38,11 @@ function getSubdomain(hostname: string): string | null {
     }
   }
 
-  // In production: subdomain.joan.com or subdomain.yourdomain.com
-  // You can configure this based on your domain
-  const productionDomains = [
-    "joan.com",
-    "joan.vercel.app",
-    "joan-production.com",
-    // Add your production domains here
-  ];
+  const productionDomains = getProductionDomains();
 
   for (const domain of productionDomains) {
     if (host.endsWith(`.${domain}`)) {
       const subdomain = host.replace(`.${domain}`, "");
-      // Don't treat "www" as a tenant subdomain
       if (subdomain && subdomain !== "www") {
         return subdomain.toLowerCase();
       }
@@ -62,6 +50,23 @@ function getSubdomain(hostname: string): string | null {
   }
 
   return null;
+}
+
+function getProductionDomains() {
+  const configured = [
+    process.env.NEXT_PUBLIC_ROOT_DOMAIN,
+    process.env.ROOT_DOMAIN,
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+    process.env.VERCEL_URL,
+    "joan.com",
+    "joan.vercel.app",
+    "joan-production.com",
+  ];
+
+  return configured
+    .flatMap((value) => String(value || "").split(","))
+    .map((value) => value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, ""))
+    .filter(Boolean);
 }
 
 export const config = {

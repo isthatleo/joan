@@ -16,18 +16,113 @@ const sql = neon(process.env.DATABASE_URL, {
 
 const db = drizzle(sql, { schema });
 
+const LOCAL_AUTH_PORTS = ["3000", "3100", "8080"];
+const TRUSTED_HOST_SUFFIXES = [
+  ".localhost",
+  ".lovableproject.com",
+  ".lovable.app",
+  ".lovable.dev",
+];
+
+function splitEnvList(value?: string) {
+  return (value || "")
+    .split(",")
+    .map((item) => item.trim().replace(/^["']|["']$/g, ""))
+    .filter(Boolean);
+}
+
+function normalizeOrigin(value?: string | null) {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHost(value?: string | null) {
+  if (!value) return null;
+  try {
+    return new URL(value).host;
+  } catch {
+    return value || null;
+  }
+}
+
+function isSafeDynamicOrigin(origin: string) {
+  const parsed = normalizeOrigin(origin);
+  if (!parsed) return false;
+
+  try {
+    const url = new URL(parsed);
+    const hostname = url.hostname.toLowerCase();
+    const protocolAllowed = url.protocol === "http:" || url.protocol === "https:";
+
+    return (
+      protocolAllowed &&
+      (hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname === "::1" ||
+        TRUSTED_HOST_SUFFIXES.some((suffix) => hostname.endsWith(suffix)))
+    );
+  } catch {
+    return false;
+  }
+}
+
+const configuredOrigins = [
+  process.env.BETTER_AUTH_URL,
+  process.env.NEXT_PUBLIC_APP_URL,
+  ...splitEnvList(process.env.BETTER_AUTH_TRUSTED_ORIGINS),
+]
+  .map(normalizeOrigin)
+  .filter((origin): origin is string => Boolean(origin));
+
+const configuredHosts = [
+  process.env.BETTER_AUTH_URL,
+  process.env.NEXT_PUBLIC_APP_URL,
+  ...splitEnvList(process.env.BETTER_AUTH_ALLOWED_HOSTS),
+]
+  .map(normalizeHost)
+  .filter((host): host is string => Boolean(host));
+
+const localTrustedOrigins = LOCAL_AUTH_PORTS.flatMap((port) => [
+  `http://localhost:${port}`,
+  `https://localhost:${port}`,
+  `http://127.0.0.1:${port}`,
+  `https://127.0.0.1:${port}`,
+  `http://*.localhost:${port}`,
+  `https://*.localhost:${port}`,
+]);
+
+const baseTrustedOrigins = Array.from(
+  new Set([
+    ...localTrustedOrigins,
+    "https://*.lovableproject.com",
+    "https://*.lovable.app",
+    "https://*.lovable.dev",
+    ...configuredOrigins,
+  ]),
+);
+
+const allowedHosts = Array.from(
+  new Set([
+    ...LOCAL_AUTH_PORTS.flatMap((port) => [
+      `localhost:${port}`,
+      `127.0.0.1:${port}`,
+      `*.localhost:${port}`,
+    ]),
+    "*.lovableproject.com",
+    "*.lovable.app",
+    "*.lovable.dev",
+    ...configuredHosts,
+  ]),
+);
+
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
   baseURL: {
-    allowedHosts: [
-      "localhost:3000",
-      "localhost:8080",
-      "*.localhost:3000",
-      "*.localhost:8080",
-      "*.lovableproject.com",
-      "*.lovable.app",
-      "*.lovable.dev",
-    ],
+    allowedHosts,
     fallback: process.env.BETTER_AUTH_URL || "http://localhost:3000",
   },
   secret: process.env.BETTER_AUTH_SECRET,
@@ -39,20 +134,15 @@ export const auth = betterAuth({
       verify: ({ hash, password }) => bcrypt.compare(password, hash),
     },
   },
-  // Better Auth expects string origins/patterns here (not RegExp objects).
-  trustedOrigins: [
-    "http://localhost:3000",
-    "https://localhost:3000",
-    "http://localhost:8080",
-    "https://localhost:8080",
-    // Development tenant localhost origins
-    "http://*.localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://127.0.0.1:3000",
-    "https://*.lovableproject.com",
-    "https://*.lovable.app",
-    "https://*.lovable.dev",
-  ],
+  // Keep CSRF origin checks enabled while allowing configured app URLs and safe local tenant subdomains.
+  trustedOrigins: (request) => {
+    const requestOrigins = [
+      normalizeOrigin(request?.headers.get("origin")),
+      normalizeOrigin(request?.headers.get("referer")),
+    ].filter((origin): origin is string => origin !== null && isSafeDynamicOrigin(origin));
+
+    return Array.from(new Set([...baseTrustedOrigins, ...requestOrigins]));
+  },
   advanced: {
     useSecureCookies: false,
     defaultCookieAttributes: {

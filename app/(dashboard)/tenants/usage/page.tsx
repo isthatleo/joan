@@ -15,7 +15,17 @@ import {
   Users,
   Zap,
   AlertCircle,
-  CheckCircle
+  CheckCircle,
+  Download,
+  RefreshCw,
+  Server,
+  Building2,
+  CalendarDays,
+  ClipboardList,
+  FileText,
+  FlaskConical,
+  Pill,
+  Stethoscope
 } from "lucide-react";
 
 interface UsageStats {
@@ -25,6 +35,7 @@ interface UsageStats {
   averageResponseTime: number;
   topConsumers: Array<{
     id: string;
+    slug?: string;
     name: string;
     apiCalls: number;
     storageUsed: number;
@@ -40,6 +51,15 @@ interface UsageStats {
   activeUsersTrendPercent: number;
   responseTimeTrend: number;
   responseTimeTrendPercent: number;
+  activeTenants?: number;
+  liveSessions?: number;
+  securityEvents30d?: number;
+  totalPatients?: number;
+  totalAppointments?: number;
+  totalVisits?: number;
+  totalLabOrders?: number;
+  totalPrescriptions?: number;
+  totalInvoices?: number;
 }
 
 const MetricCard = ({
@@ -82,7 +102,7 @@ const MetricCard = ({
 );
 
 export default function TenantUsagePage() {
-  const { data: usageStats, isLoading } = useQuery({
+  const { data: usageStats, isLoading, isFetching, refetch } = useQuery({
     queryKey: ["tenant-usage"],
     queryFn: async () => {
       const response = await fetch("/api/tenants?usage=true");
@@ -120,6 +140,29 @@ export default function TenantUsagePage() {
     return { label: "Low", color: "default", bgColor: "bg-emerald-500/10", textColor: "text-emerald-600 dark:text-emerald-400" };
   };
 
+  const exportCsv = () => {
+    if (!usageStats?.topConsumers?.length) return;
+    const rows = [
+      ["Tenant", "Slug", "Plan", "API Calls", "Storage Used", "Active Sessions", "Patients"],
+      ...usageStats.topConsumers.map((tenant: any) => [
+        tenant.name,
+        tenant.slug || tenant.id,
+        tenant.plan || "",
+        tenant.apiCalls,
+        tenant.storageUsed,
+        tenant.activeSessions || 0,
+        tenant.patientCount || 0,
+      ]),
+    ];
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `tenant-usage-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-8">
@@ -149,6 +192,16 @@ export default function TenantUsagePage() {
       <PageHeader
         title="Tenant Usage Analytics"
         subtitle="Monitor resource consumption across all hospitals"
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => refetch()} disabled={isFetching} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-semibold text-foreground disabled:opacity-60">
+              <RefreshCw className={`size-4 ${isFetching ? "animate-spin" : ""}`} /> Refresh
+            </button>
+            <button onClick={exportCsv} className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-3 py-2 text-sm font-semibold text-white">
+              <Download className="size-4" /> Export CSV
+            </button>
+          </div>
+        }
       />
 
       {/* Main Metrics - Fully Responsive */}
@@ -157,24 +210,24 @@ export default function TenantUsagePage() {
           title="Total API Calls"
           value={formatNumber(usageStats?.totalApiCalls || 0)}
           icon={Activity}
-          trend="up"
-          trendValue="+12% from last month"
+          trend={(usageStats?.apiCallsTrendPercent || 0) >= 0 ? "up" : "down"}
+          trendValue={`${usageStats?.apiCallsTrendPercent || 0}% vs previous 30d`}
         />
 
         <MetricCard
           title="Storage Used"
           value={formatStorage(usageStats?.totalStorageUsed || 0)}
           icon={Database}
-          trend="up"
-          trendValue="+8% from last month"
+          trend={(usageStats?.storageTrendPercent || 0) >= 0 ? "up" : "down"}
+          trendValue={`${usageStats?.storageTrendPercent || 0}% patient data growth`}
         />
 
         <MetricCard
           title="Active Users"
           value={formatNumber(usageStats?.totalActiveUsers || 0)}
           icon={Users}
-          trend="up"
-          trendValue="+5% from last month"
+          trend={(usageStats?.activeUsersTrendPercent || 0) >= 0 ? "up" : "down"}
+          trendValue={`${usageStats?.activeUsersTrendPercent || 0}% user growth`}
         />
 
         <MetricCard
@@ -182,9 +235,25 @@ export default function TenantUsagePage() {
           value={usageStats?.averageResponseTime || 0}
           unit="ms"
           icon={Zap}
-          trend="down"
-          trendValue="-3% from last month"
+          trend={(usageStats?.responseTimeTrendPercent || 0) <= 0 ? "down" : "up"}
+          trendValue={`${usageStats?.responseTimeTrendPercent || 0}% response trend`}
         />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard title="Active Tenants" value={usageStats?.activeTenants || 0} icon={Building2} trend="up" trendValue="Real tenant count" />
+        <MetricCard title="Live Sessions" value={usageStats?.liveSessions || 0} icon={Server} trend="up" trendValue="Currently active" />
+        <MetricCard title="Security Events" value={usageStats?.securityEvents30d || 0} icon={AlertCircle} trend="down" trendValue="Last 30 days" />
+        <MetricCard title="Uptime Score" value={`${usageStats?.uptime || 0}%`} icon={CheckCircle} trend="up" trendValue="Derived from live errors" />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+        <MetricCard title="Patients" value={formatNumber(usageStats?.totalPatients || 0)} icon={Stethoscope} trend="up" trendValue="All tenant records" />
+        <MetricCard title="Appointments" value={formatNumber(usageStats?.totalAppointments || 0)} icon={CalendarDays} trend="up" trendValue="Scheduled records" />
+        <MetricCard title="Visits" value={formatNumber(usageStats?.totalVisits || 0)} icon={ClipboardList} trend="up" trendValue="Clinical encounters" />
+        <MetricCard title="Lab Orders" value={formatNumber(usageStats?.totalLabOrders || 0)} icon={FlaskConical} trend="up" trendValue="Lab workload" />
+        <MetricCard title="Prescriptions" value={formatNumber(usageStats?.totalPrescriptions || 0)} icon={Pill} trend="up" trendValue="Medication records" />
+        <MetricCard title="Invoices" value={formatNumber(usageStats?.totalInvoices || 0)} icon={FileText} trend="up" trendValue="Billing records" />
       </div>
 
       {/* Top Consumers - Responsive Grid */}

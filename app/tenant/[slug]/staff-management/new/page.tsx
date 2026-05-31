@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Clipboard, Loader2, ShieldCheck, UserCog, UserPlus } from "lucide-react";
+import { isValidPhoneNumber } from "react-phone-number-input";
+import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
 import { useTenantPath } from "@/hooks/useTenantPath";
 
 const ROLES = [
@@ -50,11 +52,13 @@ function validateStep(step: number, form: StaffForm) {
   if (step === 0) {
     if (!form.fullName.trim()) return "Full name is required.";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return "A valid email address is required.";
+    if (form.phone && !isValidPhoneNumber(form.phone)) return "Enter a valid staff phone number.";
   }
   if (step === 1) {
     if (!form.role) return "Role is required.";
     if (!form.department.trim()) return "Department is required.";
     if (!form.title.trim()) return "Job title is required.";
+    if (form.emergencyContact && !isValidPhoneNumber(form.emergencyContact)) return "Enter a valid emergency contact phone number.";
   }
   return null;
 }
@@ -191,7 +195,7 @@ export default function NewStaffMemberPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-1"><span className="text-sm font-medium text-foreground">Full name</span><input value={form.fullName} onChange={(e) => update("fullName", e.target.value)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" /></label>
               <label className="space-y-1"><span className="text-sm font-medium text-foreground">Email</span><input type="email" value={form.email} onChange={(e) => update("email", e.target.value)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" /></label>
-              <label className="space-y-1"><span className="text-sm font-medium text-foreground">Phone</span><input value={form.phone} onChange={(e) => update("phone", e.target.value)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" /></label>
+              <label className="space-y-1"><span className="text-sm font-medium text-foreground">Phone</span><PhoneNumberInput value={form.phone} onChange={(value) => update("phone", value)} placeholder="Staff phone number" /></label>
               <label className="space-y-1"><span className="text-sm font-medium text-foreground">Address</span><input value={form.address} onChange={(e) => update("address", e.target.value)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" /></label>
             </div>
           </div>
@@ -223,7 +227,7 @@ export default function NewStaffMemberPage() {
               <label className="space-y-1"><span className="text-sm font-medium text-foreground">Employee ID</span><input value={form.employeeId} onChange={(e) => update("employeeId", e.target.value)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" /></label>
               <label className="space-y-1"><span className="text-sm font-medium text-foreground">License number</span><input value={form.licenseNumber} onChange={(e) => update("licenseNumber", e.target.value)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" /></label>
               <label className="space-y-1"><span className="text-sm font-medium text-foreground">Start date</span><input type="date" value={form.startDate} onChange={(e) => update("startDate", e.target.value)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" /></label>
-              <label className="space-y-1"><span className="text-sm font-medium text-foreground">Emergency contact</span><input value={form.emergencyContact} onChange={(e) => update("emergencyContact", e.target.value)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" /></label>
+              <label className="space-y-1"><span className="text-sm font-medium text-foreground">Emergency contact phone</span><PhoneNumberInput value={form.emergencyContact} onChange={(value) => update("emergencyContact", value)} placeholder="Emergency contact phone" /></label>
             </div>
           </div>
         ) : null}

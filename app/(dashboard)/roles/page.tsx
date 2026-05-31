@@ -55,6 +55,7 @@ export default function PermissionsManagerPage() {
   const [search, setSearch] = useState("");
   const [perms, setPerms] = useState<Record<string, Set<string>>>({});
   const [savingRole, setSavingRole] = useState<string | null>(null);
+  const [savingAll, setSavingAll] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -149,6 +150,28 @@ export default function PermissionsManagerPage() {
     }
   };
 
+  const saveAllTenants = async () => {
+    setSavingAll(true);
+    try {
+      const permsToSave: Record<string, string[]> = {};
+      Object.entries(perms).forEach(([id, set]) => {
+        permsToSave[id] = Array.from(set);
+      });
+      const response = await fetch("/api/roles/permissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applyToAllTenants: true, permissions: permsToSave }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || "Failed to apply permissions");
+      alert(`Permissions applied to ${data.appliedTenants || 0} tenant dashboard(s).`);
+    } catch (error: any) {
+      alert(error?.message || "Failed to apply permissions to all tenants");
+    } finally {
+      setSavingAll(false);
+    }
+  };
+
   // Tenant picker
   if (!activeTenant) {
     return (
@@ -194,10 +217,17 @@ export default function PermissionsManagerPage() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
           <span>Admin</span><ChevronRight className="size-3" /><span>Tenants</span><ChevronRight className="size-3" /><span className="text-foreground">{activeTenant.name}</span><ChevronRight className="size-3" /><span className="text-foreground">Permissions</span>
         </div>
-        <h1 className="text-3xl font-bold text-foreground inline-flex items-center gap-2">
-          <span className="text-orange-500">○</span> Permissions Manager
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1 mb-6">Customize which pages each role can access in this tenant.</p>
+        <div className="mb-6 flex flex-col justify-between gap-3 md:flex-row md:items-start">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground inline-flex items-center gap-2">
+              <span className="text-orange-500">○</span> Permissions Manager
+            </h1>
+            <p className="text-muted-foreground text-sm mt-1">Customize which pages each role can access in this tenant.</p>
+          </div>
+          <button onClick={saveAllTenants} disabled={savingAll} className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-100 disabled:opacity-60">
+            {savingAll ? "Applying..." : "Apply Current Matrix To All Tenants"}
+          </button>
+        </div>
 
         <div className="space-y-5">
           {ROLE_TEMPLATES.map(role => {

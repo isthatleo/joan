@@ -8,6 +8,14 @@ import { db } from "@/lib/db";
 import { labOrders, labResults, notifications, patients, tenantSettings, users } from "@/lib/db/schema";
 import { parseLabResultData, serializeLabResultData } from "@/lib/doctor/lab-results";
 
+async function resolveTenantId(user: { email: string }) {
+  const profile = await db.query.users.findFirst({
+    where: eq(users.email, user.email),
+    columns: { tenantId: true },
+  });
+  return profile?.tenantId || null;
+}
+
 async function saveUploadedFile(file: File | null) {
   if (!file || !file.size) return null;
   const extension = path.extname(file.name || "").slice(0, 10);
@@ -46,9 +54,11 @@ async function markDeviceResultImported(tenantId: string, deviceResultId: string
 export async function GET(request: NextRequest) {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user?.tenantId) {
+    if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const tenantId = await resolveTenantId(session.user);
+    if (!tenantId) return NextResponse.json({ error: "No tenant context" }, { status: 400 });
 
     const limit = Number(request.nextUrl.searchParams.get("limit") || "100");
 
@@ -65,7 +75,7 @@ export async function GET(request: NextRequest) {
       .from(labResults)
       .innerJoin(labOrders, eq(labOrders.id, labResults.labOrderId))
       .innerJoin(patients, eq(patients.id, labOrders.patientId))
-      .where(and(eq(labResults.tenantId, session.user.tenantId), isNull(labResults.deletedAt), isNull(labOrders.deletedAt)))
+      .where(and(eq(labResults.tenantId, tenantId), isNull(labResults.deletedAt), isNull(labOrders.deletedAt)))
       .orderBy(desc(labResults.createdAt))
       .limit(limit);
 
@@ -94,9 +104,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user?.tenantId) {
+    if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const tenantId = await resolveTenantId(session.user);
+    if (!tenantId) return NextResponse.json({ error: "No tenant context" }, { status: 400 });
 
     const contentType = request.headers.get("content-type") || "";
     let labOrderId: string | null = null;
@@ -134,7 +146,7 @@ export async function POST(request: NextRequest) {
       })
       .from(labOrders)
       .innerJoin(patients, eq(patients.id, labOrders.patientId))
-      .where(and(eq(labOrders.id, String(labOrderId)), eq(labOrders.tenantId, session.user.tenantId), isNull(labOrders.deletedAt)))
+      .where(and(eq(labOrders.id, String(labOrderId)), eq(labOrders.tenantId, tenantId), isNull(labOrders.deletedAt)))
       .limit(1);
 
     if (!order.length) {
@@ -152,7 +164,7 @@ export async function POST(request: NextRequest) {
       .insert(labResults)
       .values({
         labOrderId: order[0].id,
-        tenantId: order[0].tenantId,
+        tenantId,
         resultData: serializeLabResultData(normalized),
         fileUrl: fileUrl || null,
       })
@@ -165,7 +177,7 @@ export async function POST(request: NextRequest) {
 
     if (order[0].doctorId) {
       await db.insert(notifications).values({
-        tenantId: order[0].tenantId,
+        tenantId,
         userId: order[0].doctorId,
         type: "lab_result_ready",
         title: "Lab result ready",
@@ -180,7 +192,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (deviceResultId) {
-      await markDeviceResultImported(order[0].tenantId, deviceResultId, order[0].id);
+      await markDeviceResultImported(tenantId, deviceResultId, order[0].id);
     }
 
     return NextResponse.json(result, { status: 201 });

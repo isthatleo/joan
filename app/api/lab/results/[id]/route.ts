@@ -2,19 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, eq, isNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { labResults } from "@/lib/db/schema";
+import { labResults, users } from "@/lib/db/schema";
 import { parseLabResultData, serializeLabResultData } from "@/lib/doctor/lab-results";
+
+async function resolveTenantId(user: { email: string }) {
+  const profile = await db.query.users.findFirst({
+    where: eq(users.email, user.email),
+    columns: { tenantId: true },
+  });
+  return profile?.tenantId || null;
+}
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user?.tenantId) {
+    if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const tenantId = await resolveTenantId(session.user);
+    if (!tenantId) return NextResponse.json({ error: "No tenant context" }, { status: 400 });
 
     const { id } = await params;
     const result = await db.query.labResults.findFirst({
-      where: and(eq(labResults.id, id), eq(labResults.tenantId, session.user.tenantId), isNull(labResults.deletedAt)),
+      where: and(eq(labResults.id, id), eq(labResults.tenantId, tenantId), isNull(labResults.deletedAt)),
     });
 
     if (!result) {
@@ -31,15 +41,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user?.tenantId) {
+    if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const tenantId = await resolveTenantId(session.user);
+    if (!tenantId) return NextResponse.json({ error: "No tenant context" }, { status: 400 });
 
     const { id } = await params;
     const payload = await request.json();
 
     const existing = await db.query.labResults.findFirst({
-      where: and(eq(labResults.id, id), eq(labResults.tenantId, session.user.tenantId), isNull(labResults.deletedAt)),
+      where: and(eq(labResults.id, id), eq(labResults.tenantId, tenantId), isNull(labResults.deletedAt)),
     });
 
     if (!existing) {

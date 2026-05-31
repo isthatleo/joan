@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { roles, permissions, rolePermissions } from "@/lib/db/schema";
-import { eq, like, desc, and } from "drizzle-orm";
+import { eq, like, desc, and, type SQL } from "drizzle-orm";
 
 export class RoleService {
   async createRole(data: {
@@ -33,9 +33,7 @@ export class RoleService {
     limit?: number;
     offset?: number;
   }) {
-    let query = db.select().from(roles);
-
-    const conditions = [];
+    const conditions: SQL[] = [];
 
     if (options?.search) {
       conditions.push(like(roles.name, `%${options.search}%`));
@@ -45,21 +43,11 @@ export class RoleService {
       conditions.push(eq(roles.tenantId, options.tenantId));
     }
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
-    }
+    const baseQuery = conditions.length
+      ? db.select().from(roles).where(and(...conditions)).orderBy(desc(roles.createdAt))
+      : db.select().from(roles).orderBy(desc(roles.createdAt));
 
-    query = query.orderBy(desc(roles.createdAt));
-
-    if (options?.limit) {
-      query = query.limit(options.limit);
-    }
-
-    if (options?.offset) {
-      query = query.offset(options.offset);
-    }
-
-    return query;
+    return baseQuery.limit(options?.limit ?? 100).offset(options?.offset ?? 0);
   }
 
   async updateRole(id: string, data: Partial<{

@@ -70,6 +70,53 @@ export const userSettings = pgTable("user_settings", {
   userSettingsUserIdx: index("user_settings_user_idx").on(table.userId),
 }));
 
+export const deviceFingerprints = pgTable("device_fingerprints", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id),
+  userId: uuid("user_id").references(() => users.id),
+  fingerprint: text("fingerprint").notNull(),
+  userAgent: text("user_agent"),
+  browser: text("browser"),
+  browserVersion: text("browser_version"),
+  os: text("os"),
+  osVersion: text("os_version"),
+  deviceType: text("device_type"),
+  ipAddress: text("ip_address"),
+  country: text("country"),
+  city: text("city"),
+  timezone: text("timezone"),
+  screenResolution: text("screen_resolution"),
+  language: text("language"),
+  isVpn: boolean("is_vpn").default(false),
+  isProxy: boolean("is_proxy").default(false),
+  isBotOrSpider: boolean("is_bot_or_spider").default(false),
+  lastSeenAt: timestamp("last_seen_at").defaultNow(),
+  metadata: jsonb("metadata"),
+}, (table) => ({
+  deviceFingerprintTenantIdx: index("device_fingerprint_tenant_idx").on(table.tenantId),
+  deviceFingerprintUserIdx: index("device_fingerprint_user_idx").on(table.userId),
+  deviceFingerprintValueIdx: index("device_fingerprint_value_idx").on(table.fingerprint),
+}));
+
+export const userSessions = pgTable("user_sessions", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id),
+  userId: uuid("user_id").references(() => users.id),
+  deviceFingerprintId: uuid("device_fingerprint_id").references(() => deviceFingerprints.id),
+  sessionToken: text("session_token").notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  isActive: boolean("is_active").default(true),
+  lastActivityAt: timestamp("last_activity_at").defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+  logoutAt: timestamp("logout_at"),
+  metadata: jsonb("metadata"),
+}, (table) => ({
+  userSessionTenantIdx: index("user_session_tenant_idx").on(table.tenantId),
+  userSessionUserIdx: index("user_session_user_idx").on(table.userId),
+  userSessionTokenIdx: uniqueIndex("user_session_token_idx").on(table.sessionToken),
+}));
+
 export const doctorSettings = pgTable("doctor_settings", {
   ...baseColumns,
   userId: uuid("user_id").references(() => users.id).unique().notNull(),
@@ -498,6 +545,16 @@ export const messageCallSessions = pgTable("message_call_sessions", {
   messageCallExpiresIdx: index("message_call_expires_idx").on(table.expiresAt),
 }));
 
+export const messagingSettings = pgTable("messaging_settings", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  allowAllStaffMessaging: boolean("allow_all_staff_messaging").default(false).notNull(),
+  allowPatientMessaging: boolean("allow_patient_messaging").default(false).notNull(),
+  allowGuardianMessaging: boolean("allow_guardian_messaging").default(false).notNull(),
+}, (table) => ({
+  messagingSettingsTenantIdx: uniqueIndex("messaging_settings_tenant_idx").on(table.tenantId),
+}));
+
 // Notifications
 export const notifications = pgTable("notifications", {
   ...baseColumns,
@@ -550,6 +607,54 @@ export const auditLogs = pgTable("audit_logs", {
 }, (table) => ({
   auditUserIdx: index("audit_user_idx").on(table.userId),
   auditTenantIdx: index("audit_tenant_idx").on(table.tenantId),
+}));
+
+export const activityLogs = pgTable("activity_logs", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id),
+  userId: uuid("user_id").references(() => users.id),
+  deviceFingerprintId: uuid("device_fingerprint_id").references(() => deviceFingerprints.id),
+  userSessionId: uuid("user_session_id").references(() => userSessions.id),
+  action: text("action").notNull(),
+  resource: text("resource"),
+  resourceId: uuid("resource_id"),
+  description: text("description"),
+  status: text("status").default("success"),
+  errorMessage: text("error_message"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  browser: text("browser"),
+  os: text("os"),
+  deviceType: text("device_type"),
+  previousData: jsonb("previous_data"),
+  newData: jsonb("new_data"),
+  metadata: jsonb("metadata"),
+  timestamp: timestamp("timestamp").defaultNow(),
+}, (table) => ({
+  activityLogTenantIdx: index("activity_log_tenant_idx").on(table.tenantId),
+  activityLogUserIdx: index("activity_log_user_idx").on(table.userId),
+  activityLogTimestampIdx: index("activity_log_timestamp_idx").on(table.timestamp),
+}));
+
+export const securityEvents = pgTable("security_events", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id),
+  userId: uuid("user_id").references(() => users.id),
+  deviceFingerprintId: uuid("device_fingerprint_id").references(() => deviceFingerprints.id),
+  eventType: text("event_type").notNull(),
+  severity: text("severity").default("medium"),
+  description: text("description"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  metadata: jsonb("metadata"),
+  isResolved: boolean("is_resolved").default(false),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: uuid("resolved_by").references(() => users.id),
+  notes: text("notes"),
+}, (table) => ({
+  securityEventTenantIdx: index("security_event_tenant_idx").on(table.tenantId),
+  securityEventUserIdx: index("security_event_user_idx").on(table.userId),
+  securityEventSeverityIdx: index("security_event_severity_idx").on(table.severity),
 }));
 
 // AI Logs
@@ -624,6 +729,57 @@ export const platformSettings = pgTable("platform_settings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   updatedBy: uuid("updated_by"),
 });
+
+export const subscriptionPlans = pgTable("subscription_plans", {
+  ...baseColumns,
+  name: text("name").notNull(),
+  code: text("code").unique().notNull(),
+  description: text("description"),
+  currency: text("currency").default("USD").notNull(),
+  monthlyPrice: numeric("monthly_price", { precision: 14, scale: 2 }).notNull().default("0"),
+  yearlyPrice: numeric("yearly_price", { precision: 14, scale: 2 }).notNull().default("0"),
+  staffLimit: integer("staff_limit").notNull().default(0),
+  clientLimit: integer("client_limit").notNull().default(0),
+  storageGb: integer("storage_gb").notNull().default(0),
+  features: jsonb("features").notNull().default([]),
+  modules: jsonb("modules").notNull().default([]),
+  supportLevel: text("support_level").default("standard").notNull(),
+  billingCycle: text("billing_cycle").default("monthly").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  isDefault: boolean("is_default").default(false).notNull(),
+  sortOrder: integer("sort_order").default(0).notNull(),
+  createdBy: uuid("created_by"),
+}, (table) => ({
+  subscriptionPlansCodeIdx: uniqueIndex("subscription_plans_code_idx").on(table.code),
+  subscriptionPlansActiveIdx: index("subscription_plans_active_idx").on(table.isActive),
+}));
+
+export const platformInvoices = pgTable("platform_invoices", {
+  ...baseColumns,
+  tenantId: uuid("tenant_id").references(() => tenants.id),
+  planId: uuid("plan_id").references(() => subscriptionPlans.id),
+  invoiceNumber: text("invoice_number").unique().notNull(),
+  status: text("status").default("draft").notNull(),
+  currency: text("currency").default("USD").notNull(),
+  subtotal: numeric("subtotal", { precision: 14, scale: 2 }).notNull().default("0"),
+  tax: numeric("tax", { precision: 14, scale: 2 }).notNull().default("0"),
+  total: numeric("total", { precision: 14, scale: 2 }).notNull().default("0"),
+  amountPaid: numeric("amount_paid", { precision: 14, scale: 2 }).notNull().default("0"),
+  billingEmail: text("billing_email"),
+  billingName: text("billing_name"),
+  issuedAt: timestamp("issued_at").defaultNow().notNull(),
+  dueAt: timestamp("due_at").notNull(),
+  paidAt: timestamp("paid_at"),
+  periodStart: timestamp("period_start"),
+  periodEnd: timestamp("period_end"),
+  lineItems: jsonb("line_items").notNull().default([]),
+  notes: text("notes"),
+  metadata: jsonb("metadata").default({}),
+}, (table) => ({
+  platformInvoiceTenantIdx: index("platform_invoice_tenant_idx").on(table.tenantId),
+  platformInvoiceStatusIdx: index("platform_invoice_status_idx").on(table.status),
+  platformInvoiceDueIdx: index("platform_invoice_due_idx").on(table.dueAt),
+}));
 
 // Per-tenant settings
 export const tenantSettings = pgTable("tenant_settings", {

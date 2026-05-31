@@ -24,9 +24,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!existing) return NextResponse.json({ error: "Webhook not found" }, { status: 404 });
 
     const result = await testTenantWebhook(existing);
-    const updated = {
+    const updated: Awaited<ReturnType<typeof listTenantWebhooks>>[number] = {
       ...existing,
-      status: result.ok ? "active" : "error",
+      status: result.ok ? "active" as const : "error" as const,
       lastStatusCode: result.statusCode,
       lastTestedAt: new Date().toISOString(),
       lastDeliveredAt: result.ok ? new Date().toISOString() : existing.lastDeliveredAt,

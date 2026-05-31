@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
  * by the existing dashboard pages so we don't break anything.       *
  * ----------------------------------------------------------------- */
 
-type Tone = "primary" | "success" | "warning" | "info" | "destructive" | "neutral";
+type Tone = "primary" | "success" | "warning" | "info" | "destructive" | "danger" | "neutral";
 type LegacyColor = "green" | "yellow" | "red" | "blue" | "orange" | "purple" | "gray";
 
 interface NewTrend {
@@ -41,6 +41,7 @@ const TONE_STYLES: Record<Tone, string> = {
   warning: "bg-warning-soft text-warning-soft-foreground",
   info: "bg-info-soft text-info-soft-foreground",
   destructive: "bg-destructive-soft text-destructive-soft-foreground",
+  danger: "bg-destructive-soft text-destructive-soft-foreground",
   neutral: "bg-muted text-muted-foreground",
 };
 

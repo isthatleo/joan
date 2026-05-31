@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { and, eq, ilike, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tenants, users } from "@/lib/db/schema";
-import { getTenantSecuritySettings } from "@/lib/tenant-security";
+import { getCachedTenantSecuritySettings } from "@/lib/tenant-security";
 import { getUserTwoFactor } from "@/lib/user-two-factor";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   });
   if (!user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const security = await getTenantSecuritySettings(tenant.id);
+  const security = await getCachedTenantSecuritySettings(tenant.id);
   const twoFactor = await getUserTwoFactor(user.id);
   const verificationCookie = request.cookies.get(`tenant_2fa_verified_${tenant.id}`)?.value || "";
   const verifiedUserId = verificationCookie.split(":")[0] || "";
@@ -36,5 +36,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     sessionTimeout: security.sessionTimeout,
     userId: user.id,
     tenantId: tenant.id,
+  }, {
+    headers: {
+      "Cache-Control": "private, max-age=30",
+    },
   });
 }

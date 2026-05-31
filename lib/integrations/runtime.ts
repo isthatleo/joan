@@ -79,7 +79,7 @@ async function jsonResponse(response: Response) {
 }
 
 async function activeProviderCandidates(tenantSlugOrId: string, providers: string[]) {
-  const active = await listActiveProviders(tenantSlugOrId).catch(() => []);
+  const active = await listActiveProviders(tenantSlugOrId).catch(() => [] as string[]);
   return providers.filter((provider) => active.includes(provider));
 }
 
@@ -95,7 +95,7 @@ export async function sendTenantRuntimeEmail(tenantSlugOrId: string, payload: Om
 export async function sendTenantRuntimeSms(tenantSlugOrId: string, phone: string, message: string) {
   const notificationService = new NotificationService();
   await notificationService.sendSMS(phone, message, { tenantSlugOrId });
-  const communication = await getTenantCommunicationSettings(tenantSlugOrId).catch(() => ({}));
+  const communication = await getTenantCommunicationSettings(tenantSlugOrId).catch(() => ({} as Record<string, any>)) as Record<string, any>;
   return { ok: true, provider: communication.smsProvider || "twilio" };
 }
 
@@ -170,7 +170,7 @@ async function createSquarePaymentLink(tenantSlugOrId: string, input: PaymentInt
     }),
   });
   const data = await jsonResponse(response);
-  if (!response.ok) return { ok: false, provider: "square", error: data?.errors?.[0]?.detail || "Square payment link creation failed" };
+  if (!response.ok) return { ok: false, provider: "square", error: data?.issues?.[0]?.detail || "Square payment link creation failed" };
   return { ok: true, provider: "square", data };
 }
 
@@ -265,7 +265,7 @@ async function uploadToS3(tenantSlugOrId: string, input: StorageUploadInput): Pr
       "X-Amz-Date": amzDate,
       Authorization: authorization,
     },
-    body,
+    body: body as unknown as BodyInit,
   });
   if (!response.ok) return { ok: false, provider: "aws-s3", error: `S3 upload failed (${response.status})` };
   return { ok: true, provider: "aws-s3", data: { url: endpoint, key: input.key } };
@@ -293,7 +293,7 @@ async function uploadToAzureBlob(tenantSlugOrId: string, input: StorageUploadInp
       "Content-Type": input.contentType || "application/octet-stream",
       "Content-Length": String(body.length),
     },
-    body,
+    body: body as unknown as BodyInit,
   });
   if (!response.ok) return { ok: false, provider: "azure-blob", error: `Azure Blob upload failed (${response.status})` };
   return { ok: true, provider: "azure-blob", data: { url, key: input.key } };
@@ -347,7 +347,7 @@ async function uploadToGcs(tenantSlugOrId: string, input: StorageUploadInput): P
         Authorization: `Bearer ${token}`,
         "Content-Type": input.contentType || "application/octet-stream",
       },
-      body,
+      body: body as unknown as BodyInit,
     });
     const data = await jsonResponse(response);
     if (!response.ok) return { ok: false, provider: "gcs", error: data?.error?.message || `GCS upload failed (${response.status})` };

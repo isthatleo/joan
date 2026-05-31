@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(role[0], { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid data", details: error.errors }, { status: 400 });
+      return NextResponse.json({ error: "Invalid data", details: error.issues }, { status: 400 });
     }
     console.error("Error creating role:", error);
     return NextResponse.json({ error: "Failed to create role" }, { status: 500 });
@@ -93,7 +93,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json(role[0]);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid data", details: error.errors }, { status: 400 });
+      return NextResponse.json({ error: "Invalid data", details: error.issues }, { status: 400 });
     }
     console.error("Error updating role:", error);
     return NextResponse.json({ error: "Failed to update role" }, { status: 500 });

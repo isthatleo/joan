@@ -7,7 +7,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
   DialogFooter,
   Button,
   Input,
@@ -19,6 +18,7 @@ import {
   SelectValue,
   Label,
 } from "@/components/ui";
+import { DialogDescription } from "@/components/ui/dialog";
 import { AlertCircle, Send } from "lucide-react";
 
 interface FeedbackDialogProps {
@@ -47,7 +47,7 @@ export function FeedbackDialog({
     : "Help us improve by sharing your feedback about bugs, features, or suggestions",
 }: FeedbackDialogProps) {
   const [formData, setFormData] = useState({
-    type: feedbackType === "service" ? "general" : "bug",
+    type: feedbackType === "service" ? "service_delivery" : "bug",
     title: "",
     description: "",
     priority: "medium",
@@ -57,14 +57,18 @@ export function FeedbackDialog({
     feedbackType === "service"
       ? [
           { value: "general", label: "General Feedback" },
-          { value: "bug", label: "Issue Encountered" },
-          { value: "feature_improvement", label: "Service Improvement" },
+          { value: "service_delivery", label: "Service Delivery" },
+          { value: "staff_conduct", label: "Staff Conduct" },
+          { value: "wait_time", label: "Wait Time" },
+          { value: "care_quality", label: "Care Quality" },
+          { value: "billing", label: "Billing/Payments" },
+          { value: "service_improvement", label: "Service Improvement" },
         ]
       : [
           { value: "bug", label: "Bug Report" },
           { value: "feature_request", label: "Feature Request" },
           { value: "feature_improvement", label: "Feature Improvement" },
-          { value: "general", label: "Other" },
+          { value: "platform_general", label: "Other Platform Feedback" },
         ];
 
   const createFeedbackMutation = useMutation({
@@ -84,7 +88,7 @@ export function FeedbackDialog({
     },
     onSuccess: () => {
       setFormData({
-        type: feedbackType === "service" ? "general" : "bug",
+        type: feedbackType === "service" ? "service_delivery" : "bug",
         title: "",
         description: "",
         priority: "medium",
@@ -207,8 +211,8 @@ export function FeedbackDialog({
             <AlertCircle className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-blue-900">
               {feedbackType === "service"
-                ? "Your feedback will be reviewed by the hospital administration"
-                : "Your feedback will be reviewed by our support team"}
+                ? "This is tenant service feedback and will be reviewed by the hospital admin team."
+                : "This is platform/product feedback and will be reviewed by super admins."}
             </p>
           </div>
         </div>

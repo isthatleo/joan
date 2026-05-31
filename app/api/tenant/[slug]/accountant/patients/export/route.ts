@@ -4,6 +4,56 @@ import { db } from "@/lib/db";
 import { tenants } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
+function escapePdfText(value: unknown) {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)")
+    .slice(0, 120);
+}
+
+function createPatientsPdf(rows: any[]) {
+  const lines = [
+    "Patient Financial Export",
+    `Generated: ${new Date().toISOString()}`,
+    "",
+    "Name | MRN | Invoices | Paid | Outstanding",
+    ...rows.slice(0, 45).map((patient) =>
+      `${patient.full_name || "Unknown"} | ${patient.mrn || "-"} | ${patient.total_invoices || 0} | ${patient.total_paid || 0} | ${patient.total_outstanding || 0}`
+    ),
+  ];
+
+  const content = [
+    "BT",
+    "/F1 10 Tf",
+    "50 780 Td",
+    ...lines.map((line, index) => `${index === 0 ? "" : "0 -16 Td"}(${escapePdfText(line)}) Tj`),
+    "ET",
+  ].join("\n");
+
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`,
+  ];
+
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(pdf));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(pdf);
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return Buffer.from(pdf);
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -56,17 +106,17 @@ export async function GET(
       WHERE p.tenant_id = $1
     `;
 
-    const params: any[] = [tenantId];
+    const queryParams: any[] = [tenantId];
 
     if (ids.length > 0) {
       const placeholders = ids.map((_, i) => `$${i + 2}`).join(",");
       query += ` AND p.id IN (${placeholders})`;
-      params.push(...ids);
+      queryParams.push(...ids);
     }
 
     query += ` GROUP BY p.id, p.full_name, p.email, p.phone, p.mrn ORDER BY p.full_name ASC`;
 
-    const patients = await db.$queryRaw(query, params);
+    const patients = await db.$queryRaw(query, queryParams);
 
     if (format === "csv") {
       // Generate CSV
@@ -109,11 +159,11 @@ export async function GET(
         },
       });
     } else if (format === "pdf") {
-      // For now, return a simple text-based PDF info
-      // In production, use a library like pdfkit
-      return new NextResponse("PDF export coming soon", {
+      const pdf = createPatientsPdf(patients as any[]);
+      return new NextResponse(pdf, {
         headers: {
-          "Content-Type": "text/plain",
+          "Content-Type": "application/pdf",
+          "Content-Disposition": "attachment; filename=patients.pdf",
         },
       });
     }

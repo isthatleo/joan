@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { users, roles, userRoles, permissions, rolePermissions } from "@/lib/db/schema";
-import { eq, like, desc, and, or, inArray } from "drizzle-orm";
+import { eq, like, desc, and, or, inArray, type SQL } from "drizzle-orm";
 
 export class UserService {
   async createUser(data: {
@@ -51,9 +51,7 @@ export class UserService {
     offset?: number;
     roles?: string[];
   }) {
-    let query = db.select().from(users);
-
-    const conditions = [];
+    const conditions: SQL[] = [];
 
     if (options?.search) {
       conditions.push(
@@ -71,38 +69,23 @@ export class UserService {
 
     if (options?.roles && options.roles.length > 0) {
       // Join with userRoles and roles to filter by role names
-      const userRoleIds = db
-        .select({ userId: userRoles.userId })
-        .from(userRoles)
-        .innerJoin(roles, eq(userRoles.roleId, roles.id))
-        .where(and(...options.roles.map(role => eq(roles.name, role))));
-      
-      // Actually we want OR for multiple roles
       const roleConditions = options.roles.map(role => eq(roles.name, role));
-      const subquery = db
-        .select({ userId: userRoles.userId })
-        .from(userRoles)
-        .innerJoin(roles, eq(userRoles.roleId, roles.id))
-        .where(or(...roleConditions));
-
-      conditions.push(and(inArray(users.id, subquery)));
+      const roleFilter = or(...roleConditions);
+      if (roleFilter) {
+        const subquery = db
+          .select({ userId: userRoles.userId })
+          .from(userRoles)
+          .innerJoin(roles, eq(userRoles.roleId, roles.id))
+          .where(roleFilter);
+        conditions.push(inArray(users.id, subquery));
+      }
     }
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
-    }
+    const baseQuery = conditions.length
+      ? db.select().from(users).where(and(...conditions)).orderBy(desc(users.createdAt))
+      : db.select().from(users).orderBy(desc(users.createdAt));
 
-    query = query.orderBy(desc(users.createdAt));
-
-    if (options?.limit) {
-      query = query.limit(options.limit);
-    }
-
-    if (options?.offset) {
-      query = query.offset(options.offset);
-    }
-
-    return query;
+    return baseQuery.limit(options?.limit ?? 100).offset(options?.offset ?? 0);
   }
 
   async updateUser(id: string, data: Partial<{
@@ -154,8 +137,8 @@ export class UserService {
     });
 
     const permissions = new Set<string>();
-    userRoleRecords.forEach(ur => {
-      ur.role?.rolePermissions?.forEach(rp => {
+    userRoleRecords.forEach((ur: any) => {
+      ur.role?.rolePermissions?.forEach((rp: any) => {
         permissions.add(rp.permission.key);
       });
     });

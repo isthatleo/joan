@@ -15,7 +15,7 @@ export async function resolvePermissions(userId: string) {
   const permissionsMap = new Map<string, string>();
 
   for (const r of roles) {
-    permissionsMap.set(r.permissions.key, r.rolePermissions.scope);
+    permissionsMap.set(r.permissions.key, r.role_permissions.scope || "tenant");
   }
 
   // Apply user overrides
@@ -26,7 +26,7 @@ export async function resolvePermissions(userId: string) {
     .where(eq(userOverrides.userId, userId));
 
   for (const o of overrides) {
-    if (o.userOverrides.allowed) {
+    if (o.user_overrides.allowed) {
       permissionsMap.set(o.permissions.key, "global");
     } else {
       permissionsMap.delete(o.permissions.key);

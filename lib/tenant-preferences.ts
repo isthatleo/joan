@@ -8,7 +8,22 @@ import {
   USER_TIME_FORMAT_STORAGE_KEY,
 } from "@/lib/user-preferences";
 
-export const DEFAULT_TENANT_PREFERENCES = {
+export type TenantPreferences = {
+  timezone: string;
+  language: string;
+  currency: string;
+  timeFormat: "12h" | "24h";
+  dateFormat: string;
+  weekStartDay: "Monday" | "Sunday";
+  numberFormat: "us" | "eu" | "de";
+  compactMode: boolean;
+  highContrast: boolean;
+  autoSaveForms: boolean;
+  showTooltips: boolean;
+  keyboardShortcuts: boolean;
+};
+
+export const DEFAULT_TENANT_PREFERENCES: TenantPreferences = {
   timezone: "UTC",
   language: "en",
   currency: "USD",
@@ -21,23 +36,23 @@ export const DEFAULT_TENANT_PREFERENCES = {
   autoSaveForms: true,
   showTooltips: true,
   keyboardShortcuts: true,
-} as const;
+};
 
-export type TenantPreferences = typeof DEFAULT_TENANT_PREFERENCES;
+const DEFAULTS: TenantPreferences = DEFAULT_TENANT_PREFERENCES;
 
 export function normalizeTenantPreferences(value?: Partial<TenantPreferences> | Record<string, any> | null): TenantPreferences {
   const source = value || {};
-  const allowedTimeFormat = source.timeFormat === "24h" || source.timeFormat === "12h" ? source.timeFormat : DEFAULT_TENANT_PREFERENCES.timeFormat;
-  const allowedWeekStart = source.weekStartDay === "Sunday" || source.weekStartDay === "Monday" ? source.weekStartDay : DEFAULT_TENANT_PREFERENCES.weekStartDay;
-  const allowedNumberFormat = ["us", "eu", "de"].includes(String(source.numberFormat)) ? String(source.numberFormat) : DEFAULT_TENANT_PREFERENCES.numberFormat;
+  const allowedTimeFormat = source.timeFormat === "24h" || source.timeFormat === "12h" ? source.timeFormat : DEFAULTS.timeFormat;
+  const allowedWeekStart = source.weekStartDay === "Sunday" || source.weekStartDay === "Monday" ? source.weekStartDay : DEFAULTS.weekStartDay;
+  const allowedNumberFormat = ["us", "eu", "de"].includes(String(source.numberFormat)) ? String(source.numberFormat) : DEFAULTS.numberFormat;
 
   return {
-    ...DEFAULT_TENANT_PREFERENCES,
+    ...DEFAULTS,
     ...source,
-    timezone: typeof source.timezone === "string" && source.timezone.trim() ? source.timezone.trim() : DEFAULT_TENANT_PREFERENCES.timezone,
-    language: typeof source.language === "string" && source.language.trim() ? source.language.trim() : DEFAULT_TENANT_PREFERENCES.language,
-    currency: typeof source.currency === "string" && source.currency.trim() ? source.currency.trim().toUpperCase() : DEFAULT_TENANT_PREFERENCES.currency,
-    dateFormat: typeof source.dateFormat === "string" && source.dateFormat.trim() ? source.dateFormat.trim() : DEFAULT_TENANT_PREFERENCES.dateFormat,
+    timezone: typeof source.timezone === "string" && source.timezone.trim() ? source.timezone.trim() : DEFAULTS.timezone,
+    language: typeof source.language === "string" && source.language.trim() ? source.language.trim() : DEFAULTS.language,
+    currency: typeof source.currency === "string" && source.currency.trim() ? source.currency.trim().toUpperCase() : DEFAULTS.currency,
+    dateFormat: typeof source.dateFormat === "string" && source.dateFormat.trim() ? source.dateFormat.trim() : DEFAULTS.dateFormat,
     timeFormat: allowedTimeFormat,
     weekStartDay: allowedWeekStart,
     numberFormat: allowedNumberFormat as TenantPreferences["numberFormat"],

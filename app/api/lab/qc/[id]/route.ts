@@ -7,7 +7,7 @@ import { resolveLabContext } from "@/lib/lab/server";
 export const dynamic = "force-dynamic";
 const KEY = "qc_records";
 
-function normalize(records: any[]) {
+function normalize(records: unknown): any[] {
   return Array.isArray(records) ? records : [];
 }
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { users, roles, permissions, userRoles } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { activityLogs, users, roles, userRoles } from "@/lib/db/schema";
+import { eq, gte, sql } from "drizzle-orm";
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,8 +16,12 @@ export async function GET(request: NextRequest) {
       .leftJoin(roles, eq(userRoles.roleId, roles.id))
       .groupBy(roles.name);
 
-    // Get active users (last 24h - mock)
-    const activeUsers = Math.floor(Math.random() * 1000) + 500;
+    const since = new Date();
+    since.setDate(since.getDate() - 1);
+    const [activeUserStats] = await db
+      .select({ count: sql<number>`count(distinct ${activityLogs.userId})` })
+      .from(activityLogs)
+      .where(gte(activityLogs.timestamp, since));
 
     // Get system-wide metrics
     const totalUsers = await db
@@ -26,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       totalUsers: totalUsers[0]?.count || 0,
-      activeUsers,
+      activeUsers: activeUserStats?.count || 0,
       usersByRole,
       timestamp: new Date().toISOString(),
     });

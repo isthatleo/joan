@@ -190,6 +190,7 @@ export async function buildPatientCareLedger(tenantId: string, patientId: string
     : [];
   const itemsByPrescription = new Map<string, typeof itemRows>();
   for (const item of itemRows) {
+    if (!item.prescriptionId) continue;
     const list = itemsByPrescription.get(item.prescriptionId) || [];
     list.push(item);
     itemsByPrescription.set(item.prescriptionId, list);

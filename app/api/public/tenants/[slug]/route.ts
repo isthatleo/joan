@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCachedTenantBySlug } from "@/lib/tenant-cache";
+import { getCachedTenantBySlug, getFreshTenantBySlug } from "@/lib/tenant-cache";
 
 /**
  * Public endpoint to get tenant information by slug
@@ -17,7 +17,11 @@ export async function GET(
       return NextResponse.json({ error: "Slug is required" }, { status: 400 });
     }
 
-    const tenant = await getCachedTenantBySlug(slug);
+    let tenant = await getCachedTenantBySlug(slug);
+
+    if (!tenant || !tenant.isActive || tenant.deletedAt) {
+      tenant = await getFreshTenantBySlug(slug);
+    }
 
     if (!tenant) {
       return NextResponse.json(

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, userRoles, roles } from "@/lib/db/schema";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, and, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 const createUserSchema = z.object({
@@ -21,8 +21,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get("limit") || "50");
     const offset = parseInt(searchParams.get("offset") || "0");
 
-    let query = db
-      .select({
+    const selectFields = {
         id: users.id,
         email: users.email,
         fullName: users.fullName,
@@ -30,13 +29,9 @@ export async function GET(request: NextRequest) {
         avatar: users.avatar,
         createdAt: users.createdAt,
         role: sql<string>`string_agg(${roles.name}, ', ')`,
-      })
-      .from(users)
-      .leftJoin(userRoles, eq(users.id, userRoles.userId))
-      .leftJoin(roles, eq(userRoles.roleId, roles.id))
-      .groupBy(users.id, users.email, users.fullName, users.isActive, users.avatar, users.createdAt);
+    };
 
-    const conditions = [];
+    const conditions: SQL[] = [];
 
     if (search) {
       conditions.push(
@@ -54,23 +49,38 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(users.isActive, isActive === "true"));
     }
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
-    }
+    const whereClause = conditions.length ? and(...conditions) : undefined;
+    const result = whereClause
+      ? await db
+          .select(selectFields)
+          .from(users)
+          .leftJoin(userRoles, eq(users.id, userRoles.userId))
+          .leftJoin(roles, eq(userRoles.roleId, roles.id))
+          .where(whereClause)
+          .groupBy(users.id, users.email, users.fullName, users.isActive, users.avatar, users.createdAt)
+          .limit(limit)
+          .offset(offset)
+      : await db
+          .select(selectFields)
+          .from(users)
+          .leftJoin(userRoles, eq(users.id, userRoles.userId))
+          .leftJoin(roles, eq(userRoles.roleId, roles.id))
+          .groupBy(users.id, users.email, users.fullName, users.isActive, users.avatar, users.createdAt)
+          .limit(limit)
+          .offset(offset);
 
-    const result = await query.limit(limit).offset(offset);
-
-    const totalQuery = db
-      .select({ count: sql<number>`count(distinct ${users.id})` })
-      .from(users)
-      .leftJoin(userRoles, eq(users.id, userRoles.userId))
-      .leftJoin(roles, eq(userRoles.roleId, roles.id));
-
-    if (conditions.length > 0) {
-      totalQuery.where(and(...conditions));
-    }
-
-    const total = await totalQuery;
+    const total = whereClause
+      ? await db
+          .select({ count: sql<number>`count(distinct ${users.id})` })
+          .from(users)
+          .leftJoin(userRoles, eq(users.id, userRoles.userId))
+          .leftJoin(roles, eq(userRoles.roleId, roles.id))
+          .where(whereClause)
+      : await db
+          .select({ count: sql<number>`count(distinct ${users.id})` })
+          .from(users)
+          .leftJoin(userRoles, eq(users.id, userRoles.userId))
+          .leftJoin(roles, eq(userRoles.roleId, roles.id));
 
     return NextResponse.json({
       users: result,
@@ -105,7 +115,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid data", details: error.errors },
+        { error: "Invalid data", details: error.issues },
         { status: 400 }
       );
     }

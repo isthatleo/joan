@@ -177,7 +177,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid preferences", details: error.errors },
+        { error: "Invalid preferences", details: error.issues },
         { status: 400 }
       );
     }

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PharmacyService } from "@/lib/services/pharmacy.service";
+import { getTenantBySlug } from "@/lib/db/helpers";
+import { requireTenantUser } from "@/lib/api/route-guards";
 
 const pharmacyService = new PharmacyService();
 
@@ -9,6 +11,13 @@ export async function PATCH(
 ) {
   try {
     const { slug, itemId } = await params;
+    const access = await requireTenantUser(request, ["pharmacist"]);
+    if (!access.ok) return access.response;
+    const tenant = await getTenantBySlug(slug);
+    if (!tenant || tenant.id !== access.user.tenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const body = await request.json();
 
     const { status, quantity } = body;
@@ -23,10 +32,8 @@ export async function PATCH(
     let result;
 
     if (status) {
-      // Update stock status
       result = await pharmacyService.updateStockStatus(slug, itemId, status);
     } else if (quantity !== undefined) {
-      // Update stock quantity
       result = await pharmacyService.updateStockQuantity(slug, itemId, Number(quantity));
     }
 

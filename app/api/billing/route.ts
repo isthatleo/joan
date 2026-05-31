@@ -1,25 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { invoices, invoiceItems, payments } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { invoices, invoiceItems } from "@/lib/db/schema";
+import { and, eq, type SQL } from "drizzle-orm";
+import { requireTenantUser } from "@/lib/api/route-guards";
 
 export async function GET(request: NextRequest) {
   try {
+    const access = await requireTenantUser(request, ["accountant", "receptionist", "hospital_admin"]);
+    if (!access.ok) return access.response;
+    const tenantId = access.user.tenantId;
+    if (!tenantId) return NextResponse.json({ error: "Tenant context required" }, { status: 403 });
+
     const { searchParams } = new URL(request.url);
     const patientId = searchParams.get("patientId");
     const status = searchParams.get("status");
 
-    let query = db.select().from(invoices);
+    const conditions: SQL[] = [eq(invoices.tenantId, tenantId)];
 
     if (patientId) {
-      query = query.where(eq(invoices.patientId, patientId));
+      conditions.push(eq(invoices.patientId, patientId));
     }
 
     if (status) {
-      query = query.where(eq(invoices.status, status));
+      conditions.push(eq(invoices.status, status));
     }
 
-    const invoiceList = await query;
+    const invoiceList = conditions.length
+      ? await db.select().from(invoices).where(and(...conditions))
+      : await db.select().from(invoices);
     return NextResponse.json(invoiceList);
   } catch (error) {
     console.error("Error fetching invoices:", error);
@@ -29,6 +37,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await requireTenantUser(request, ["accountant"]);
+    if (!access.ok) return access.response;
+    const tenantId = access.user.tenantId;
+    if (!tenantId) return NextResponse.json({ error: "Tenant context required" }, { status: 403 });
+
     const data = await request.json();
     const { patientId, items, totalAmount } = data;
 
@@ -38,6 +51,7 @@ export async function POST(request: NextRequest) {
 
     // Create invoice
     const [invoice] = await db.insert(invoices).values({
+      tenantId,
       patientId,
       totalAmount,
       status: "pending",
@@ -73,6 +87,11 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const access = await requireTenantUser(request, ["accountant"]);
+    if (!access.ok) return access.response;
+    const tenantId = access.user.tenantId;
+    if (!tenantId) return NextResponse.json({ error: "Tenant context required" }, { status: 403 });
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -85,7 +104,7 @@ export async function PUT(request: NextRequest) {
 
     const [invoice] = await db.update(invoices)
       .set({ status, updatedAt: new Date() })
-      .where(eq(invoices.id, id))
+      .where(and(eq(invoices.id, id), eq(invoices.tenantId, tenantId)))
       .returning();
 
     return NextResponse.json(invoice);

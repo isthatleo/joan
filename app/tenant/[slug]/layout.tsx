@@ -1,8 +1,8 @@
 import { TenantDashboardShell } from "./shell";
 import { TenantNotFoundRedirect } from "./not-found-redirect";
-import { getCachedTenantBySlug } from "@/lib/tenant-cache";
+import { getCachedTenantBySlug, getFreshTenantBySlug } from "@/lib/tenant-cache";
 import { headers } from "next/headers";
-import { getTenantSecuritySettings, isIpAllowed, normalizeClientIp } from "@/lib/tenant-security";
+import { getCachedTenantSecuritySettings, isIpAllowed, normalizeClientIp } from "@/lib/tenant-security";
 
 interface TenantLayoutProps {
   children: React.ReactNode;
@@ -21,12 +21,17 @@ export default async function TenantLayout({ children, params }: TenantLayoutPro
     return <TenantNotFoundRedirect slug={slug} />;
   }
 
+  // A restore/archive can happen while the slug cache is still stale; confirm before blocking access.
+  if (!tenant || !tenant.isActive || tenant.deletedAt) {
+    tenant = await getFreshTenantBySlug(slug).catch(() => null);
+  }
+
   // If tenant doesn't exist or is inactive, redirect to public login with error
-  if (!tenant || !tenant.isActive) {
+  if (!tenant || !tenant.isActive || tenant.deletedAt) {
     return <TenantNotFoundRedirect slug={slug} />;
   }
 
-  const tenantSecurity = await getTenantSecuritySettings(tenant.id).catch(() => null);
+  const tenantSecurity = await getCachedTenantSecuritySettings(tenant.id).catch(() => null);
   if (tenantSecurity?.ipWhitelistEnabled) {
     const headerList = await headers();
     const clientIp = normalizeClientIp(

@@ -30,6 +30,25 @@ type Wage = {
   reference?: string;
 };
 
+type PlatformInvoice = {
+  id: string;
+  invoiceNumber: string;
+  status: string;
+  currency: string;
+  total: number;
+  amountPaid: number;
+  amountDue: number;
+  issuedAt: string;
+  dueAt: string;
+  paidAt?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  planName?: string;
+  planCode?: string;
+  notes?: string;
+  lineItems?: Array<{ description?: string; quantity?: number; unitPrice?: number; amount?: number }>;
+};
+
 const EMPTY_STATS = {
   totalInvoices: 0,
   paidInvoices: 0,
@@ -79,6 +98,8 @@ export default function BillingPage() {
   const params = useParams();
   const slug = params?.slug as string;
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [platformInvoices, setPlatformInvoices] = useState<PlatformInvoice[]>([]);
+  const [platformStats, setPlatformStats] = useState({ totalInvoices: 0, paidInvoices: 0, outstandingInvoices: 0, totalBilled: 0, totalPaid: 0, totalDue: 0 });
   const [wages, setWages] = useState<Wage[]>([]);
   const [stats, setStats] = useState(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
@@ -86,7 +107,7 @@ export default function BillingPage() {
   const [busyId, setBusyId] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [activeTab, setActiveTab] = useState<"invoices" | "wages">("invoices");
+  const [activeTab, setActiveTab] = useState<"invoices" | "platform" | "wages">("invoices");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -96,15 +117,23 @@ export default function BillingPage() {
     setError("");
     try {
       const query = new URLSearchParams({ status: statusFilter });
-      const res = await fetch(`/api/tenant/${slug}/billing/admin?${query.toString()}`, { cache: "no-store" });
+      const [res, platformRes] = await Promise.all([
+        fetch(`/api/tenant/${slug}/billing/admin?${query.toString()}`, { credentials: "include", cache: "no-store" }),
+        fetch(`/api/tenant/${slug}/billing/platform-invoices`, { credentials: "include", cache: "no-store" }),
+      ]);
       const data = await res.json().catch(() => null);
+      const platformData = await platformRes.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || "Failed to fetch billing data");
+      if (!platformRes.ok) throw new Error(platformData?.error || "Failed to fetch platform invoices");
       setInvoices(Array.isArray(data?.invoices) ? data.invoices : []);
+      setPlatformInvoices(Array.isArray(platformData?.invoices) ? platformData.invoices : []);
+      setPlatformStats(platformData?.stats || { totalInvoices: 0, paidInvoices: 0, outstandingInvoices: 0, totalBilled: 0, totalPaid: 0, totalDue: 0 });
       setWages(Array.isArray(data?.wages) ? data.wages : []);
       setStats(data?.stats || EMPTY_STATS);
     } catch (loadError: any) {
       setError(loadError?.message || "Failed to fetch billing data");
       setInvoices([]);
+      setPlatformInvoices([]);
       setWages([]);
     } finally {
       setLoading(false);
@@ -128,6 +157,15 @@ export default function BillingPage() {
     return wages.filter((wage) => [wage.staffName, wage.description, wage.status, wage.reference].join(" ").toLowerCase().includes(q));
   }, [wages, search]);
 
+  const filteredPlatformInvoices = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return platformInvoices.filter((invoice) => {
+      const matchesSearch = !q || [invoice.invoiceNumber, invoice.planName, invoice.planCode, invoice.status, invoice.notes, invoice.id].join(" ").toLowerCase().includes(q);
+      const matchesStatus = statusFilter === "all" || invoice.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [platformInvoices, search, statusFilter]);
+
   const runWageAction = async (wage: Wage, action: "approve_wage" | "reject_wage" | "mark_wage_paid") => {
     setBusyId(wage.id);
     setError("");
@@ -136,6 +174,7 @@ export default function BillingPage() {
       const res = await fetch(`/api/tenant/${slug}/billing/admin`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ wageId: wage.id, action }),
       });
       const data = await res.json().catch(() => null);
@@ -152,6 +191,8 @@ export default function BillingPage() {
   const exportCsv = () => {
     const rows = activeTab === "invoices"
       ? [["Invoice", "Patient", "Total", "Paid", "Due", "Status", "Due Date"], ...filteredInvoices.map((i) => [i.invoiceNumber, i.patientName, i.totalAmount, i.paidAmount, i.amountDue, i.status, i.dueDate || ""])]
+      : activeTab === "platform"
+        ? [["Invoice", "Plan", "Total", "Paid", "Due", "Status", "Issued", "Due Date"], ...filteredPlatformInvoices.map((i) => [i.invoiceNumber, i.planName || "", i.total, i.amountPaid, i.amountDue, i.status, i.issuedAt, i.dueAt])]
       : [["Staff", "Description", "Amount", "Currency", "Status", "Date"], ...filteredWages.map((w) => [w.staffName, w.description, w.amount, w.currency, w.status, w.expenseDate])];
     const blob = new Blob([rows.map((row) => row.map(csvEscape).join(",")).join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -194,7 +235,7 @@ export default function BillingPage() {
           { label: "Outstanding", value: money(stats.outstanding), icon: Clock, tone: "bg-orange-50 text-orange-700" },
           { label: "Overdue", value: money(stats.overdueAmount), icon: AlertCircle, tone: "bg-red-50 text-red-700" },
           { label: "Invoices", value: stats.totalInvoices, icon: Receipt, tone: "bg-blue-50 text-blue-700" },
-          { label: "Wage Liability", value: money(stats.wageLiability), icon: CreditCard, tone: "bg-slate-100 text-slate-700" },
+          { label: "Platform Due", value: money(platformStats.totalDue), icon: CreditCard, tone: "bg-slate-100 text-slate-700" },
         ].map((card) => (
           <div key={card.label} className="rounded-xl border border-border bg-card p-5">
             <div className={`mb-3 flex size-11 items-center justify-center rounded-xl ${card.tone}`}><card.icon className="size-5" /></div>
@@ -207,8 +248,8 @@ export default function BillingPage() {
       <div className="grid gap-4 lg:grid-cols-4">
         <div className="rounded-xl border border-border bg-card p-5"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Collection Rate</p><p className="mt-2 text-3xl font-bold">{stats.totalBilled ? Math.round((stats.paidRevenue / stats.totalBilled) * 100) : 0}%</p></div>
         <div className="rounded-xl border border-border bg-card p-5"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Paid Invoices</p><p className="mt-2 text-3xl font-bold">{stats.paidInvoices}</p></div>
-        <div className="rounded-xl border border-border bg-card p-5"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Pending Wages</p><p className="mt-2 text-3xl font-bold">{stats.pendingWages}</p></div>
-        <div className="rounded-xl border border-border bg-card p-5"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Approved Wages</p><p className="mt-2 text-3xl font-bold">{stats.approvedWages}</p></div>
+        <div className="rounded-xl border border-border bg-card p-5"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Super Admin Invoices</p><p className="mt-2 text-3xl font-bold">{platformStats.totalInvoices}</p></div>
+        <div className="rounded-xl border border-border bg-card p-5"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Wage Liability</p><p className="mt-2 text-3xl font-bold">{money(stats.wageLiability)}</p></div>
       </div>
 
       <div className="rounded-xl border border-border bg-card p-4">
@@ -229,6 +270,7 @@ export default function BillingPage() {
       <div className="border-b border-border">
         <nav className="flex gap-8">
           <button onClick={() => setActiveTab("invoices")} className={`border-b-2 px-1 py-4 text-sm font-semibold ${activeTab === "invoices" ? "border-orange-500 text-orange-600" : "border-transparent text-muted-foreground"}`}>Invoice Tracking <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">{filteredInvoices.length}</span></button>
+          <button onClick={() => setActiveTab("platform")} className={`border-b-2 px-1 py-4 text-sm font-semibold ${activeTab === "platform" ? "border-orange-500 text-orange-600" : "border-transparent text-muted-foreground"}`}>Hospital Invoices <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">{filteredPlatformInvoices.length}</span></button>
           <button onClick={() => setActiveTab("wages")} className={`border-b-2 px-1 py-4 text-sm font-semibold ${activeTab === "wages" ? "border-orange-500 text-orange-600" : "border-transparent text-muted-foreground"}`}>Wage Approvals <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-xs">{filteredWages.length}</span></button>
         </nav>
       </div>
@@ -255,6 +297,37 @@ export default function BillingPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      ) : activeTab === "platform" ? (
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-xl border border-border bg-card p-5"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Billed By Platform</p><p className="mt-2 text-2xl font-bold">{money(platformStats.totalBilled)}</p></div>
+            <div className="rounded-xl border border-border bg-card p-5"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Paid To Platform</p><p className="mt-2 text-2xl font-bold">{money(platformStats.totalPaid)}</p></div>
+            <div className="rounded-xl border border-border bg-card p-5"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Outstanding</p><p className="mt-2 text-2xl font-bold">{money(platformStats.totalDue)}</p></div>
+          </div>
+          <div className="rounded-xl border border-border bg-card">
+            <div className="border-b border-border px-5 py-4">
+              <h2 className="font-semibold text-foreground">Invoices From Super Admin</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Includes provisioning invoices, subscriptions, prepaid invoices, monthly fees, maintenance, and manual platform charges.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[920px] text-sm">
+                <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="px-5 py-3">Invoice</th><th className="px-5 py-3">Plan / Period</th><th className="px-5 py-3">Amount</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Due</th><th className="px-5 py-3">Items</th></tr></thead>
+                <tbody className="divide-y divide-border">
+                  {filteredPlatformInvoices.length === 0 ? <tr><td colSpan={6} className="py-16 text-center text-muted-foreground">No hospital invoices found.</td></tr> : filteredPlatformInvoices.map((invoice) => (
+                    <tr key={invoice.id} className="hover:bg-muted/30">
+                      <td className="px-5 py-3"><p className="font-mono font-semibold">#{invoice.invoiceNumber}</p><p className="text-xs text-muted-foreground">Issued {formatDate(invoice.issuedAt)}</p></td>
+                      <td className="px-5 py-3"><p className="font-semibold">{invoice.planName || "Platform invoice"}</p><p className="text-xs text-muted-foreground">{invoice.periodStart ? `${formatDate(invoice.periodStart)} - ${formatDate(invoice.periodEnd)}` : invoice.planCode || "Manual charge"}</p></td>
+                      <td className="px-5 py-3"><p className="font-semibold">{invoice.currency} {invoice.total.toFixed(2)}</p><p className="text-xs text-muted-foreground">Due {invoice.currency} {invoice.amountDue.toFixed(2)}</p></td>
+                      <td className="px-5 py-3"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${statusClass(invoice.status)}`}>{invoice.status}</span></td>
+                      <td className="px-5 py-3">{formatDate(invoice.dueAt)}</td>
+                      <td className="px-5 py-3"><p className="text-sm">{invoice.lineItems?.length || 0} line items</p><p className="text-xs text-muted-foreground">{invoice.notes || "No notes"}</p></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       ) : (

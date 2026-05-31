@@ -64,14 +64,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 60 * 1000, // 1 minute
-            gcTime: 10 * 60 * 1000, // 10 minutes
+            staleTime: 2 * 60 * 1000,
+            gcTime: 15 * 60 * 1000,
+            refetchOnWindowFocus: false,
+            refetchOnReconnect: false,
             retry: (failureCount, error) => {
-              // Don't retry on 4xx errors
               if (error instanceof Error && error.message.includes("4")) {
                 return false;
               }
-              return failureCount < 3;
+              return failureCount < 1;
             },
           },
         },

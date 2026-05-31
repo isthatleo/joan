@@ -87,9 +87,9 @@ export default function PatientFeedbackPage() {
     resolution: "",
   });
 
-  // Fetch patient feedback for this hospital only
+  // Fetch all tenant-scoped service/operational feedback for this hospital only.
   const { data: feedbackData, isLoading } = useQuery({
-    queryKey: ["patient-feedback", statusFilter, typeFilter, user?.tenantId],
+    queryKey: ["tenant-service-feedback", statusFilter, typeFilter, user?.tenantId],
     queryFn: async () => {
       if (!user?.tenantId) throw new Error("No tenant ID");
 
@@ -97,7 +97,7 @@ export default function PatientFeedbackPage() {
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (typeFilter !== "all") params.set("type", typeFilter);
       params.set("tenantId", user.tenantId);
-      params.set("patientFeedbackOnly", "true");
+      params.set("scope", "tenant");
 
       const response = await fetch(`/api/feedback?${params}`);
       if (!response.ok) throw new Error("Failed to fetch feedback");
@@ -121,7 +121,7 @@ export default function PatientFeedbackPage() {
       setUpdateDialogOpen(false);
       setSelectedFeedback(null);
       setUpdateData({ status: "", assignedTo: "", resolution: "" });
-      queryClient.invalidateQueries({ queryKey: ["patient-feedback"] });
+      queryClient.invalidateQueries({ queryKey: ["tenant-service-feedback"] });
     },
   });
 
@@ -214,7 +214,7 @@ export default function PatientFeedbackPage() {
     <div className="space-y-6">
       <PageHeader
         title="Patient Feedback Management"
-        subtitle="Review and manage feedback from patients about services, staff, and their experience"
+        subtitle="Review tenant service, staff, wait-time, billing, and operational feedback routed to hospital admins"
       />
 
       {/* Filters */}
@@ -249,8 +249,12 @@ export default function PatientFeedbackPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Types</SelectItem>
-              <SelectItem value="bug">Issue Encountered</SelectItem>
-              <SelectItem value="feature_improvement">Service Improvement</SelectItem>
+              <SelectItem value="service_delivery">Service Delivery</SelectItem>
+              <SelectItem value="staff_conduct">Staff Conduct</SelectItem>
+              <SelectItem value="wait_time">Wait Time</SelectItem>
+              <SelectItem value="care_quality">Care Quality</SelectItem>
+              <SelectItem value="billing">Tenant Billing/Service</SelectItem>
+              <SelectItem value="service_improvement">Service Improvement</SelectItem>
               <SelectItem value="general">General Feedback</SelectItem>
             </SelectContent>
           </Select>
@@ -275,7 +279,7 @@ export default function PatientFeedbackPage() {
         ) : filteredFeedback.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <MessageSquare className="h-12 w-12 mb-4" />
-            <p>No patient feedback found</p>
+            <p>No tenant service feedback found</p>
             <p className="text-sm">No feedback matches your current filters</p>
           </div>
         ) : (
@@ -284,7 +288,7 @@ export default function PatientFeedbackPage() {
               <TableRow>
                 <TableHead>Type</TableHead>
                 <TableHead>Title</TableHead>
-                <TableHead>Patient/User</TableHead>
+                <TableHead>Submitter</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Actions</TableHead>
@@ -346,7 +350,7 @@ export default function PatientFeedbackPage() {
       <Dialog open={updateDialogOpen} onOpenChange={setUpdateDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Update Patient Feedback</DialogTitle>
+            <DialogTitle>Update Tenant Feedback</DialogTitle>
           </DialogHeader>
 
           {selectedFeedback && (

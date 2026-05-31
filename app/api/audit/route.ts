@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { auditLogs } from "@/lib/db/schema";
 import { z } from "zod";
-import { currentUser } from "@clerk/nextjs/server";
 
 const auditSchema = z.object({
   tenantId: z.string().optional(),
@@ -10,18 +9,17 @@ const auditSchema = z.object({
   action: z.string(),
   entity: z.string(),
   entityId: z.string().optional(),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
 });
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const data = auditSchema.parse(body);
-    const user = await currentUser();
 
     await db.insert(auditLogs).values({
       tenantId: data.tenantId || null,
-      userId: data.userId || user?.id || null,
+      userId: data.userId || null,
       action: data.action,
       entity: data.entity,
       entityId: data.entityId || null,

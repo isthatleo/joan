@@ -12,7 +12,7 @@ export const revalidate = 0;
 
 const VALID_STATUS = new Set(["open", "in_progress", "resolved", "closed"]);
 const VALID_PRIORITY = new Set(["low", "medium", "high", "critical"]);
-const PLATFORM_TYPES = new Set(["bug", "feature_request", "feature_improvement", "feature_addition", "improvement", "general"]);
+const PLATFORM_TYPES = new Set(["bug", "feature_request", "feature_improvement", "feature_addition", "improvement", "integration_issue", "platform_billing", "platform_general"]);
 
 function normalizeRole(value?: string | null) {
   const role = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");

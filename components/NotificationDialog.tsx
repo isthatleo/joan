@@ -162,7 +162,7 @@ export function NotificationDialog({
         // Navigate to appointment page with details modal
         if (user?.role === "super_admin") {
           router.push(`/super-admin/appointments?appointmentId=${notification.metadata?.appointmentId || ''}&openDetails=true`);
-        } else if (user?.role === "admin") {
+        } else if (user?.role === "hospital_admin") {
           router.push(`/admin?appointmentId=${notification.metadata?.appointmentId || ''}&openDetails=true`);
         } else if (user?.role === "doctor") {
           router.push(`/doctor?appointmentId=${notification.metadata?.appointmentId || ''}&openDetails=true`);
@@ -205,7 +205,7 @@ export function NotificationDialog({
                 <Badge variant="outline" className="text-xs capitalize">
                   {notification.type}
                 </Badge>
-                {!selectedNotification.read && (
+                {!notification.read && (
                   <div className="h-2 w-2 bg-primary rounded-full" />
                 )}
               </div>
@@ -242,7 +242,7 @@ export function NotificationDialog({
             View Details
             <ArrowRight className="h-4 w-4 ml-2" />
           </Button>
-          {!selectedNotification.read && onMarkAsRead && (
+          {!notification.read && onMarkAsRead && (
             <Button
               variant="ghost"
               onClick={handleMarkAsRead}

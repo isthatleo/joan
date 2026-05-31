@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { tenants, tenantSettings, integrations, auditLogs } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { inferCountryFromCity } from "@/lib/address-city-inference";
 
 // Get current user's tenant from context (middleware should set this)
 async function getTenantFromRequest(request: NextRequest) {
@@ -305,6 +306,9 @@ export async function PUT(request: NextRequest) {
     }
 
     if (body.contact) {
+      if (!body.contact.country && body.contact.city) {
+        body.contact.country = inferCountryFromCity(body.contact.city) || body.contact.country;
+      }
       await db
         .update(tenants)
         .set({
@@ -371,7 +375,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid settings", details: error.errors },
+        { error: "Invalid settings", details: error.issues },
         { status: 400 }
       );
     }

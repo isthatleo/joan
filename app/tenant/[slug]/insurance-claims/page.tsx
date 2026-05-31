@@ -294,8 +294,8 @@ export default function InsuranceClaimsPage() {
             <h2 className="font-semibold text-foreground">Claims Worklist</h2>
             <p className="mt-1 text-sm text-muted-foreground">{filteredClaims.length} claims match the current filters.</p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1040px] text-sm">
+          <div className="overflow-visible">
+            <table className="w-full table-auto text-sm">
               <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <tr><th className="px-5 py-3">Claim</th><th className="px-5 py-3">Patient</th><th className="px-5 py-3">Provider</th><th className="px-5 py-3">Amount</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Aging</th><th className="px-5 py-3 text-right">Actions</th></tr>
               </thead>

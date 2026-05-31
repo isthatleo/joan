@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { auditLogs } from "@/lib/db/schema";
-import { eq, gte, lte, and } from "drizzle-orm";
+import { and, desc, eq, gte, lte, type SQL } from "drizzle-orm";
 
 export class AuditService {
   async logAction(data: {
@@ -25,9 +25,7 @@ export class AuditService {
     limit?: number;
     offset?: number;
   }) {
-    let query = db.select().from(auditLogs);
-
-    const conditions = [];
+    const conditions: SQL[] = [];
 
     if (options?.userId) {
       conditions.push(eq(auditLogs.userId, options.userId));
@@ -49,27 +47,13 @@ export class AuditService {
       conditions.push(lte(auditLogs.createdAt, options.endDate));
     }
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
-    }
+    const baseQuery = conditions.length
+      ? db.select().from(auditLogs).where(and(...conditions)).orderBy(desc(auditLogs.createdAt))
+      : db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt));
 
-    // Order by recency
-    query = query.orderBy((audit) => [
-      {
-        column: auditLogs.createdAt,
-        desc: true,
-      },
-    ]);
-
-    if (options?.limit) {
-      query = query.limit(options.limit);
-    }
-
-    if (options?.offset) {
-      query = query.offset(options.offset);
-    }
-
-    return query;
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset ?? 0;
+    return baseQuery.limit(limit).offset(offset);
   }
 
   async getAuditLog(id: string) {
@@ -88,7 +72,8 @@ export class AuditService {
     const stats: Record<string, number> = {};
 
     logs.forEach(log => {
-      stats[log.action] = (stats[log.action] || 0) + 1;
+      const action = log.action || "unknown";
+      stats[action] = (stats[action] || 0) + 1;
     });
 
     return stats;
@@ -102,7 +87,8 @@ export class AuditService {
     return {
       totalActions: logs.length,
       actionsByType: logs.reduce((acc: Record<string, number>, log) => {
-        acc[log.action] = (acc[log.action] || 0) + 1;
+        const action = log.action || "unknown";
+        acc[action] = (acc[action] || 0) + 1;
         return acc;
       }, {}),
       lastActivity: logs[0]?.createdAt,

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { notifications, messages, appointments, labOrders, labResults, queueEntries, vitals } from "@/lib/db/schema";
-import { eq, and, desc, gte } from "drizzle-orm";
-import { redis } from "@/lib/redis";
+import { notifications, messages, appointments, labOrders } from "@/lib/db/schema";
+import { eq, and, gte, lt } from "drizzle-orm";
 
 // Store active connections
 const activeConnections = new Map<string, ReadableStreamDefaultController>();
@@ -118,7 +117,7 @@ async function sendInitialData(userId: string, tenantId: string, controller: Rea
       .where(and(
         eq(appointments.tenantId, tenantId),
         gte(appointments.scheduledAt, today),
-        gte(appointments.scheduledAt, today)
+        lt(appointments.scheduledAt, tomorrow)
       ));
 
     // Get pending lab results

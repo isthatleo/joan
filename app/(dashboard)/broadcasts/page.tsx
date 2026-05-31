@@ -1,121 +1,101 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useAuthStore } from "@/stores/auth";
-import {
-  PageHeader,
-  SectionCard,
-  Button,
-  Input,
-  Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Textarea,
-  Badge,
-  Skeleton,
-} from "@/components/ui";
-import {
-  Megaphone,
-  Send,
-  Users,
-  Building2,
-  MessageSquare,
-  Clock,
-  CheckCircle,
-  AlertCircle,
-} from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { cn } from "@/lib/utils";
 import { format } from "date-fns";
+import { AlertCircle, CheckCircle, Clock, Loader2, Megaphone, Send, Trash2, Users } from "lucide-react";
+import { PageHeader, Button, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea, Badge, Skeleton, Card, CardContent, CardHeader, CardTitle } from "@/components/ui";
 
-interface Broadcast {
+type Broadcast = {
   id: string;
+  title: string;
   message: string;
+  category: string;
+  priority: string;
+  audience: string;
+  status: string;
+  sentAt?: string;
+  recipientCount: number;
+  readCount: number;
   createdAt: string;
-  receiver: {
-    id: string;
-    fullName?: string;
-    email: string;
-  };
-  type: string;
-}
+};
 
 export default function BroadcastsPage() {
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState("compose");
-  const [broadcastData, setBroadcastData] = useState({
-    target: "",
+  const [form, setForm] = useState({
+    title: "",
     message: "",
+    category: "update",
+    priority: "normal",
+    audience: "hospital_admins",
+    status: "sent",
   });
 
-  const userRole = user?.role || "patient";
-  const canBroadcast = ["super_admin", "hospital_admin"].includes(userRole);
-
-  // Fetch broadcasts
-  const { data: broadcastsData, isLoading: broadcastsLoading } = useQuery({
-    queryKey: ["broadcasts", user?.id],
+  const isSuperAdmin = user?.role === "super_admin";
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["platform-broadcasts"],
     queryFn: async () => {
-      const response = await fetch(`/api/messages?userId=${user?.id}&type=broadcasts`);
-      if (!response.ok) throw new Error("Failed to fetch broadcasts");
-      return response.json();
+      const res = await fetch("/api/platform-broadcasts", { cache: "no-store", credentials: "include" });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Failed to load broadcasts");
+      return payload;
     },
-    enabled: !!user?.id && canBroadcast,
+    enabled: isSuperAdmin,
   });
 
-  // Send broadcast mutation
-  const sendBroadcastMutation = useMutation({
-    mutationFn: async (data: typeof broadcastData) => {
-      const response = await fetch("/api/messages", {
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/platform-broadcasts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            senderId: user?.id,
-            message: data.message,
-            type: "broadcast",
-            ...(data.target === "all" ? { allUsers: true } :
-               data.target === "hospital_admins" ? { roleTarget: "hospital_admin" } :
-               data.target === "tenant" ? { tenantTarget: true } :
-               data.target.startsWith("role:") ? { roleTarget: data.target.split(":")[1] } : {}),
-          }),
+        credentials: "include",
+        body: JSON.stringify(form),
       });
-      if (!response.ok) throw new Error("Failed to send broadcast");
-      return response.json();
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Failed to create broadcast");
+      return payload;
     },
     onSuccess: () => {
-      setBroadcastData({ target: "", message: "" });
-      queryClient.invalidateQueries({ queryKey: ["broadcasts"] });
+      setForm({ title: "", message: "", category: "update", priority: "normal", audience: "hospital_admins", status: "sent" });
+      queryClient.invalidateQueries({ queryKey: ["platform-broadcasts"] });
     },
   });
 
-  const broadcasts = broadcastsData?.broadcasts || [];
+  const actionMutation = useMutation({
+    mutationFn: async ({ broadcastId, action }: { broadcastId: string; action: string }) => {
+      const res = await fetch("/api/platform-broadcasts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ broadcastId, action }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Failed to update broadcast");
+      return payload;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["platform-broadcasts"] }),
+  });
 
-  const handleSendBroadcast = () => {
-    if (broadcastData.message.trim() && broadcastData.target) {
-      sendBroadcastMutation.mutate(broadcastData);
-    }
-  };
+  const broadcasts: Broadcast[] = data?.broadcasts || [];
+  const stats = data?.stats || {};
+  const previewAudience = form.audience === "all_dashboards" ? "All tenant dashboards" : "Hospital admins only";
+  const readRate = useMemo(() => {
+    const reach = broadcasts.reduce((sum, item) => sum + Number(item.recipientCount || 0), 0);
+    const reads = broadcasts.reduce((sum, item) => sum + Number(item.readCount || 0), 0);
+    return reach ? Math.round((reads / reach) * 100) : 0;
+  }, [broadcasts]);
 
-  if (!user) {
+  if (!user) return <div className="flex h-96 items-center justify-center">Please log in to access broadcasts.</div>;
+  if (!isSuperAdmin) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <p>Please log in to access broadcasts</p>
-      </div>
-    );
-  }
-
-  if (!canBroadcast) {
-    return (
-      <div className="flex items-center justify-center h-96">
+      <div className="flex h-96 items-center justify-center">
         <div className="text-center">
-          <AlertCircle className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-          <h3 className="text-lg font-medium mb-2">Access Restricted</h3>
-          <p className="text-muted-foreground">
-            Only administrators can send broadcast messages
-          </p>
+          <AlertCircle className="mx-auto mb-4 h-16 w-16 text-muted-foreground" />
+          <h3 className="mb-2 text-lg font-medium">Access Restricted</h3>
+          <p className="text-muted-foreground">Only super admins can send platform broadcasts.</p>
         </div>
       </div>
     );
@@ -123,222 +103,143 @@ export default function BroadcastsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Broadcasts & Communications"
-        subtitle="Send important messages to your team or organization"
-      />
+      <PageHeader title="Broadcasts" subtitle="Send product updates, bug-fix notices, maintenance alerts, and platform announcements." />
+      {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{(error as Error).message}</div>}
 
-      <div className="flex justify-center mb-6">
-        <div className="inline-flex flex-wrap gap-2 p-1 bg-muted rounded-full">
-          {[
-            { id: "compose", label: "Compose Message" },
-            { id: "history", label: "Message History" },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "px-4 py-2 text-sm font-medium rounded-full transition-all duration-200",
-                activeTab === tab.id
-                  ? "bg-orange-500 text-white shadow-sm dark:bg-orange-600"
-                  : "text-muted-foreground hover:text-foreground hover:bg-background/50"
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <Metric label="Total" value={stats.total || 0} icon={<Megaphone className="size-5" />} />
+        <Metric label="Sent" value={stats.sent || 0} icon={<CheckCircle className="size-5" />} />
+        <Metric label="Drafts" value={stats.drafts || 0} icon={<Clock className="size-5" />} />
+        <Metric label="Reach" value={stats.totalReach || 0} icon={<Users className="size-5" />} />
+        <Metric label="Read Rate" value={`${stats.readRate ?? readRate}%`} icon={<CheckCircle className="size-5" />} />
       </div>
 
-      {activeTab === "compose" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Compose Form */}
-            <SectionCard title="Send Broadcast" leadIcon={<Megaphone className="h-5 w-5" />}>
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <Label>Target Audience</Label>
-                  <Select
-                    value={broadcastData.target}
-                    onValueChange={(value) => setBroadcastData({ ...broadcastData, target: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select who to message" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {userRole === "super_admin" ? (
-                        <>
-                          <SelectItem value="all">
-                            <div className="flex items-center gap-2">
-                              <Megaphone className="h-4 w-4" />
-                              Every user in the system
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="hospital_admins">
-                            <div className="flex items-center gap-2">
-                              <Building2 className="h-4 w-4" />
-                              All Hospital Admins
-                            </div>
-                          </SelectItem>
-                        </>
-                      ) : userRole === "hospital_admin" ? (
-                        <>
-                          <SelectItem value="tenant">
-                            <div className="flex items-center gap-2">
-                              <Building2 className="h-4 w-4" />
-                              All hospital employees
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="role:doctor">
-                            <div className="flex items-center gap-2">
-                              <Users className="h-4 w-4" />
-                              All doctors
-                            </div>
-                          </SelectItem>
-                          <SelectItem value="role:nurse">
-                            <div className="flex items-center gap-2">
-                              <Users className="h-4 w-4" />
-                              All nurses
-                            </div>
-                          </SelectItem>
-                        </>
-                      ) : null}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Message</Label>
-                  <Textarea
-                    value={broadcastData.message}
-                    onChange={(e) => setBroadcastData({ ...broadcastData, message: e.target.value })}
-                    placeholder="Enter your broadcast message..."
-                    rows={6}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    This message will be sent to all selected recipients
-                  </p>
-                </div>
-
-                <Button
-                  onClick={handleSendBroadcast}
-                  disabled={!broadcastData.target || !broadcastData.message.trim() || sendBroadcastMutation.isPending}
-                  className="w-full inline-flex items-center gap-2"
-                >
-                  <Send className="h-4 w-4" />
-                  {sendBroadcastMutation.isPending ? "Sending..." : "Send Broadcast"}
-                </Button>
+      <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
+        <Card>
+          <CardHeader><CardTitle>Compose Broadcast</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Title</Label>
+                <Input value={form.title} onChange={(event) => setForm((state) => ({ ...state, title: event.target.value }))} placeholder="e.g. Pharmacy module update deployed" />
               </div>
-            </SectionCard>
+              <div className="space-y-2">
+                <Label>Audience</Label>
+                <Select value={form.audience} onValueChange={(value) => setForm((state) => ({ ...state, audience: value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="hospital_admins">Hospital admins only</SelectItem>
+                    <SelectItem value="all_dashboards">All tenant dashboards</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <Select value={form.category} onValueChange={(value) => setForm((state) => ({ ...state, category: value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bug_fix">Bug fix</SelectItem>
+                    <SelectItem value="update">Product update</SelectItem>
+                    <SelectItem value="maintenance">Maintenance</SelectItem>
+                    <SelectItem value="feature">Feature release</SelectItem>
+                    <SelectItem value="security">Security</SelectItem>
+                    <SelectItem value="general">General</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Priority</Label>
+                <Select value={form.priority} onValueChange={(value) => setForm((state) => ({ ...state, priority: value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="normal">Normal</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Action</Label>
+                <Select value={form.status} onValueChange={(value) => setForm((state) => ({ ...state, status: value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sent">Send immediately</SelectItem>
+                    <SelectItem value="draft">Save as draft</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Message</Label>
+              <Textarea value={form.message} onChange={(event) => setForm((state) => ({ ...state, message: event.target.value }))} rows={7} placeholder="Write the update, release note, bug fix notice, or platform announcement..." />
+            </div>
+            <Button onClick={() => createMutation.mutate()} disabled={!form.title.trim() || !form.message.trim() || createMutation.isPending} className="inline-flex items-center gap-2">
+              {createMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+              {form.status === "sent" ? "Send Broadcast" : "Save Draft"}
+            </Button>
+          </CardContent>
+        </Card>
 
-            {/* Preview */}
-            <SectionCard title="Message Preview" leadIcon={<MessageSquare className="h-5 w-5" />}>
-              <div className="space-y-4">
-                <div className="p-4 border border-border rounded-lg bg-muted/50">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground font-semibold text-sm">
-                      {user.fullName?.charAt(0) || user.email.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium text-sm">
-                          {user.fullName || "Administrator"}
-                        </span>
-                        <Badge variant="secondary" className="text-xs">
-                          {userRole.replace(/_/g, " ")}
-                        </Badge>
+        <Card>
+          <CardHeader><CardTitle>Preview</CardTitle></CardHeader>
+          <CardContent>
+            <div className="rounded-xl border border-border bg-muted/40 p-4">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <Badge>{form.category.replace("_", " ")}</Badge>
+                <Badge variant={form.priority === "urgent" ? "destructive" : "secondary"}>{form.priority}</Badge>
+                <Badge variant="outline">{previewAudience}</Badge>
+              </div>
+              <h3 className="font-bold">{form.title || "Broadcast title"}</h3>
+              <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{form.message || "Broadcast message preview will appear here."}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle>Broadcast History</CardTitle></CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="space-y-3">{[1, 2, 3].map((item) => <Skeleton key={item} className="h-20 w-full" />)}</div>
+          ) : broadcasts.length === 0 ? (
+            <div className="py-10 text-center text-muted-foreground"><Megaphone className="mx-auto mb-3 h-10 w-10" />No platform broadcasts yet.</div>
+          ) : (
+            <div className="space-y-3">
+              {broadcasts.map((broadcast) => (
+                <div key={broadcast.id} className="rounded-xl border border-border p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <h3 className="font-bold">{broadcast.title}</h3>
+                        <Badge>{broadcast.status}</Badge>
+                        <Badge variant="outline">{broadcast.audience === "all_dashboards" ? "All dashboards" : "Hospital admins"}</Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground mb-2">
-                        Broadcasting to: {
-                          broadcastData.target === "tenant" ? "Hospital Staff" :
-                          broadcastData.target === "role" ? "All Doctors" :
-                          broadcastData.target === "all" ? "All Users" :
-                          "Select audience"
-                        }
-                      </p>
-                      <div className="p-3 bg-background rounded-lg border">
-                        <p className="text-sm">
-                          {broadcastData.message || "Your message will appear here..."}
-                        </p>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        {new Date().toLocaleString()}
+                      <p className="text-sm text-muted-foreground">{broadcast.message}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {broadcast.sentAt ? `Sent ${format(new Date(broadcast.sentAt), "MMM dd, yyyy HH:mm")}` : `Created ${format(new Date(broadcast.createdAt), "MMM dd, yyyy HH:mm")}`} / {broadcast.recipientCount} recipients / {broadcast.readCount} read
                       </p>
                     </div>
-                  </div>
-                </div>
-
-                <div className="text-sm text-muted-foreground">
-                  <p className="font-medium mb-2">Broadcast Guidelines:</p>
-                  <ul className="space-y-1 text-xs">
-                    <li>• Use broadcasts for important announcements only</li>
-                    <li>• Recipients cannot reply to broadcast messages</li>
-                    <li>• Messages are delivered instantly to all recipients</li>
-                    <li>• Consider the urgency and relevance to recipients</li>
-                  </ul>
-                </div>
-              </div>
-            </SectionCard>
-          </div>
-      )}
-
-      {activeTab === "history" && (
-        <SectionCard title="Broadcast History" leadIcon={<Clock className="h-5 w-5" />}>
-            {broadcastsLoading ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map(i => (
-                  <div key={i} className="p-4 border border-border rounded-lg">
-                    <div className="flex items-start gap-3">
-                      <Skeleton className="h-8 w-8 rounded-full" />
-                      <div className="flex-1 space-y-2">
-                        <Skeleton className="h-4 w-32" />
-                        <Skeleton className="h-3 w-48" />
-                        <Skeleton className="h-3 w-24" />
-                      </div>
+                    <div className="flex flex-wrap gap-2">
+                      {broadcast.status !== "sent" && (
+                        <Button size="sm" onClick={() => actionMutation.mutate({ broadcastId: broadcast.id, action: "send" })} disabled={actionMutation.isPending}>Send</Button>
+                      )}
+                      <Button size="sm" variant="outline" onClick={() => actionMutation.mutate({ broadcastId: broadcast.id, action: "mark_read" })} disabled={actionMutation.isPending}>Mark delivered read</Button>
+                      <Button size="sm" variant="destructive" onClick={() => actionMutation.mutate({ broadcastId: broadcast.id, action: "delete" })} disabled={actionMutation.isPending}>
+                        <Trash2 className="mr-2 size-4" /> Delete
+                      </Button>
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : broadcasts.length === 0 ? (
-              <div className="text-center py-8">
-                <Megaphone className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                <p className="text-muted-foreground">No broadcasts sent yet</p>
-                <p className="text-sm text-muted-foreground">
-                  Your broadcast messages will appear here
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {broadcasts.map((broadcast: Broadcast) => (
-                  <div key={broadcast.id} className="p-4 border border-border rounded-lg">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground font-semibold text-sm">
-                        {user.fullName?.charAt(0) || user.email.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-sm">
-                            {user.fullName || "Administrator"}
-                          </span>
-                          <Badge variant="outline" className="text-xs">
-                            Broadcast
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            {format(new Date(broadcast.createdAt), "MMM dd, HH:mm")}
-                          </span>
-                        </div>
-                        <p className="text-sm mb-2">{broadcast.message}</p>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <CheckCircle className="h-3 w-3" />
-                          Sent to {broadcast.receiver.fullName || broadcast.receiver.email}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </SectionCard>
-      )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
+}
+
+function Metric({ label, value, icon }: { label: string; value: string | number; icon: ReactNode }) {
+  return <Card><CardContent className="p-4"><div className="mb-2 text-orange-500">{icon}</div><p className="text-xs font-semibold uppercase text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-bold">{value}</p></CardContent></Card>;
 }

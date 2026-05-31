@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { notifications } from "@/lib/db/schema";
 import { redis } from "@/lib/redis";
 import { createHash, createHmac } from "crypto";
+import { eq } from "drizzle-orm";
 import twilio from "twilio";
 import { getIntegrationCredentials, getTenantCommunicationSettings } from "@/lib/integrations/server";
 import { sendEmail as sendTenantEmail } from "@/lib/email/send-email";
@@ -13,7 +14,7 @@ function getEnvTwilioClient() {
 
 async function getTenantTwilioConfig(tenantSlugOrId?: string) {
   if (!tenantSlugOrId) return null;
-  const communication = await getTenantCommunicationSettings(tenantSlugOrId).catch(() => ({}));
+  const communication = await getTenantCommunicationSettings(tenantSlugOrId).catch(() => ({} as Record<string, any>)) as Record<string, any>;
   if ((communication?.smsProvider || "twilio") !== "twilio") return null;
   const creds = await getIntegrationCredentials(tenantSlugOrId, "twilio").catch(() => null);
   if (!creds?.accountSid || !creds?.authToken) return null;
@@ -25,7 +26,7 @@ async function getTenantTwilioConfig(tenantSlugOrId?: string) {
 
 async function sendTenantSmsViaConfiguredProvider(phone: string, message: string, tenantSlugOrId?: string) {
   if (!tenantSlugOrId) return false;
-  const communication = await getTenantCommunicationSettings(tenantSlugOrId).catch(() => ({}));
+  const communication = await getTenantCommunicationSettings(tenantSlugOrId).catch(() => ({} as Record<string, any>)) as Record<string, any>;
   const provider = communication?.smsProvider || "twilio";
   const creds = await getIntegrationCredentials(tenantSlugOrId, provider).catch(() => null);
   if (!creds) return false;
@@ -75,7 +76,7 @@ async function sendTenantSmsViaConfiguredProvider(phone: string, message: string
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(data?.errors?.[0]?.description || `MessageBird SMS failed (${response.status})`);
+      throw new Error(data?.issues?.[0]?.description || `MessageBird SMS failed (${response.status})`);
     }
     return true;
   }
@@ -193,6 +194,6 @@ export class NotificationService {
   async markAsRead(notificationId: string) {
     return db.update(notifications)
       .set({ read: true })
-      .where((n, { eq }) => eq(n.id, notificationId));
+      .where(eq(notifications.id, notificationId));
   }
 }

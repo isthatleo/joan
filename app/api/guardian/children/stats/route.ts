@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantBySlug } from "@/lib/db/helpers";
 import { db } from "@/lib/db";
-import { eq, and, gte } from "drizzle-orm";
-import { guardians, guardianPatients, appointments } from "@/lib/db/schema";
+import { eq, and, gte, inArray, ilike, or } from "drizzle-orm";
+import { guardianPatients, appointments, notifications } from "@/lib/db/schema";
+import { resolveGuardianForTenant } from "@/lib/api/guardian-auth";
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,18 +19,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    // Get guardian's user ID from session/token (simplified for demo)
-    const guardianUserId = "guardian-user-id"; // This would come from auth
-
-    // Get guardian record
-    const guardian = await db
-      .select()
-      .from(guardians)
-      .where(and(eq(guardians.tenantId, tenant.id), eq(guardians.userId, guardianUserId)))
-      .limit(1);
-
-    if (!guardian.length) {
-      return NextResponse.json({ error: "Guardian not found" }, { status: 404 });
+    const access = await resolveGuardianForTenant(request, tenant.id);
+    if (access.status !== 200 || !access.guardian || !access.user) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     // Get children associated with this guardian
@@ -38,12 +30,20 @@ export async function GET(request: NextRequest) {
         patientId: guardianPatients.patientId
       })
       .from(guardianPatients)
-      .where(eq(guardianPatients.guardianId, guardian[0].id));
+      .where(eq(guardianPatients.guardianId, access.guardian.id));
 
-    const childrenIds = childrenRelations.map(rel => rel.patientId);
+    const childrenIds = childrenRelations.map(rel => rel.patientId).filter((id): id is string => Boolean(id));
 
     // Calculate stats
     const totalChildren = childrenIds.length;
+    if (totalChildren === 0) {
+      return NextResponse.json({
+        totalChildren: 0,
+        activeChildren: 0,
+        childrenWithAppointments: 0,
+        childrenNeedingVaccinations: 0,
+      });
+    }
 
     // Active children (have appointments or recent visits)
     const thirtyDaysAgo = new Date();
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
       .from(appointments)
       .where(and(
         eq(appointments.tenantId, tenant.id),
-        appointments.patientId ? childrenIds.includes(appointments.patientId) : false,
+        inArray(appointments.patientId, childrenIds),
         gte(appointments.scheduledAt, thirtyDaysAgo)
       ));
 
@@ -67,15 +67,31 @@ export async function GET(request: NextRequest) {
       .from(appointments)
       .where(and(
         eq(appointments.tenantId, tenant.id),
-        appointments.patientId ? childrenIds.includes(appointments.patientId) : false,
+        inArray(appointments.patientId, childrenIds),
         gte(appointments.scheduledAt, now),
         eq(appointments.status, "scheduled")
       ));
 
     const uniqueChildrenWithAppointments = new Set(childrenWithAppointments.map(apt => apt.patientId)).size;
 
-    // Children needing vaccinations (mock data - would check vaccination records)
-    const childrenNeedingVaccinations = Math.floor(Math.random() * totalChildren) + 1;
+    const vaccinationAlerts = await db
+      .select()
+      .from(notifications)
+      .where(and(
+        eq(notifications.tenantId, tenant.id),
+        eq(notifications.userId, access.user.id),
+        eq(notifications.read, false),
+        or(
+          ilike(notifications.type, "%vaccin%"),
+          ilike(notifications.title, "%vaccin%"),
+          ilike(notifications.message, "%vaccin%"),
+          ilike(notifications.type, "%immun%"),
+          ilike(notifications.title, "%immun%"),
+          ilike(notifications.message, "%immun%")
+        )
+      ));
+
+    const childrenNeedingVaccinations = Math.min(totalChildren, vaccinationAlerts.length);
 
     const stats = {
       totalChildren,

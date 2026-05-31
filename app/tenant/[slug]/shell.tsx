@@ -10,7 +10,7 @@ import { applyTenantPreferences } from "@/lib/tenant-preferences";
 import { getTenantLoginPath, isTenantLoginPath, withTenantPrefix } from "@/lib/tenant-routing";
 import { useAuthStore } from "@/stores/auth";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 
 interface TenantInfo {
@@ -35,19 +35,35 @@ function PersistTenantContext({ tenant }: { tenant: TenantInfo }) {
         sessionStorage.removeItem("active_tenant_logo");
       }
 
-      if (sessionStorage.getItem("active_tenant_modules") && sessionStorage.getItem("active_tenant_preferences")) {
+      if (sessionStorage.getItem("active_tenant_settings_loading") === tenant.id) {
         return;
       }
+      sessionStorage.setItem("active_tenant_settings_loading", tenant.id);
 
       fetch(`/api/tenants/${tenant.slug}/settings`, {
         credentials: "include",
-        cache: "no-store",
       })
         .then(async (response) => {
           if (!response.ok) return null;
           return response.json();
         })
         .then((data) => {
+          const branding = data?.branding || {};
+          const hospitalName = branding.hospitalName || data?.hospital?.name || data?.tenant?.name || tenant.name;
+          const logoUrl = branding.logoUrl || data?.tenant?.logoUrl || tenant.logoUrl || "";
+          const primaryColor = branding.primaryColor || "";
+          const accentColor = branding.accentColor || primaryColor;
+
+          sessionStorage.setItem("active_tenant_name", hospitalName);
+          if (logoUrl) {
+            sessionStorage.setItem("active_tenant_logo", logoUrl);
+          } else {
+            sessionStorage.removeItem("active_tenant_logo");
+          }
+          if (primaryColor) {
+            document.documentElement.style.setProperty("--color-primary", primaryColor);
+            document.documentElement.style.setProperty("--color-accent", accentColor);
+          }
           if (data?.modules) {
             sessionStorage.setItem("active_tenant_modules", JSON.stringify(normalizeTenantModules(data.modules)));
           }
@@ -55,8 +71,38 @@ function PersistTenantContext({ tenant }: { tenant: TenantInfo }) {
             sessionStorage.setItem("active_tenant_preferences", JSON.stringify(data.preferences));
             applyTenantPreferences(data.preferences);
           }
+          if (data?.workflow) {
+            sessionStorage.setItem("active_tenant_workflow", JSON.stringify(data.workflow));
+          }
+          localStorage.setItem(`hospital_settings_${tenant.id}`, JSON.stringify({
+            name: hospitalName,
+            logoUrl,
+            primaryColor,
+            accentColor,
+            modules: data?.modules ? normalizeTenantModules(data.modules) : undefined,
+            preferences: data?.preferences,
+            workflow: data?.workflow,
+          }));
+          window.dispatchEvent(new CustomEvent(getTenantSettingsSyncEventName(), {
+            detail: {
+              name: hospitalName,
+              logoUrl,
+              primaryColor,
+              accentColor,
+              modules: data?.modules ? normalizeTenantModules(data.modules) : undefined,
+              preferences: data?.preferences,
+              workflow: data?.workflow,
+            },
+          }));
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          try {
+            if (sessionStorage.getItem("active_tenant_settings_loading") === tenant.id) {
+              sessionStorage.removeItem("active_tenant_settings_loading");
+            }
+          } catch {}
+        });
     } catch {}
   }, [tenant.id, tenant.logoUrl, tenant.name, tenant.slug]);
 
@@ -72,6 +118,8 @@ function AuthenticatedShell({
 }) {
   const { user, isLoading } = useAuthStore();
   const pathname = usePathname();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const mobileNavEnabled = user?.role === "patient" || user?.role === "guardian";
   const dashboardHref = user
     ? `/${user.role === "hospital_admin" ? "admin" : user.role === "lab_technician" ? "lab" : user.role === "pharmacist" ? "pharmacy" : user.role === "receptionist" ? "reception" : user.role}`
     : null;
@@ -127,11 +175,12 @@ function AuthenticatedShell({
 
     const refreshPreferences = async () => {
       if (sessionStorage.getItem("active_tenant_preferences")) return;
+      if (sessionStorage.getItem("active_tenant_settings_loading") === tenant.id) return;
 
       try {
+        sessionStorage.setItem("active_tenant_settings_loading", tenant.id);
         const response = await fetch(`/api/tenants/${tenant.slug}/settings`, {
           credentials: "include",
-          cache: "no-store",
         });
         if (!response.ok) return;
         const data = await response.json().catch(() => null);
@@ -139,7 +188,14 @@ function AuthenticatedShell({
           sessionStorage.setItem("active_tenant_preferences", JSON.stringify(data.preferences));
           applyTenantPreferences(data.preferences);
         }
-      } catch {}
+      } catch {
+      } finally {
+        try {
+          if (sessionStorage.getItem("active_tenant_settings_loading") === tenant.id) {
+            sessionStorage.removeItem("active_tenant_settings_loading");
+          }
+        } catch {}
+      }
     };
 
     const handleStorage = (event: StorageEvent) => {
@@ -201,17 +257,30 @@ function AuthenticatedShell({
     }
 
     let timeoutId: number | null = null;
+    let lastSecurityCheckAt = 0;
+    let cachedSessionTimeout = 60;
     let cancelled = false;
 
-    const resetTimer = async () => {
+    const scheduleLogout = () => {
       if (timeoutId) {
         window.clearTimeout(timeoutId);
       }
+      timeoutId = window.setTimeout(async () => {
+        await authClient.signOut().catch(() => null);
+        window.location.replace(getTenantLoginPath(tenant.slug, window.location.hostname));
+      }, cachedSessionTimeout * 60 * 1000);
+    };
 
+    const refreshSecurityPolicy = async (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastSecurityCheckAt < 60_000) {
+        scheduleLogout();
+        return;
+      }
+      lastSecurityCheckAt = now;
       try {
         const response = await fetch(`/api/tenant/${tenant.slug}/security/session`, {
           credentials: "include",
-          cache: "no-store",
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok || cancelled) return;
@@ -222,16 +291,17 @@ function AuthenticatedShell({
           return;
         }
 
-        const timeoutMinutes = Number(data?.sessionTimeout || 60);
-        timeoutId = window.setTimeout(async () => {
-          await authClient.signOut().catch(() => null);
-          window.location.replace(getTenantLoginPath(tenant.slug, window.location.hostname));
-        }, timeoutMinutes * 60 * 1000);
+        cachedSessionTimeout = Number(data?.sessionTimeout || 60);
+        scheduleLogout();
       } catch {}
     };
 
+    const resetTimer = () => {
+      void refreshSecurityPolicy(false);
+    };
+
     const activityEvents = ["mousemove", "keydown", "click", "scroll", "touchstart"];
-    void resetTimer();
+    void refreshSecurityPolicy(true);
     activityEvents.forEach((eventName) => window.addEventListener(eventName, resetTimer, { passive: true }));
 
     return () => {
@@ -263,10 +333,14 @@ function AuthenticatedShell({
 
   return (
     <div className="flex h-screen bg-subtle text-foreground">
-      <Sidebar />
+      <Sidebar
+        mobileEnabled={mobileNavEnabled}
+        mobileOpen={mobileNavEnabled && mobileSidebarOpen}
+        onMobileClose={() => setMobileSidebarOpen(false)}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar />
-        <main className="flex-1 overflow-y-auto px-6 py-6 scrollbar-thin">{children}</main>
+        <Topbar onMobileMenuClick={mobileNavEnabled ? () => setMobileSidebarOpen(true) : undefined} />
+        <main className={`flex-1 overflow-y-auto scrollbar-thin ${mobileNavEnabled ? "px-3 py-4 sm:px-4 lg:px-6 lg:py-6" : "px-6 py-6"}`}>{children}</main>
       </div>
     </div>
   );

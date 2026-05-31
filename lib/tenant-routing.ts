@@ -1,10 +1,25 @@
 import type { AppRole } from "@/lib/rbac";
 
-const PRODUCTION_TENANT_DOMAINS = [
+const FALLBACK_PRODUCTION_TENANT_DOMAINS = [
   "joan.com",
   "joan.vercel.app",
   "joan-production.com",
 ];
+
+function getProductionTenantDomains() {
+  const configured = [
+    process.env.NEXT_PUBLIC_ROOT_DOMAIN,
+    process.env.NEXT_PUBLIC_TENANT_DOMAINS,
+    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL,
+  ];
+
+  const domains = configured
+    .flatMap((value) => String(value || "").split(","))
+    .map((value) => value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, ""))
+    .filter(Boolean);
+
+  return domains.length ? domains : FALLBACK_PRODUCTION_TENANT_DOMAINS;
+}
 
 export const TENANT_ROLE_HOME: Record<Exclude<AppRole, "super_admin">, string> = {
   hospital_admin: "admin",
@@ -63,7 +78,7 @@ export function getTenantSubdomain(hostname?: string | null) {
     return parts.length >= 2 ? parts[0] : null;
   }
 
-  for (const domain of PRODUCTION_TENANT_DOMAINS) {
+  for (const domain of getProductionTenantDomains()) {
     if (host.endsWith(`.${domain}`)) {
       const subdomain = host.replace(`.${domain}`, "");
       if (subdomain && subdomain !== "www") {

@@ -158,10 +158,15 @@ export async function getTenantAccessControl(tenantId: string) {
   const tenantRoleIds = new Set(roleRows.map((role) => role.id));
   const permissionById = new Map(permissionRows.map((permission) => [permission.id, permission]));
   const assignmentsByRole = new Map<string, typeof permissionRows>();
+  const assignmentKeysByRole = new Map<string, Set<string>>();
   for (const assignment of rolePermissionRows) {
     if (!assignment.roleId || !assignment.permissionId || !tenantRoleIds.has(assignment.roleId)) continue;
     const permission = permissionById.get(assignment.permissionId);
     if (!permission) continue;
+    const seen = assignmentKeysByRole.get(assignment.roleId) || new Set<string>();
+    if (seen.has(permission.id)) continue;
+    seen.add(permission.id);
+    assignmentKeysByRole.set(assignment.roleId, seen);
     assignmentsByRole.set(assignment.roleId, [...(assignmentsByRole.get(assignment.roleId) || []), permission]);
   }
 

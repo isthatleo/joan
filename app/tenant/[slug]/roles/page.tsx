@@ -10,7 +10,7 @@ const orange = "#F97316";
 
 type Permission = { id: string; key: string; resource: string; action: string; description?: string };
 type Role = { id: string; name: string; label: string; description: string; userCount: number; permissions: Permission[]; permissionIds: string[]; createdAt: string; isSystem: boolean };
-type AccessUser = { id: string; fullName: string; email: string; phone?: string; role: string; roleLabel: string; roles: string[]; department?: string; isActive: boolean; forcePasswordChange: boolean; lastActive: string };
+type AccessUser = { id: string; fullName: string; email: string; phone?: string; avatar?: string | null; role: string; roleLabel: string; roles: string[]; department?: string; isActive: boolean; forcePasswordChange: boolean; lastActive: string };
 type MatrixRow = { resource: string; permissions: Permission[]; actions: Record<string, boolean>; assignedRoles: string[] };
 type Stats = { totalRoles: number; systemRoles: number; customRoles: number; totalPermissions: number; resources: number; users: number; activeUsers: number };
 
@@ -270,7 +270,7 @@ function RolesTab({ roles, onEdit, onDelete, busy }: { roles: Role[]; onEdit: (r
               </div>
             </div>
             <p className="mb-4 text-sm text-muted-foreground">{role.description}</p>
-            <div className="flex flex-wrap gap-1">{role.permissions.slice(0, 6).map((permission) => <span key={permission.id} className="rounded-md bg-muted px-2 py-1 text-xs font-medium">{permission.key}</span>)}{role.permissions.length > 6 ? <span className="rounded-md bg-muted px-2 py-1 text-xs font-medium">+{role.permissions.length - 6} more</span> : null}</div>
+            <div className="flex flex-wrap gap-1">{role.permissions.slice(0, 6).map((permission, index) => <span key={`${role.id}-${permission.id}-${index}`} className="rounded-md bg-muted px-2 py-1 text-xs font-medium">{permission.key}</span>)}{role.permissions.length > 6 ? <span className="rounded-md bg-muted px-2 py-1 text-xs font-medium">+{role.permissions.length - 6} more</span> : null}</div>
           </div>
         ))}
       </div>

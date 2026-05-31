@@ -12,13 +12,17 @@ import {
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import crypto from "node:crypto";
+import bcrypt from "bcryptjs";
+import { createTenantSubscriptionInvoice, resolvePlan } from "@/lib/platform-billing";
+import { upsertCredentialAuthUser, upsertForcePasswordSettings } from "@/lib/tenant-staff";
+import { inferCountryFromCity } from "@/lib/address-city-inference";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const provisionSchema = z.object({
   name: z.string().trim().min(2).max(120),
-  plan: z.enum(["Basic", "Standard", "Premium"]),
+  plan: z.string().trim().min(1).max(120),
   contactEmail: z.string().trim().email(),
   contactPhone: z.string().trim().min(3).max(40).optional().or(z.literal("")),
   address: z.string().trim().max(240).optional().or(z.literal("")),
@@ -30,6 +34,7 @@ const provisionSchema = z.object({
   adminFullName: z.string().trim().min(2).max(120),
   adminPhone: z.string().trim().max(40).optional().or(z.literal("")),
   seedDepartments: z.array(z.string().trim().min(1).max(80)).default([]),
+  departments: z.array(z.string().trim().min(1).max(80)).default([]),
   modules: z.array(z.string()).default([]),
 });
 
@@ -46,7 +51,7 @@ async function uniqueSlug(base: string): Promise<string> {
   const candidate = base || `hospital-${Date.now().toString(36)}`;
   const existing = await db.select().from(tenants).where(eq(tenants.slug, candidate));
   if (existing.length === 0) return candidate;
-  return `${candidate}-${Math.random().toString(36).slice(2, 6)}`;
+  return `${candidate}-${crypto.randomBytes(2).toString("hex")}`;
 }
 
 function generateTempPassword(): string {
@@ -64,12 +69,6 @@ function generateTempPassword(): string {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr.join("");
-}
-
-async function hashPassword(plain: string): Promise<string> {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const derived = crypto.scryptSync(plain, salt, 64).toString("hex");
-  return `scrypt$${salt}$${derived}`;
 }
 
 const DEFAULT_DEPARTMENTS = [
@@ -127,6 +126,7 @@ const STAGES = [
   "roles",
   "departments",
   "modules",
+  "billing",
   "audit",
 ] as const;
 type StageKey = (typeof STAGES)[number];
@@ -147,12 +147,13 @@ export async function POST(request: NextRequest) {
 
       let provisioningRun: any = null;
       let currentStage: StageKey = "validate";
+      let subscriptionInvoice: any = null;
 
       const failStage = (err: any) => {
         const msg = err instanceof z.ZodError
-          ? err.errors.map(e => `${e.path.join(".")}: ${e.message}`).join("; ")
+          ? err.issues.map(e => `${e.path.join(".")}: ${e.message}`).join("; ")
           : (err?.message || "Unknown error");
-        stage(currentStage, "error", { error: msg, details: err instanceof z.ZodError ? err.errors : undefined });
+        stage(currentStage, "error", { error: msg, details: err instanceof z.ZodError ? err.issues : undefined });
         return msg;
       };
 
@@ -160,7 +161,15 @@ export async function POST(request: NextRequest) {
         // ---- validate ----
         currentStage = "validate";
         stage("validate", "start");
-        const data = provisionSchema.parse(body);
+        const parsedData = provisionSchema.parse(body);
+        const data = {
+          ...parsedData,
+          country: parsedData.country || inferCountryFromCity(parsedData.city) || "",
+        };
+        const selectedPlan = await resolvePlan(data.plan);
+        if (!selectedPlan?.id || selectedPlan.isActive === false || selectedPlan.deletedAt) {
+          throw new Error("Selected subscription plan is unavailable.");
+        }
         stage("validate", "done");
 
         // Create provisioning run record
@@ -187,7 +196,7 @@ export async function POST(request: NextRequest) {
           .values({
             name: data.name,
             slug,
-            plan: data.plan,
+            plan: selectedPlan.name,
             isActive: true,
             contactEmail: data.contactEmail,
             contactPhone: data.contactPhone || null,
@@ -197,7 +206,7 @@ export async function POST(request: NextRequest) {
             timezone: data.timezone || "UTC",
             logoUrl: data.logoUrl || null,
             provisioningStatus: "in_progress",
-            metadata: { modules: data.modules },
+            metadata: { modules: data.modules, planId: selectedPlan.id, planCode: selectedPlan.code },
           })
           .returning();
         stage("hospital", "done", { tenantId: tenant.id, slug });
@@ -210,7 +219,7 @@ export async function POST(request: NextRequest) {
         stage("admin", "start");
         await db.update(provisioningRuns).set({ stage: "admin" }).where(eq(provisioningRuns.id, provisioningRun.id));
         const tempPassword = generateTempPassword();
-        const passwordHash = await hashPassword(tempPassword);
+        const passwordHash = await bcrypt.hash(tempPassword, 12);
         const existingUser = await db
           .select()
           .from(users)
@@ -220,8 +229,9 @@ export async function POST(request: NextRequest) {
           adminUser = existingUser[0];
           await db
             .update(users)
-            .set({ tenantId: tenant.id, updatedAt: new Date() })
+            .set({ tenantId: tenant.id, role: "hospital_admin", isActive: true, updatedAt: new Date() })
             .where(eq(users.id, adminUser.id));
+          adminUser = { ...adminUser, tenantId: tenant.id, role: "hospital_admin", isActive: true };
         } else {
           const [inserted] = await db
             .insert(users)
@@ -231,11 +241,21 @@ export async function POST(request: NextRequest) {
               passwordHash,
               fullName: data.adminFullName,
               phone: data.adminPhone || null,
+              role: "hospital_admin",
               isActive: true,
             })
             .returning();
           adminUser = inserted;
         }
+        await db.update(tenants).set({ adminUserId: adminUser.id, updatedAt: new Date() } as any).where(eq(tenants.id, tenant.id));
+        await upsertCredentialAuthUser({
+          appUserId: adminUser.id,
+          email: data.adminEmail,
+          fullName: data.adminFullName,
+          passwordHash,
+          emailVerified: true,
+        });
+        await upsertForcePasswordSettings(adminUser.id, true);
         stage("admin", "done", { adminEmail: data.adminEmail, adminName: data.adminFullName });
 
         // ---- roles ----
@@ -267,7 +287,11 @@ export async function POST(request: NextRequest) {
         stage("departments", "start");
         await db.update(provisioningRuns).set({ stage: "departments" }).where(eq(provisioningRuns.id, provisioningRun.id));
         const deptNames =
-          data.seedDepartments.length > 0 ? data.seedDepartments : DEFAULT_DEPARTMENTS;
+          data.seedDepartments.length > 0
+            ? data.seedDepartments
+            : data.departments.length > 0
+              ? data.departments
+              : DEFAULT_DEPARTMENTS;
         if (deptNames.length > 0) {
           await db
             .insert(departments)
@@ -290,6 +314,20 @@ export async function POST(request: NextRequest) {
           .where(eq(tenants.id, tenant.id));
         stage("modules", "done", { count: data.modules.length, modules: data.modules });
 
+        // ---- billing ----
+        currentStage = "billing";
+        stage("billing", "start");
+        await db.update(provisioningRuns).set({ stage: "billing" }).where(eq(provisioningRuns.id, provisioningRun.id));
+        subscriptionInvoice = await createTenantSubscriptionInvoice({
+          tenantId: tenant.id,
+          tenantName: tenant.name,
+          tenantSlug: slug,
+          plan: selectedPlan,
+          adminUserId: adminUser.id,
+          billingEmail: data.contactEmail || data.adminEmail,
+        });
+        stage("billing", "done", { invoiceNumber: subscriptionInvoice.invoiceNumber, status: subscriptionInvoice.status, total: subscriptionInvoice.total });
+
         // ---- audit ----
         currentStage = "audit";
         stage("audit", "start");
@@ -302,7 +340,11 @@ export async function POST(request: NextRequest) {
           metadata: {
             name: tenant.name,
             slug,
-            plan: tenant.plan,
+            plan: selectedPlan.name,
+            planCode: selectedPlan.code,
+            invoiceId: subscriptionInvoice.id,
+            invoiceNumber: subscriptionInvoice.invoiceNumber,
+            invoiceStatus: subscriptionInvoice.status,
             modules: data.modules,
             departments: deptNames,
           },
@@ -319,6 +361,8 @@ export async function POST(request: NextRequest) {
               tenantId: tenant.id,
               slug,
               adminId: adminUser.id,
+              invoiceId: subscriptionInvoice.id,
+              invoiceNumber: subscriptionInvoice.invoiceNumber,
               departments: deptNames,
               modules: data.modules,
             }
@@ -354,7 +398,7 @@ export async function POST(request: NextRequest) {
           ok: false,
           stage: currentStage,
           error: message,
-          details: error instanceof z.ZodError ? error.errors : undefined,
+          details: error instanceof z.ZodError ? error.issues : undefined,
         });
       } finally {
         controller.close();

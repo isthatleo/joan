@@ -13,10 +13,4 @@ Sentry.init({
 
   // Setting this option to true will print useful information to the console while you're setting up Sentry.
   debug: process.env.NODE_ENV === 'development',
-  webpack: {
-    treeshake: {
-      removeDebugLogging: true, // Replaces disableLogger
-    },
-    automaticVercelMonitors: true, // Replaces automaticVercelMonitors
-  },
 });

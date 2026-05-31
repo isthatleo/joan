@@ -292,7 +292,7 @@ export default function PrescriptionsPage() {
                             disabled={actionMutation.isPending}
                             className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            {actionMutation.isPending && activeAction?.id === prescription.id && activeAction.type === "complete" ? "Saving..." : "Complete"}
+                            {actionMutation.isPending && activeAction?.id === prescription.id && activeAction?.type === "complete" ? "Saving..." : "Complete"}
                           </button>
                         )}
                         <button
@@ -300,7 +300,7 @@ export default function PrescriptionsPage() {
                           disabled={actionMutation.isPending}
                           className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          <span className="inline-flex items-center gap-1"><RefreshCw className={`h-3.5 w-3.5 ${actionMutation.isPending && activeAction?.id === prescription.id && activeAction.type === "refill" ? "animate-spin" : ""}`} /> {actionMutation.isPending && activeAction?.id === prescription.id && activeAction.type === "refill" ? "Renewing..." : "Renew"}</span>
+                          <span className="inline-flex items-center gap-1"><RefreshCw className={`h-3.5 w-3.5 ${actionMutation.isPending && activeAction?.id === prescription.id && activeAction?.type === "refill" ? "animate-spin" : ""}`} /> {actionMutation.isPending && activeAction?.id === prescription.id && activeAction?.type === "refill" ? "Renewing..." : "Renew"}</span>
                         </button>
                         {prescription.status !== "discontinued" && (
                           <button
@@ -312,7 +312,7 @@ export default function PrescriptionsPage() {
                             disabled={actionMutation.isPending}
                             className="rounded-lg border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            {actionMutation.isPending && activeAction?.id === prescription.id && activeAction.type === "discontinue" ? "Saving..." : "Discontinue"}
+                            {actionMutation.isPending && activeAction?.id === prescription.id && activeAction?.type === "discontinue" ? "Saving..." : "Discontinue"}
                           </button>
                         )}
                       </div>

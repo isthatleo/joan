@@ -8,6 +8,7 @@ const config = {
     "./pages/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
     "./app/**/*.{ts,tsx}",
+    "!./app/api/**/*.{ts,tsx}",
     "./src/**/*.{ts,tsx}",
   ],
   // Safelist tones used dynamically in dashboard pages so Tailwind keeps them.

@@ -125,7 +125,7 @@ export function UserFeedbackDetailPage({
         <>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <FeedbackBadge label="Type" value={feedback.type} />
-            <FeedbackBadge label="Scope" value={feedback.scope || "tenant"} />
+            <FeedbackBadge label="Destination" value={feedback.destinationLabel || (feedback.scope === "platform" ? "Super admin" : "Hospital admin")} />
             <FeedbackBadge label="Status" value={feedback.status} />
             <FeedbackBadge label="Priority" value={feedback.priority} />
           </div>
@@ -173,8 +173,8 @@ export function UserFeedbackDetailPage({
                   </div>
                   <p className="mt-3 text-sm text-foreground">
                     {feedback.scope === "platform"
-                      ? "This item is routed to super admin for product and implementation review."
-                      : "This item remains within the tenant scope for operational follow-up."}
+                      ? "This item is routed to super admin for product, platform, integration, billing-platform, or implementation review."
+                      : "This item is routed to the hospital admin team for service delivery, staff, wait time, care quality, appointment, tenant billing, or operational follow-up."}
                   </p>
                 </div>
 

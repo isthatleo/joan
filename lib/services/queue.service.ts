@@ -19,7 +19,7 @@ export class QueueService {
       .orderBy(desc(queues.position))
       .limit(1);
 
-    const nextPosition = lastQueue.length > 0 ? lastQueue[0].position + 1 : 1;
+    const nextPosition = lastQueue.length > 0 ? (lastQueue[0]?.position ?? 0) + 1 : 1;
 
     // Generate queue number
     const queueNumber = `Q${nextPosition.toString().padStart(3, '0')}`;

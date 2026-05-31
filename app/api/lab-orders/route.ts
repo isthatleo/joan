@@ -1,25 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { labOrders, labResults } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, type SQL } from "drizzle-orm";
+import { requireTenantUser } from "@/lib/api/route-guards";
 
 export async function GET(request: NextRequest) {
   try {
+    const access = await requireTenantUser(request, ["doctor", "lab_technician", "hospital_admin"]);
+    if (!access.ok) return access.response;
+    const tenantId = access.user.tenantId;
+    if (!tenantId) return NextResponse.json({ error: "Tenant context required" }, { status: 403 });
+
     const { searchParams } = new URL(request.url);
     const visitId = searchParams.get("visitId");
     const status = searchParams.get("status");
 
-    let query = db.select().from(labOrders);
+    const conditions: SQL[] = [eq(labOrders.tenantId, tenantId)];
 
     if (visitId) {
-      query = query.where(eq(labOrders.visitId, visitId));
+      conditions.push(eq(labOrders.visitId, visitId));
     }
 
     if (status) {
-      query = query.where(eq(labOrders.status, status));
+      conditions.push(eq(labOrders.status, status));
     }
 
-    const orders = await query;
+    const orders = conditions.length
+      ? await db.select().from(labOrders).where(and(...conditions))
+      : await db.select().from(labOrders);
     return NextResponse.json(orders);
   } catch (error) {
     console.error("Error fetching lab orders:", error);
@@ -29,6 +37,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await requireTenantUser(request, ["doctor"]);
+    if (!access.ok) return access.response;
+    const tenantId = access.user.tenantId;
+    if (!tenantId) return NextResponse.json({ error: "Tenant context required" }, { status: 403 });
+
     const data = await request.json();
     const { visitId, orderedBy, tests, notes } = data;
 
@@ -37,8 +50,9 @@ export async function POST(request: NextRequest) {
     }
 
     const [order] = await db.insert(labOrders).values({
+      tenantId,
       visitId,
-      orderedBy,
+      orderedBy: access.user.id,
       status: "pending",
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -53,6 +67,11 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const access = await requireTenantUser(request, ["lab_technician"]);
+    if (!access.ok) return access.response;
+    const tenantId = access.user.tenantId;
+    if (!tenantId) return NextResponse.json({ error: "Tenant context required" }, { status: 403 });
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -65,7 +84,7 @@ export async function PUT(request: NextRequest) {
 
     const [order] = await db.update(labOrders)
       .set({ status, updatedAt: new Date() })
-      .where(eq(labOrders.id, id))
+      .where(and(eq(labOrders.id, id), eq(labOrders.tenantId, tenantId)))
       .returning();
 
     // If results are provided, create lab results

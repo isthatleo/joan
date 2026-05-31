@@ -204,29 +204,25 @@ export default function NotificationsPage() {
             title="Total Notifications"
             value={stats.total}
             icon={Bell}
-            color="text-blue-600 dark:text-blue-300"
-            bgColor="bg-blue-50 dark:bg-blue-500/10"
+            tone="info"
           />
           <StatCard
             title="Unread"
             value={stats.unread}
             icon={Clock}
-            color="text-orange-600 dark:text-orange-300"
-            bgColor="bg-orange-50 dark:bg-orange-500/10"
+            tone="warning"
           />
           <StatCard
             title="Messages"
             value={stats.messages}
             icon={MessageSquare}
-            color="text-violet-600 dark:text-violet-300"
-            bgColor="bg-violet-50 dark:bg-violet-500/10"
+            tone="primary"
           />
           <StatCard
             title="Appointments"
             value={stats.appointments}
             icon={Calendar}
-            color="text-emerald-600 dark:text-emerald-300"
-            bgColor="bg-emerald-50 dark:bg-emerald-500/10"
+            tone="success"
           />
         </div>
       )}

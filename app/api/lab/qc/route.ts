@@ -14,7 +14,7 @@ async function getSetting(tenantId: string) {
   });
 }
 
-function normalize(records: any[]) {
+function normalize(records: unknown) {
   return (Array.isArray(records) ? records : []).map((record) => ({
     id: String(record.id),
     testName: String(record.testName || "Untitled QC record"),

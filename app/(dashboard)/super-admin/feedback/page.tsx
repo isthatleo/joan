@@ -36,16 +36,14 @@ import {
 import {
   MessageSquare,
   Search,
-  Filter,
   AlertCircle,
   CheckCircle,
   Clock,
-  User,
   Building,
   Star,
   MessageCircle,
-  Check,
   X,
+  Trash2,
 } from "lucide-react";
 
 interface FeedbackItem {
@@ -86,7 +84,7 @@ export default function FeedbackPage() {
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateData, setUpdateData] = useState({
     status: "",
-    assignedTo: "",
+    assignedTo: "unassigned",
     resolution: "",
   });
 
@@ -119,12 +117,35 @@ export default function FeedbackPage() {
     onSuccess: () => {
       setUpdateDialogOpen(false);
       setSelectedFeedback(null);
-      setUpdateData({ status: "", assignedTo: "", resolution: "" });
+      setUpdateData({ status: "", assignedTo: "unassigned", resolution: "" });
+      queryClient.invalidateQueries({ queryKey: ["feedback"] });
+    },
+  });
+
+  const deleteFeedbackMutation = useMutation({
+    mutationFn: async (feedbackId: string) => {
+      const response = await fetch(`/api/feedback/${feedbackId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Failed to delete feedback");
+      return payload;
+    },
+    onSuccess: () => {
+      setSelectedFeedback(null);
       queryClient.invalidateQueries({ queryKey: ["feedback"] });
     },
   });
 
   const feedback = feedbackData?.feedback || [];
+  const stats = {
+    total: feedback.length,
+    open: feedback.filter((item: FeedbackItem) => item.status === "open").length,
+    inProgress: feedback.filter((item: FeedbackItem) => item.status === "in_progress").length,
+    resolved: feedback.filter((item: FeedbackItem) => item.status === "resolved").length,
+    critical: feedback.filter((item: FeedbackItem) => item.priority === "critical").length,
+  };
 
   const filteredFeedback = feedback.filter((item: FeedbackItem) =>
     item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -195,7 +216,7 @@ export default function FeedbackPage() {
     setSelectedFeedback(feedback);
     setUpdateData({
       status: feedback.status,
-      assignedTo: feedback.assignedToUser?.id || "",
+      assignedTo: feedback.assignedToUser?.id || "unassigned",
       resolution: feedback.resolution || "",
     });
     setUpdateDialogOpen(true);
@@ -215,6 +236,14 @@ export default function FeedbackPage() {
         title="Feedback Management"
         description="Manage platform feedback sent directly to the super admin for system fixes, feature additions, and product improvements"
       />
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <Metric label="Total" value={stats.total} icon={<MessageSquare className="size-5" />} />
+        <Metric label="Open" value={stats.open} icon={<AlertCircle className="size-5" />} />
+        <Metric label="In Progress" value={stats.inProgress} icon={<Clock className="size-5" />} />
+        <Metric label="Resolved" value={stats.resolved} icon={<CheckCircle className="size-5" />} />
+        <Metric label="Critical" value={stats.critical} icon={<Star className="size-5" />} />
+      </div>
 
       {/* Filters */}
       <SectionCard>
@@ -251,6 +280,9 @@ export default function FeedbackPage() {
               <SelectItem value="bug">Bug Report</SelectItem>
               <SelectItem value="feature_request">Feature Request</SelectItem>
               <SelectItem value="feature_improvement">Feature Improvement</SelectItem>
+              <SelectItem value="integration_issue">Integration Issue</SelectItem>
+              <SelectItem value="platform_billing">Platform Billing</SelectItem>
+              <SelectItem value="platform_general">General Platform</SelectItem>
               <SelectItem value="general">General</SelectItem>
             </SelectContent>
           </Select>
@@ -336,13 +368,25 @@ export default function FeedbackPage() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleUpdateFeedback(item)}
-                    >
-                      Update
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleUpdateFeedback(item)}
+                      >
+                        Manage
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={deleteFeedbackMutation.isPending}
+                        onClick={() => {
+                          if (confirm("Delete this feedback record?")) deleteFeedbackMutation.mutate(item.id);
+                        }}
+                      >
+                        <Trash2 className="mr-2 size-3.5" /> Delete
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -399,25 +443,25 @@ export default function FeedbackPage() {
                       <SelectValue placeholder="Select admin" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Unassigned</SelectItem>
+                      <SelectItem value="unassigned">Unassigned</SelectItem>
                       <SelectItem value={user.id}>Me ({user.fullName || user.email})</SelectItem>
-                      {/* Add more admin users here */}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
 
-              {(updateData.status === "resolved" || updateData.status === "closed") && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Resolution</label>
-                  <Textarea
-                    value={updateData.resolution}
-                    onChange={(e) => setUpdateData({ ...updateData, resolution: e.target.value })}
-                    placeholder="Describe how this was resolved..."
-                    rows={3}
-                  />
-                </div>
-              )}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Reply / Resolution Update</label>
+                <Textarea
+                  value={updateData.resolution}
+                  onChange={(e) => setUpdateData({ ...updateData, resolution: e.target.value })}
+                  placeholder="Write a response to the sender. They will be notified when you save."
+                  rows={4}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Saving a status change or reply sends a notification to the feedback sender.
+                </p>
+              </div>
             </div>
           )}
 
@@ -431,7 +475,7 @@ export default function FeedbackPage() {
                   updateFeedbackMutation.mutate({
                     feedbackId: selectedFeedback.id,
                     status: updateData.status,
-                    assignedTo: updateData.assignedTo || undefined,
+                    assignedTo: updateData.assignedTo === "unassigned" ? "" : updateData.assignedTo,
                     resolution: updateData.resolution || undefined,
                   });
                 }
@@ -443,6 +487,16 @@ export default function FeedbackPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function Metric({ label, value, icon }: { label: string; value: string | number; icon: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="mb-2 text-orange-500">{icon}</div>
+      <p className="text-xs font-semibold uppercase text-muted-foreground">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-foreground">{value}</p>
     </div>
   );
 }

@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { payments } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { requireTenantUser } from "@/lib/api/route-guards";
 
 export async function GET(request: NextRequest) {
   try {
+    const access = await requireTenantUser(request, ["accountant", "receptionist", "hospital_admin"]);
+    if (!access.ok) return access.response;
+
     const { searchParams } = new URL(request.url);
     const invoiceId = searchParams.get("invoiceId");
 
@@ -25,6 +29,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await requireTenantUser(request, ["accountant", "receptionist"]);
+    if (!access.ok) return access.response;
+
     const data = await request.json();
     const { invoiceId, method, amount } = data;
 
@@ -33,6 +40,7 @@ export async function POST(request: NextRequest) {
     }
 
     const [payment] = await db.insert(payments).values({
+      tenantId: access.user.tenantId,
       invoiceId,
       method,
       amount,

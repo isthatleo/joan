@@ -1,8 +1,49 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tenantSettings } from "@/lib/db/schema";
+import { getCachedTenantSecurityValue } from "@/lib/tenant-cache";
 
-export const DEFAULT_TENANT_SECURITY_SETTINGS = {
+export type TenantSecuritySettings = {
+  twoFactorRequired: boolean;
+  sessionTimeout: number;
+  ipWhitelistEnabled: boolean;
+  ipWhitelist: string[];
+  passwordExpirationEnabled: boolean;
+  passwordExpirationDays: number;
+  loginAttemptLimitsEnabled: boolean;
+  maxFailedLoginAttempts: number;
+  passwordMinLength: number;
+  requireUppercase: boolean;
+  requireLowercase: boolean;
+  requireNumbers: boolean;
+  requireSpecialCharacters: boolean;
+  roleBasedAccessControl: boolean;
+  auditAllAccess: boolean;
+  encryptDataAtRest: boolean;
+  encryptDataInTransit: boolean;
+  automatedBackups: boolean;
+  backupEncryption: boolean;
+  dbKeyRotationDays: number;
+  apiKeyRotationDays: number;
+  fileKeyRotationDays: number;
+  intrusionDetection: boolean;
+  failedLoginAlerts: boolean;
+  dataBreachAlerts: boolean;
+  complianceMonitoring: boolean;
+  incidentResponsePlanActive: boolean;
+  incidentResponseLastReviewedAt: string;
+  incidentPrimaryContact: string;
+  incidentEmergencyPhone: string;
+  automatedVulnerabilityScanning: boolean;
+  thirdPartySecurityReviews: boolean;
+  lastPenetrationTestAt: string;
+  lastPenetrationTestStatus: string;
+  nextSecurityAuditAt: string;
+  nextSecurityAuditStatus: string;
+  generatedSecurityKeys: Array<{ id: string; label: string; createdAt: string; maskedValue: string }>;
+};
+
+export const DEFAULT_TENANT_SECURITY_SETTINGS: TenantSecuritySettings = {
   twoFactorRequired: false,
   sessionTimeout: 60,
   ipWhitelistEnabled: false,
@@ -40,9 +81,7 @@ export const DEFAULT_TENANT_SECURITY_SETTINGS = {
   nextSecurityAuditAt: "",
   nextSecurityAuditStatus: "scheduled",
   generatedSecurityKeys: [] as Array<{ id: string; label: string; createdAt: string; maskedValue: string }>,
-} as const;
-
-export type TenantSecuritySettings = typeof DEFAULT_TENANT_SECURITY_SETTINGS;
+};
 
 export async function getTenantSecuritySettings(tenantId: string) {
   const [row] = await db
@@ -59,6 +98,21 @@ export async function getTenantSecuritySettings(tenantId: string) {
       : DEFAULT_TENANT_SECURITY_SETTINGS.ipWhitelist,
     generatedSecurityKeys: Array.isArray((row?.value as any)?.generatedSecurityKeys)
       ? (row?.value as any).generatedSecurityKeys
+      : DEFAULT_TENANT_SECURITY_SETTINGS.generatedSecurityKeys,
+  } satisfies TenantSecuritySettings;
+}
+
+export async function getCachedTenantSecuritySettings(tenantId: string) {
+  const value = await getCachedTenantSecurityValue(tenantId);
+
+  return {
+    ...DEFAULT_TENANT_SECURITY_SETTINGS,
+    ...(value || {}),
+    ipWhitelist: Array.isArray((value as any)?.ipWhitelist)
+      ? (value as any).ipWhitelist.map(String)
+      : DEFAULT_TENANT_SECURITY_SETTINGS.ipWhitelist,
+    generatedSecurityKeys: Array.isArray((value as any)?.generatedSecurityKeys)
+      ? (value as any).generatedSecurityKeys
       : DEFAULT_TENANT_SECURITY_SETTINGS.generatedSecurityKeys,
   } satisfies TenantSecuritySettings;
 }

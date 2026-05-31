@@ -37,6 +37,8 @@ import {
 
 interface FeedbackItem {
   id: string;
+  scope?: string;
+  destinationLabel?: string;
   type: string;
   title: string;
   description: string;
@@ -74,6 +76,17 @@ export function UserFeedbackWorkspace({
     description: "",
     priority: "medium",
   });
+
+  const feedbackRoute =
+    ["bug", "system_bug", "platform_bug", "feature_request", "feature_improvement", "feature_addition", "platform_improvement", "integration_issue", "platform_billing", "security_issue", "improvement", "platform_general"].includes(newFeedback.type)
+      ? {
+          label: "Super admin",
+          description: "This will be routed to super admins because it is a platform/product issue.",
+        }
+      : {
+          label: "Hospital admin",
+          description: "This will be routed to the tenant hospital admin because it is service or operational feedback.",
+        };
 
   const { data: feedbackData, isLoading } = useQuery({
     queryKey: [queryKey, user?.id, statusFilter, typeFilter],
@@ -232,10 +245,13 @@ export function UserFeedbackWorkspace({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Types</SelectItem>
-              <SelectItem value="service">Service Issue</SelectItem>
+              <SelectItem value="service_delivery">Service Delivery</SelectItem>
+              <SelectItem value="staff_conduct">Staff Conduct</SelectItem>
+              <SelectItem value="wait_time">Wait Time</SelectItem>
+              <SelectItem value="billing">Tenant Billing/Service</SelectItem>
               <SelectItem value="bug">Bug Report</SelectItem>
               <SelectItem value="feature_request">Feature Request</SelectItem>
-              <SelectItem value="improvement">Improvement</SelectItem>
+              <SelectItem value="feature_improvement">Feature Improvement</SelectItem>
               <SelectItem value="general">General</SelectItem>
             </SelectContent>
           </Select>
@@ -267,6 +283,7 @@ export function UserFeedbackWorkspace({
               <TableRow>
                 <TableHead>Type</TableHead>
                 <TableHead>Title</TableHead>
+                <TableHead>Destination</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Priority</TableHead>
                 <TableHead>Created</TableHead>
@@ -287,6 +304,11 @@ export function UserFeedbackWorkspace({
                       <p className="font-medium">{item.title}</p>
                       <p className="line-clamp-1 text-sm text-muted-foreground">{item.description}</p>
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">
+                      {item.destinationLabel || (item.scope === "platform" ? "Super admin" : "Hospital admin")}
+                    </Badge>
                   </TableCell>
                   <TableCell>{getStatusBadge(item.status)}</TableCell>
                   <TableCell>{getPriorityBadge(item.priority)}</TableCell>
@@ -338,14 +360,24 @@ export function UserFeedbackWorkspace({
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="service">Service Issue</SelectItem>
-                  <SelectItem value="bug">Bug Report</SelectItem>
-                  <SelectItem value="feature_request">Feature Request</SelectItem>
-                  <SelectItem value="improvement">Improvement</SelectItem>
-                  <SelectItem value="general">General Feedback</SelectItem>
+              <SelectContent>
+                  <SelectItem value="general">General service feedback - hospital admin</SelectItem>
+                  <SelectItem value="service_delivery">Service delivery - hospital admin</SelectItem>
+                  <SelectItem value="staff_conduct">Staff conduct - hospital admin</SelectItem>
+                  <SelectItem value="wait_time">Wait time - hospital admin</SelectItem>
+                  <SelectItem value="billing">Tenant billing/service issue - hospital admin</SelectItem>
+                  <SelectItem value="bug">System bug - super admin</SelectItem>
+                  <SelectItem value="feature_request">Feature request - super admin</SelectItem>
+                  <SelectItem value="feature_improvement">Feature improvement - super admin</SelectItem>
+                  <SelectItem value="integration_issue">Integration issue - super admin</SelectItem>
+                  <SelectItem value="platform_billing">Platform billing issue - super admin</SelectItem>
+                  <SelectItem value="platform_general">General platform feedback - super admin</SelectItem>
                 </SelectContent>
               </Select>
+              <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                <p className="font-semibold">Destination: {feedbackRoute.label}</p>
+                <p className="mt-1 text-muted-foreground">{feedbackRoute.description}</p>
+              </div>
             </div>
 
             <div className="space-y-2">

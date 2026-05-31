@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Eye, KeyRound, Loader2, Plus, RefreshCw, Search, Shield, Stethoscope, UserCheck, UserX, Users } from "lucide-react";
+import { Badge, Eye, KeyRound, Loader2, Plus, RefreshCw, Search, Shield, Stethoscope, UserCheck, UserX, Users } from "lucide-react";
 import { useTenantPath } from "@/hooks/useTenantPath";
 
 type StaffMember = {
@@ -179,6 +179,10 @@ export default function StaffManagementPage() {
             <RefreshCw className={`size-4 ${refreshing || loading ? "animate-spin" : ""}`} />
             Refresh
           </button>
+          <Link href={tenantPath("/staff-management/id-cards")} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-muted">
+            <Badge className="size-4" />
+            ID Card Design
+          </Link>
           <Link href={tenantPath("/staff-management/new")} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:opacity-90">
             <Plus className="size-4" />
             Add Staff Member

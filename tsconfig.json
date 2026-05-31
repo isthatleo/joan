@@ -36,6 +36,10 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "DASHBOARD_TEMPLATE.tsx",
+    "examples",
+    "create-test-users.ts",
+    "scripts/seed-doctor-smoke.ts"
   ]
 }

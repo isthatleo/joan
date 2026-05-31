@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Building2 } from "lucide-react";
 import { TenantRoleLogin } from "@/components/auth/TenantRoleLogin";
-import { getCachedTenantBySlug } from "@/lib/tenant-cache";
+import { getFreshTenantBySlug } from "@/lib/tenant-cache";
 
 interface PublicTenantLoginPageProps {
   params: Promise<{ slug: string }>;
@@ -10,9 +10,9 @@ interface PublicTenantLoginPageProps {
 export default async function PublicTenantLoginPage({ params }: PublicTenantLoginPageProps) {
   const { slug } = await params;
 
-  const tenant = await getCachedTenantBySlug(slug);
+  const tenant = await getFreshTenantBySlug(slug);
 
-  if (!tenant || !tenant.isActive) {
+  if (!tenant || !tenant.isActive || tenant.deletedAt) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-subtle p-6">
         <div className="text-center">

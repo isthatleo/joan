@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search, Filter, Upload, UserPlus, ArrowUpDown, MoreHorizontal, Users as UsersIcon, UserCheck, UserX, UserPlus2, PieChart, Shield } from "lucide-react";
+import { Search, Download, RotateCcw, ArrowUpDown, MoreHorizontal, Users as UsersIcon, UserCheck, UserX, UserPlus2, Shield } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
 
 interface SAUser {
@@ -99,6 +99,32 @@ export default function SuperAdminUsersPage() {
     else { setSortKey(k); setSortDir("asc"); }
   };
 
+  const resetFilters = () => {
+    setSearch("");
+    setRoleFilter("all");
+    setStatusFilter("all");
+  };
+
+  const exportCsv = () => {
+    const rows = [
+      ["Full Name", "Email", "Role", "Status", "Joined"],
+      ...filtered.map((u) => [
+        u.fullName || "",
+        u.email,
+        u.role || "",
+        u.isActive ? "Active" : "Inactive",
+        u.createdAt ? new Date(u.createdAt).toISOString() : "",
+      ]),
+    ];
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `super-admin-users-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
   return (
     <div className="min-h-screen bg-subtle -m-6 p-8">
       <div className="max-w-7xl mx-auto">
@@ -107,8 +133,8 @@ export default function SuperAdminUsersPage() {
             <h1 className="text-3xl font-bold text-foreground">User Directory</h1>
             <p className="text-muted-foreground text-sm mt-1">All platform users across every tenant.</p>
           </div>
-          <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-medium shadow-sm hover:opacity-90" style={{ backgroundColor: orange }}>
-            <UserPlus className="size-4" /> New User
+          <button onClick={exportCsv} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-white text-sm font-medium shadow-sm hover:opacity-90" style={{ backgroundColor: orange }}>
+            <Download className="size-4" /> Export Users
           </button>
         </div>
 
@@ -139,11 +165,8 @@ export default function SuperAdminUsersPage() {
             <option value="true">Active</option>
             <option value="false">Inactive</option>
           </select>
-          <button className="h-10 px-4 rounded-lg border border-border bg-background text-sm text-muted-foreground inline-flex items-center gap-2 hover:bg-muted transition-colors">
-            <Filter className="size-4" /> Filters
-          </button>
-          <button className="h-10 px-4 rounded-lg border border-border bg-background text-sm text-muted-foreground inline-flex items-center gap-2 hover:bg-muted transition-colors">
-            <Upload className="size-4" /> Import
+          <button onClick={resetFilters} className="h-10 px-4 rounded-lg border border-border bg-background text-sm text-muted-foreground inline-flex items-center gap-2 hover:bg-muted transition-colors">
+            <RotateCcw className="size-4" /> Reset
           </button>
         </div>
 

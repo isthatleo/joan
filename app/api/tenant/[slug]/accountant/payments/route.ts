@@ -184,7 +184,7 @@ export async function POST(
       if (invoice) {
         const invoiceAmount = Number(invoice.amount || 0);
         const currentAmountDue = Number(invoice.amount_due || 0);
-        const newAmountDue = Math.max(0, currentAmountDue - parseFloat(parsed.data.amount));
+        const newAmountDue = Math.max(0, currentAmountDue - Number(parsed.data.amount || 0));
         const nextStatus =
           newAmountDue === 0
             ? "paid"

@@ -42,11 +42,9 @@ export async function GET(request: NextRequest) {
       arch: os.arch(),
       hostname: os.hostname(),
 
-      // Disk usage
       diskUsage: await getDiskUsage(),
 
-      // Cloud storage metrics (mock data - replace with actual cloud provider API calls)
-      cloudStorage: await getCloudStorageMetrics(),
+      storage: await getStorageMetrics(),
 
       // Database connection status
       databaseStatus: await checkDatabaseConnection(),
@@ -82,25 +80,20 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Helper function to get disk usage
 async function getDiskUsage() {
   try {
     const rootPath = process.platform === "win32" ? "C:\\" : "/";
-
-    // Use fs.statSync to get basic disk info
-    const stats = fs.statSync(rootPath);
-
-    // For Windows, we'll estimate disk usage
-    // In production, you'd use a proper disk monitoring library
-    const totalSpace = 1000000000000; // 1TB mock
-    const freeSpace = 500000000000;   // 500GB mock
-    const usedSpace = totalSpace - freeSpace;
+    fs.statSync(rootPath);
+    const uploadsDir = path.join(process.cwd(), "public", "uploads");
+    const appStorageUsed = await getDirectorySize(uploadsDir);
+    const totalSpace = Number(process.env.LOCAL_STORAGE_QUOTA_BYTES || process.env.STORAGE_QUOTA_BYTES || 0);
+    const freeSpace = totalSpace > 0 ? Math.max(0, totalSpace - appStorageUsed) : 0;
 
     return {
       total: totalSpace,
       free: freeSpace,
-      used: usedSpace,
-      usagePercent: Math.round((usedSpace / totalSpace) * 100),
+      used: appStorageUsed,
+      usagePercent: totalSpace > 0 ? Math.round((appStorageUsed / totalSpace) * 100) : 0,
       mountPoint: rootPath,
     };
   } catch (error) {
@@ -115,22 +108,18 @@ async function getDiskUsage() {
   }
 }
 
-// Helper function to get cloud storage metrics
-async function getCloudStorageMetrics() {
+async function getStorageMetrics() {
   try {
-    // Mock cloud storage metrics
-    // In production, replace with actual API calls to your cloud provider
-    // (AWS S3, Google Cloud Storage, Azure Blob Storage, etc.)
-
     const uploadsDir = path.join(process.cwd(), "public", "uploads");
     const uploadsSize = await getDirectorySize(uploadsDir);
+    const storageQuota = Number(process.env.LOCAL_STORAGE_QUOTA_BYTES || process.env.STORAGE_QUOTA_BYTES || 10000000000);
 
     return {
-      provider: "Local Storage", // Replace with actual provider
-      totalStorage: 10000000000, // 10GB
+      provider: process.env.STORAGE_PROVIDER_NAME || "Local upload storage",
+      totalStorage: storageQuota,
       usedStorage: uploadsSize,
-      freeStorage: 10000000000 - uploadsSize,
-      usagePercent: Math.round((uploadsSize / 10000000000) * 100),
+      freeStorage: Math.max(0, storageQuota - uploadsSize),
+      usagePercent: storageQuota > 0 ? Math.round((uploadsSize / storageQuota) * 100) : 0,
       buckets: [
         {
           name: "uploads",

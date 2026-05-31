@@ -9,7 +9,7 @@ let redisConnectionPromise: Promise<void> | null = null;
 export async function ensureRedisConnection() {
   if (redis.isOpen) return;
   if (!redisConnectionPromise) {
-    redisConnectionPromise = redis.connect().catch((error) => {
+    redisConnectionPromise = redis.connect().then(() => undefined).catch((error) => {
       redisConnectionPromise = null;
       throw error;
     });

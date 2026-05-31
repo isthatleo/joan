@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
+import { AddressFields } from "@/components/forms/AddressFields";
 import { useRouter, useParams } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -24,8 +25,13 @@ import {
   Edit2,
   MoreVertical,
   Trash2,
+  RotateCcw,
   MessageSquare,
   ShieldCheck,
+  Activity,
+  Database,
+  Server,
+  GitBranch,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +60,9 @@ type TenantDetails = {
     isActive: boolean;
     createdAt: string;
     adminUserId?: string;
+    deletedAt?: string | null;
+    scheduledPurgeAt?: string | null;
+    provisioningStatus?: string | null;
   };
   admin?: {
     id: string;
@@ -67,6 +76,8 @@ type TenantDetails = {
       id: string;
       email: string;
       fullName?: string;
+      avatar?: string | null;
+      role?: string | null;
       isActive: boolean;
       createdAt: string;
     }>;
@@ -78,6 +89,7 @@ type TenantDetails = {
       totalBilled: string;
       totalPaid: string;
       pendingAmount: string;
+      paymentCount?: number;
     };
     invoiceStats: {
       total: number;
@@ -96,7 +108,20 @@ type TenantDetails = {
   usage: {
     totalPatients: number;
     totalAppointments: number;
+    todayAppointments: number;
     totalVisits: number;
+    departments: number;
+    activity30d: number;
+  };
+  departments?: Array<{ id: string; name: string | null; staffCount: number }>;
+  recentActivity?: Array<{ id: string; action: string; description: string | null; status: string | null; timestamp: string | null }>;
+  recentAudit?: Array<{ id: string; action: string | null; entity: string | null; createdAt: string | null }>;
+  provisioningHistory?: Array<{ id: string; status: string; stage: string | null; errorMessage: string | null; startedAt: string | null; completedAt: string | null }>;
+  lifecycle?: {
+    isDeleted: boolean;
+    deletedAt: string | null;
+    scheduledPurgeAt: string | null;
+    daysUntilPurge: number | null;
   };
 };
 
@@ -224,7 +249,7 @@ export default function TenantDetailsPage() {
         method: "DELETE",
       });
       if (res.ok) {
-        toast.success("Tenant deleted successfully");
+        toast.success("Tenant archived successfully");
         window.location.href = "/tenants";
       } else {
         toast.error("Failed to delete tenant");
@@ -232,6 +257,48 @@ export default function TenantDetailsPage() {
     } catch (error) {
       console.error("Failed to delete tenant:", error);
       toast.error("Failed to delete tenant");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRestoreTenant = async () => {
+    if (!details?.tenant) return;
+    const confirmText = prompt(`Restore "${details.tenant.name}"?\n\nType the tenant slug "${details.tenant.slug}" to confirm:`);
+    if (confirmText !== details.tenant.slug) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/tenants/${details.tenant.slug}/restore`, { method: "POST" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "Failed to restore tenant");
+      toast.success("Tenant restored successfully");
+      const refreshRes = await fetch(`/api/tenants/${details.tenant.slug}/details`, { cache: "no-store" });
+      if (refreshRes.ok) setDetails(await refreshRes.json());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to restore tenant");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handlePermanentDelete = async () => {
+    if (!details?.tenant) return;
+    const daysUntilPurge = details.lifecycle?.daysUntilPurge;
+    if (typeof daysUntilPurge === "number" && daysUntilPurge > 0) {
+      toast.error(`Permanent deletion is locked for ${daysUntilPurge} more day(s).`);
+      return;
+    }
+    const confirmText = prompt(`Permanently delete "${details.tenant.name}"?\n\nThis cannot be undone. Type "DELETE ${details.tenant.slug}" to confirm:`);
+    if (confirmText !== `DELETE ${details.tenant.slug}`) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/tenants/${details.tenant.slug}?purge=true`, { method: "DELETE" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || "Failed to permanently delete tenant");
+      toast.success("Tenant permanently deleted");
+      router.push("/tenants/deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to permanently delete tenant");
     } finally {
       setActionLoading(false);
     }
@@ -316,6 +383,10 @@ export default function TenantDetailsPage() {
   const getPlanBadgeColor = (plan: string) => {
     return PLAN_COLOR[plan] || "bg-muted text-muted-foreground";
   };
+  const activationRate = users.count ? Math.round((users.active / users.count) * 100) : 0;
+  const collectionRate = Number(billing.metrics.totalBilled) ? Math.round((Number(billing.metrics.totalPaid) / Number(billing.metrics.totalBilled)) * 100) : 0;
+  const latestProvision = details.provisioningHistory?.[0];
+  const latestAudit = details.recentAudit?.[0];
 
   return (
     <div className="min-h-screen bg-subtle -m-6 p-4 md:p-8">
@@ -332,8 +403,12 @@ export default function TenantDetailsPage() {
           <div className="bg-card border border-border rounded-2xl p-6 md:p-8 shadow-sm">
             <div className="flex items-start justify-between gap-4 mb-6">
               <div className="flex items-start gap-4 flex-1">
-                <div className="size-16 rounded-lg bg-muted flex items-center justify-center text-muted-foreground shadow-sm border border-border">
-                  <Building2 className="h-8 w-8" />
+                <div className="size-16 rounded-lg bg-muted flex items-center justify-center text-muted-foreground shadow-sm border border-border overflow-hidden">
+                  {tenant.logoUrl ? (
+                    <img src={tenant.logoUrl} alt={`${tenant.name} logo`} className="h-full w-full object-cover" />
+                  ) : (
+                    <Building2 className="h-8 w-8" />
+                  )}
                 </div>
                 <div className="flex-1">
                   <h1 className="text-3xl font-bold text-foreground mb-2">{tenant.name}</h1>
@@ -346,13 +421,20 @@ export default function TenantDetailsPage() {
                     </Badge>
                     <Badge
                       className={
-                        tenant.isActive
+                        details.lifecycle?.isDeleted
+                          ? "bg-red-50 text-red-700 border border-red-200"
+                          : tenant.isActive
                           ? "bg-green-50 text-green-700 border border-green-200"
                           : "bg-muted text-muted-foreground border border-border"
                       }
                     >
-                      {tenant.isActive ? "Active" : "Inactive"}
+                      {details.lifecycle?.isDeleted ? "Archived" : tenant.isActive ? "Active" : "Inactive"}
                     </Badge>
+                    {details.lifecycle?.isDeleted && (
+                      <Badge className="bg-orange-50 text-orange-700 border border-orange-200">
+                        {details.lifecycle.daysUntilPurge === 0 ? "Purge available" : `${details.lifecycle.daysUntilPurge} day(s) until purge`}
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </div>
@@ -362,16 +444,24 @@ export default function TenantDetailsPage() {
                     className="p-2 rounded-lg border border-border hover:bg-muted transition-colors"
                     title="Edit tenant"
                     onClick={handleEditOpen}
+                    disabled={details.lifecycle?.isDeleted}
                   >
                     <Edit2 className="h-4 w-4 text-muted-foreground" />
                   </button>
-                  <button
-                    className="p-2 rounded-lg border border-border hover:bg-muted transition-colors"
-                    title="More options"
-                    onClick={() => setShowDeleteModal(true)}
-                  >
-                    <MoreVertical className="h-4 w-4 text-muted-foreground" />
-                  </button>
+                  {details.lifecycle?.isDeleted ? (
+                    <>
+                      <button className="p-2 rounded-lg border border-border hover:bg-muted transition-colors" title="Restore tenant" onClick={handleRestoreTenant} disabled={actionLoading}>
+                        <RotateCcw className="h-4 w-4 text-emerald-600" />
+                      </button>
+                      <button className="p-2 rounded-lg border border-red-200 hover:bg-red-50 transition-colors disabled:opacity-50" title="Permanently delete tenant" onClick={handlePermanentDelete} disabled={actionLoading || (details.lifecycle.daysUntilPurge ?? 1) > 0}>
+                        <Trash2 className="h-4 w-4 text-red-600" />
+                      </button>
+                    </>
+                  ) : (
+                    <button className="p-2 rounded-lg border border-border hover:bg-muted transition-colors" title="More options" onClick={() => setShowDeleteModal(true)}>
+                      <MoreVertical className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                  )}
                 </div>
                 <div className="text-right">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
@@ -442,6 +532,88 @@ export default function TenantDetailsPage() {
           <StatCard icon={Users} label="Active Users" value={users.active} unit={`of ${users.count}`} />
           <StatCard icon={TrendingUp} label="Total Patients" value={usage.totalPatients} />
           <StatCard icon={FileText} label="Total Invoices" value={billing.invoiceStats.total} />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard icon={Calendar} label="Appointments" value={usage.totalAppointments} unit={`${usage.todayAppointments} today`} />
+          <StatCard icon={Building2} label="Departments" value={usage.departments} />
+          <StatCard icon={TrendingUp} label="Visits" value={usage.totalVisits} />
+          <StatCard icon={Clock} label="Activity 30d" value={usage.activity30d} />
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+          <Card className="overflow-hidden border-border bg-gradient-to-br from-slate-950 to-slate-800 text-white">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm font-semibold text-white/80"><Server className="h-4 w-4" /> Tenant Runtime</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-black">{tenant.isActive && !details.lifecycle?.isDeleted ? "Online" : "Paused"}</p>
+              <p className="mt-2 text-xs text-white/60">Slug access, sessions, and tenant shell availability.</p>
+            </CardContent>
+          </Card>
+          <Card className="border-border">
+            <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-sm font-semibold"><Activity className="h-4 w-4 text-orange-500" /> User Activation</CardTitle></CardHeader>
+            <CardContent>
+              <p className="text-3xl font-black">{activationRate}%</p>
+              <div className="mt-3 h-2 rounded-full bg-muted"><div className="h-2 rounded-full bg-orange-500" style={{ width: `${Math.min(100, activationRate)}%` }} /></div>
+              <p className="mt-2 text-xs text-muted-foreground">{users.active} active of {users.count} total users.</p>
+            </CardContent>
+          </Card>
+          <Card className="border-border">
+            <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-sm font-semibold"><Database className="h-4 w-4 text-emerald-500" /> Data Footprint</CardTitle></CardHeader>
+            <CardContent>
+              <p className="text-3xl font-black">{(usage.totalPatients + usage.totalAppointments + usage.totalVisits).toLocaleString()}</p>
+              <p className="mt-2 text-xs text-muted-foreground">Patients, appointments, and visits tracked for this tenant.</p>
+            </CardContent>
+          </Card>
+          <Card className="border-border">
+            <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-sm font-semibold"><CreditCard className="h-4 w-4 text-blue-500" /> Collection Rate</CardTitle></CardHeader>
+            <CardContent>
+              <p className="text-3xl font-black">{collectionRate}%</p>
+              <p className="mt-2 text-xs text-muted-foreground">{formatCurrency(billing.metrics.totalPaid)} collected from {formatCurrency(billing.metrics.totalBilled)} billed.</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <Card className="xl:col-span-1">
+            <CardHeader className="border-b border-border">
+              <CardTitle className="flex items-center gap-2 text-lg"><GitBranch className="h-5 w-5" /> Lifecycle</CardTitle>
+              <CardDescription>Provisioning, archive, and operational state.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-5 text-sm">
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2"><span>Status</span><Badge>{details.lifecycle?.isDeleted ? "Archived" : tenant.isActive ? "Active" : "Inactive"}</Badge></div>
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2"><span>Provisioning</span><span className="font-semibold">{tenant.provisioningStatus || latestProvision?.status || "completed"}</span></div>
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2"><span>Latest stage</span><span className="font-semibold">{latestProvision?.stage || "ready"}</span></div>
+              <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2"><span>Grace purge</span><span className="font-semibold">{details.lifecycle?.scheduledPurgeAt ? new Date(details.lifecycle.scheduledPurgeAt).toLocaleDateString() : "Not scheduled"}</span></div>
+            </CardContent>
+          </Card>
+          <Card className="xl:col-span-1">
+            <CardHeader className="border-b border-border">
+              <CardTitle className="flex items-center gap-2 text-lg"><ShieldCheck className="h-5 w-5" /> Governance</CardTitle>
+              <CardDescription>Audit and administrative confidence.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-5 text-sm">
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2"><p className="text-xs text-muted-foreground">Latest audit action</p><p className="mt-1 font-semibold">{latestAudit?.action || "No audit action found"}</p></div>
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2"><p className="text-xs text-muted-foreground">Latest audit entity</p><p className="mt-1 font-semibold">{latestAudit?.entity || "Not recorded"}</p></div>
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2"><p className="text-xs text-muted-foreground">Audit timestamp</p><p className="mt-1 font-semibold">{latestAudit?.createdAt ? new Date(latestAudit.createdAt).toLocaleString() : "No recent audit"}</p></div>
+            </CardContent>
+          </Card>
+          <Card className="xl:col-span-1">
+            <CardHeader className="border-b border-border">
+              <CardTitle className="flex items-center gap-2 text-lg"><Building2 className="h-5 w-5" /> Department Load</CardTitle>
+              <CardDescription>Staff distribution across configured departments.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-5">
+              {(details.departments || []).slice(0, 5).map((department) => (
+                <div key={department.id} className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
+                  <span className="font-semibold">{department.name || "Unnamed department"}</span>
+                  <span className="text-muted-foreground">{department.staffCount} staff</span>
+                </div>
+              ))}
+              {(details.departments || []).length === 0 ? <p className="text-sm text-muted-foreground">No departments found.</p> : null}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Admin Details Section */}
@@ -570,21 +742,21 @@ export default function TenantDetailsPage() {
                       System Health
                     </p>
                     <div className="flex items-end gap-2">
-                      <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">99.9%</p>
-                      <p className="text-sm text-blue-600/70 dark:text-blue-400/70 mb-1">Uptime</p>
+                      <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{tenant.isActive && !details.lifecycle?.isDeleted ? "Online" : "Paused"}</p>
+                      <p className="text-sm text-blue-600/70 dark:text-blue-400/70 mb-1">Tenant access</p>
                     </div>
                   </div>
                   <div className="p-3 rounded-lg bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/20">
                     <p className="text-xs text-green-600 dark:text-green-400 uppercase tracking-wide font-semibold mb-1">
                       Data Security
                     </p>
-                    <p className="text-sm text-green-600 dark:text-green-400">HIPAA Compliant</p>
+                    <p className="text-sm text-green-600 dark:text-green-400">{usage.activity30d.toLocaleString()} auditable events in 30 days</p>
                   </div>
                   <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/20">
                     <p className="text-xs text-purple-600 dark:text-purple-400 uppercase tracking-wide font-semibold mb-1">
                       Database
                     </p>
-                    <p className="text-sm text-purple-600 dark:text-purple-400">Encrypted at Rest</p>
+                    <p className="text-sm text-purple-600 dark:text-purple-400">{usage.departments.toLocaleString()} departments configured</p>
                   </div>
                 </div>
               </CardContent>
@@ -790,28 +962,12 @@ export default function TenantDetailsPage() {
                       className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100 dark:focus:ring-orange-900/20"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                        City
-                      </label>
-                      <input
-                        value={editForm.city}
-                        onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
-                        className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100 dark:focus:ring-orange-900/20"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-                        Country
-                      </label>
-                      <input
-                        value={editForm.country}
-                        onChange={(e) => setEditForm({ ...editForm, country: e.target.value })}
-                        className="w-full h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300 focus:ring-2 focus:ring-orange-100 dark:focus:ring-orange-900/20"
-                      />
-                    </div>
-                  </div>
+                  <AddressFields
+                    includeAddress={false}
+                    value={{ city: editForm.city, country: editForm.country }}
+                    onChange={(next) => setEditForm({ ...editForm, city: next.city, country: next.country })}
+                    className="grid grid-cols-2 gap-3"
+                  />
                   <div>
                     <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                       Plan *
@@ -851,7 +1007,7 @@ export default function TenantDetailsPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
             <div className="bg-card border border-border rounded-2xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
               <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-foreground">Delete Tenant</h2>
+                <h2 className="text-lg font-semibold text-foreground">Archive Tenant</h2>
                 <button
                   onClick={() => setShowDeleteModal(false)}
                   className="text-muted-foreground hover:text-foreground"
@@ -865,12 +1021,18 @@ export default function TenantDetailsPage() {
                     <Trash2 className="h-6 w-6 text-red-600" />
                   </div>
                   <h3 className="text-lg font-semibold text-foreground mb-2">
-                    Delete {details.tenant.name}?
+                    Archive {details.tenant.name}?
                   </h3>
                   <p className="text-sm text-muted-foreground mb-4">
-                    This action cannot be undone. This will permanently delete the tenant and all associated data including:
+                      This deactivates the tenant slug, logs active tenant sessions out, and hides it from default views. Data remains restorable during the 60-day grace period.
                   </p>
                   <ul className="text-sm text-muted-foreground text-left space-y-1 mb-6">
+                    <li>- Tenant users are blocked from dashboard access</li>
+                    <li>- Existing sessions are invalidated</li>
+                    <li>- Branding, patients, appointments, invoices, and settings are preserved</li>
+                    <li>- Permanent deletion is locked until the grace period expires</li>
+                  </ul>
+                  <ul className="hidden">
                     <li>• All users and their data</li>
                     <li>• All patients and medical records</li>
                     <li>• All appointments and visits</li>
@@ -898,7 +1060,7 @@ export default function TenantDetailsPage() {
                   disabled={actionLoading}
                 >
                   {actionLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Delete Tenant
+                  Archive Tenant
                 </Button>
               </div>
             </div>

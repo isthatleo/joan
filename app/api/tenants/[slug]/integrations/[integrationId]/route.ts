@@ -37,7 +37,7 @@ const updateSchema = z.object({
   apiSecretEncrypted: z.string().optional(),
   accountId: z.string().optional(),
   accountName: z.string().optional(),
-  config: z.record(z.any()).optional(),
+  config: z.record(z.string(), z.any()).optional(),
 });
 
 export async function PUT(
@@ -79,7 +79,7 @@ export async function PUT(
     return NextResponse.json(updated);
   } catch (e) {
     if (e instanceof z.ZodError) {
-      return NextResponse.json({ error: "Invalid data", details: e.errors }, { status: 400 });
+      return NextResponse.json({ error: "Invalid data", details: e.issues }, { status: 400 });
     }
     console.error("[tenant integration PUT]", e);
     return NextResponse.json({ error: "Failed to update integration" }, { status: 500 });

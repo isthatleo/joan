@@ -16,7 +16,7 @@ import { db } from "@/lib/db";
 import { summarizeLabResult, sortTimeline, type PatientHistoryTimelineItem } from "@/lib/doctor/patient-history";
 import { resolveDoctorContext } from "@/lib/doctor/server";
 
-export async function GET(request: NextRequest, context: RouteContext<"/api/doctor/patient-history/[id]">) {
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const doctorContext = await resolveDoctorContext(request.headers);
   if (!doctorContext.ok) {
     return NextResponse.json({ error: doctorContext.error }, { status: doctorContext.status });
@@ -121,6 +121,7 @@ export async function GET(request: NextRequest, context: RouteContext<"/api/doct
 
     const diagnosisMap = new Map<string, string[]>();
     for (const row of diagnosisRows) {
+      if (!row.visitId) continue;
       const current = diagnosisMap.get(row.visitId) || [];
       current.push([row.code, row.description].filter(Boolean).join(" - "));
       diagnosisMap.set(row.visitId, current);
@@ -128,6 +129,7 @@ export async function GET(request: NextRequest, context: RouteContext<"/api/doct
 
     const vitalMap = new Map<string, { temperature: string | null; bloodPressure: string | null; heartRate: string | null }[]>();
     for (const row of vitalRows) {
+      if (!row.visitId) continue;
       const current = vitalMap.get(row.visitId) || [];
       current.push({ temperature: row.temperature, bloodPressure: row.bloodPressure, heartRate: row.heartRate });
       vitalMap.set(row.visitId, current);
@@ -218,7 +220,7 @@ export async function GET(request: NextRequest, context: RouteContext<"/api/doct
         id: row.id,
         type: "condition",
         title: "Chronic / recorded condition",
-        description: row.condition,
+        description: row.condition || "Recorded condition",
         date: row.createdAt?.toISOString() || new Date().toISOString(),
         status: "recorded",
       });
@@ -229,7 +231,7 @@ export async function GET(request: NextRequest, context: RouteContext<"/api/doct
         id: row.id,
         type: "allergy",
         title: "Allergy note",
-        description: row.allergy,
+        description: row.allergy || "Recorded allergy",
         date: row.createdAt?.toISOString() || new Date().toISOString(),
         status: "recorded",
       });

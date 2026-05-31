@@ -1906,6 +1906,7 @@ function IntegrationCard({ name, desc, icon: Icon, color, provider, configFields
             </div>
           </div>
           <Toggle
+              label={`${name} enabled`}
               value={enabled}
               onChange={setEnabled}
               className="transition-all"

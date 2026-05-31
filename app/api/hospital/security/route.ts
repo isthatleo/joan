@@ -136,7 +136,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid settings", details: error.errors },
+        { error: "Invalid settings", details: error.issues },
         { status: 400 }
       );
     }

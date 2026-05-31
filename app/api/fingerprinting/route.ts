@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { deviceFingerprints } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { deviceFingerprints, users } from "@/lib/db/schema";
+import { eq, and, ilike, isNull } from "drizzle-orm";
+import { auth } from "@/lib/auth";
 import {
   parseUserAgent,
   generateFingerprint,
@@ -12,13 +13,29 @@ import {
   generateSessionToken,
 } from "@/lib/fingerprinting";
 
+async function resolveCurrentUser(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
+  if (!session?.user?.email) return null;
+  return db.query.users.findFirst({
+    where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
+    columns: { id: true, tenantId: true, email: true },
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
+    const appUser = await resolveCurrentUser(request);
+    if (!appUser?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
     const { userId, tenantId, screenResolution, language, timezone } = body;
+    const effectiveUserId = userId || appUser.id;
+    const effectiveTenantId = tenantId || appUser.tenantId || null;
 
-    if (!userId || !tenantId) {
-      return NextResponse.json({ error: "Missing userId or tenantId" }, { status: 400 });
+    if (effectiveUserId !== appUser.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // Extract device info from request
@@ -39,12 +56,18 @@ export async function POST(request: NextRequest) {
     });
 
     // Check if device already exists
-    let existingDevice = await db.query.deviceFingerprints.findFirst({
-      where: and(
-        eq(deviceFingerprints.fingerprint, fingerprintId),
-        eq(deviceFingerprints.userId, userId),
-        eq(deviceFingerprints.tenantId, tenantId)
-      ),
+    const existingDevice = await db.query.deviceFingerprints.findFirst({
+      where: effectiveTenantId
+        ? and(
+            eq(deviceFingerprints.fingerprint, fingerprintId),
+            eq(deviceFingerprints.userId, effectiveUserId),
+            eq(deviceFingerprints.tenantId, effectiveTenantId)
+          )
+        : and(
+            eq(deviceFingerprints.fingerprint, fingerprintId),
+            eq(deviceFingerprints.userId, effectiveUserId),
+            isNull(deviceFingerprints.tenantId)
+          ),
     });
 
     if (existingDevice) {
@@ -53,7 +76,6 @@ export async function POST(request: NextRequest) {
         .update(deviceFingerprints)
         .set({
           lastSeenAt: new Date(),
-          ipAddress,
           ...location,
         })
         .where(eq(deviceFingerprints.id, existingDevice.id));
@@ -67,9 +89,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Create new device fingerprint record
-    const newDevice = await db.insert(deviceFingerprints).values({
-      tenantId,
-      userId,
+    const [newDevice] = await db.insert(deviceFingerprints).values({
+      tenantId: effectiveTenantId,
+      userId: effectiveUserId,
       fingerprint: fingerprintId,
       userAgent,
       browser: deviceInfo.browser,
@@ -87,11 +109,11 @@ export async function POST(request: NextRequest) {
       isProxy,
       isBotOrSpider,
       metadata: { timestamp: new Date().toISOString() },
-    });
+    }).returning({ id: deviceFingerprints.id });
 
     return NextResponse.json({
       success: true,
-      fingerprintId: newDevice.id,
+      fingerprintId: newDevice?.id,
       isNewDevice: true,
       fingerprint: fingerprintId,
     });
@@ -104,19 +126,24 @@ export async function POST(request: NextRequest) {
 // Get device fingerprints for a user
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get("userId");
-    const tenantId = searchParams.get("tenantId");
-
-    if (!userId || !tenantId) {
-      return NextResponse.json({ error: "Missing userId or tenantId" }, { status: 400 });
+    const appUser = await resolveCurrentUser(request);
+    if (!appUser?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId") || appUser.id;
+    const tenantId = searchParams.get("tenantId");
+
+    if (userId !== appUser.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const conditions = [eq(deviceFingerprints.userId, userId)];
+    if (tenantId) conditions.push(eq(deviceFingerprints.tenantId, tenantId));
+
     const devices = await db.query.deviceFingerprints.findMany({
-      where: and(
-        eq(deviceFingerprints.userId, userId),
-        eq(deviceFingerprints.tenantId, tenantId)
-      ),
+      where: and(...conditions),
     });
 
     return NextResponse.json({

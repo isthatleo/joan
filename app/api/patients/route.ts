@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { PatientService } from "@/lib/services/patient.service";
 import { resolvePermissions, can } from "@/lib/auth/permission-engine";
 import { auth } from "@/lib/auth/config";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 const service = new PatientService();
 
@@ -13,8 +16,11 @@ export async function GET(request: NextRequest) {
     const permissions = await resolvePermissions(session.user.id);
     if (!can(permissions, "patient.read")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    // Get tenant ID from session
-    const tenantId = session.user.tenantId;
+    const profile = await db.query.users.findFirst({
+      where: eq(users.email, session.user.email),
+      columns: { tenantId: true },
+    });
+    const tenantId = profile?.tenantId;
     if (!tenantId) return NextResponse.json({ error: "No tenant context" }, { status: 400 });
 
     const patients = await service.getPatientsByTenant(tenantId);

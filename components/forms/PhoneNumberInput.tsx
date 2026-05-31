@@ -11,7 +11,7 @@ type PhoneNumberInputProps = {
   placeholder?: string;
   disabled?: boolean;
   required?: boolean;
-  defaultCountry?: string;
+  defaultCountry?: any;
   className?: string;
   id?: string;
   name?: string;

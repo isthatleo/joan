@@ -83,6 +83,12 @@ export class PasswordResetService {
     if (!resetRequest) {
       return { success: false, error: "Reset request not found" };
     }
+    if (!resetRequest.userId) {
+      return { success: false, error: "Reset request is not linked to a user" };
+    }
+    if (!resetRequest.tenantId) {
+      return { success: false, error: "Reset request is not linked to a tenant" };
+    }
 
     // Generate OTP for the user
     const otp = await this.generateResetOTP(resetRequest.tenantId, resetRequest.userId);
@@ -115,6 +121,9 @@ export class PasswordResetService {
 
     if (!resetRequest) {
       return { success: false, error: "Reset request not found" };
+    }
+    if (!resetRequest.userId) {
+      return { success: false, error: "Reset request is not linked to a user" };
     }
 
     // Check if expired
