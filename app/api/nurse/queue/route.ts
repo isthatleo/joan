@@ -4,6 +4,7 @@ import { auditLogs, bedAssignments, notifications, patients, queues } from "@/li
 import { db } from "@/lib/db";
 import { resolveNurseContext } from "@/lib/nurse/server";
 import { patientNameSql } from "@/lib/nurse/utils";
+import { revalidatePath } from "next/cache"; // Import revalidatePath
 
 export const dynamic = "force-dynamic";
 
@@ -68,10 +69,18 @@ export async function PATCH(request: NextRequest) {
     }
 
     await db.update(queues).set({ status: "in-progress", assignedTo: nurse.id, calledAt: new Date(), updatedAt: new Date() }).where(eq(queues.id, nextItem.id));
+
+    // Revalidate paths after status change
+    revalidatePath(`/[slug]/reception/queue`, 'page');
+    revalidatePath(`/[slug]/doctor/queue`, 'page');
+    revalidatePath(`/[slug]/nurse/queue`, 'page');
+    revalidatePath(`/[slug]/reception/waiting`, 'page');
+
     return NextResponse.json({ success: true, id: nextItem.id });
   }
 
-  if (!["waiting", "in-progress", "completed"].includes(body.status)) {
+  // Extended valid statuses to include "skipped" and "no-show"
+  if (!["waiting", "in-progress", "completed", "skipped", "no-show"].includes(body.status)) {
     return NextResponse.json({ error: "Unsupported queue status" }, { status: 400 });
   }
 
@@ -79,7 +88,7 @@ export async function PATCH(request: NextRequest) {
     status: body.status,
     assignedTo: nurse.id,
     calledAt: body.status === "in-progress" ? new Date() : undefined,
-    completedAt: body.status === "completed" ? new Date() : null,
+    completedAt: ["completed", "skipped", "no-show"].includes(body.status) ? new Date() : null, // Set completedAt for skipped/no-show as well
     updatedAt: new Date(),
   }).where(and(eq(queues.id, body.id), eq(queues.tenantId, nurse.tenantId)));
 
@@ -91,6 +100,12 @@ export async function PATCH(request: NextRequest) {
     entityId: body.id,
     metadata: { patientId: body.patientId || null },
   });
+
+  // Revalidate paths after status change
+  revalidatePath(`/[slug]/reception/queue`, 'page');
+  revalidatePath(`/[slug]/doctor/queue`, 'page');
+  revalidatePath(`/[slug]/nurse/queue`, 'page');
+  revalidatePath(`/[slug]/reception/waiting`, 'page');
 
   return NextResponse.json({ success: true });
 }

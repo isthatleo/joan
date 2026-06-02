@@ -25,6 +25,7 @@ import {
   UserRound,
   Zap,
 } from "lucide-react";
+import { useAuthStore } from "@/stores/auth"; // Import useAuthStore
 
 type LabOrder = {
   id: string;
@@ -116,6 +117,7 @@ export default function LabPage() {
   const slug = params?.slug as string;
   const hostname = typeof window !== "undefined" ? window.location.hostname : null;
   const path = (value: string) => withTenantPrefix(value, slug, hostname);
+  const { user } = useAuthStore(); // Get user from auth store
   const [data, setData] = useState<LabData>(EMPTY_DATA);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -248,6 +250,18 @@ export default function LabPage() {
     { label: "Lab Staff", value: stats.labStaff || 0, icon: UserRound, tone: "bg-slate-100 text-slate-700" },
   ];
 
+  const isHospitalAdmin = user?.role === "hospital_admin";
+  const isLabTechnician = user?.role === "lab_technician";
+
+  const pageTitle = isHospitalAdmin ? "Lab Operations" : "Lab Technician Dashboard";
+  const pageDescription = isHospitalAdmin
+    ? "Administrative oversight for lab workload, turnaround, critical results, inventory risk, and staffing."
+    : "Manage lab orders, results, and inventory for daily operations.";
+  const worklistTitle = isHospitalAdmin ? "Admin Lab Worklist" : "Lab Worklist";
+  const worklistDescription = isHospitalAdmin
+    ? "Oversight actions do not replace technician result entry."
+    : "Current lab orders for processing and result entry.";
+
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -260,11 +274,11 @@ export default function LabPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-mono uppercase tracking-[0.25em] text-muted-foreground">Hospital Admin</p>
-          <h1 className="mt-1 text-3xl font-bold text-foreground">Lab Operations</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Administrative oversight for lab workload, turnaround, critical results, inventory risk, and staffing.
+          <p className="text-xs font-mono uppercase tracking-[0.25em] text-muted-foreground">
+            {isHospitalAdmin ? "Hospital Admin" : "Lab Technician"}
           </p>
+          <h1 className="mt-1 text-3xl font-bold text-foreground">{pageTitle}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{pageDescription}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => load(true)} disabled={refreshing} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60">
@@ -275,10 +289,12 @@ export default function LabPage() {
             <Download className="h-4 w-4" />
             Export CSV
           </button>
-          <Link href={path("/lab/lab-analytics")} className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600">
-            <BarChart3 className="h-4 w-4" />
-            Analytics
-          </Link>
+          {isHospitalAdmin && ( // Only show Analytics link for Hospital Admin
+            <Link href={path("/lab/lab-analytics")} className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600">
+              <BarChart3 className="h-4 w-4" />
+              Analytics
+            </Link>
+          )}
         </div>
       </div>
 
@@ -355,8 +371,8 @@ export default function LabPage() {
         <section className="rounded-2xl border border-border bg-card">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-5">
             <div>
-              <h2 className="text-lg font-semibold">Admin Lab Worklist</h2>
-              <p className="text-sm text-muted-foreground">Oversight actions do not replace technician result entry.</p>
+              <h2 className="text-lg font-semibold">{worklistTitle}</h2>
+              <p className="text-sm text-muted-foreground">{worklistDescription}</p>
             </div>
             <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">{filteredOrders.length} visible</span>
           </div>
@@ -403,7 +419,7 @@ export default function LabPage() {
                           <Eye className="h-4 w-4" />
                           View
                         </Link>
-                        {!["completed", "cancelled"].includes(order.status) && (
+                        {isHospitalAdmin && !["completed", "cancelled"].includes(order.status) && ( // Only show Escalate for Hospital Admin
                           <button disabled={busyOrderId === order.id} onClick={() => runAction(order, "escalate")} className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60">
                             <Zap className="h-4 w-4" />
                             Escalate
@@ -498,7 +514,9 @@ export default function LabPage() {
             <h2 className="text-lg font-semibold">Lab Staff Coverage</h2>
             <p className="text-sm text-muted-foreground">Active lab technician accounts for this tenant.</p>
           </div>
-          <Link href={path("/staff-management")} className="text-sm font-semibold text-orange-600 hover:underline">Manage staff</Link>
+          {isHospitalAdmin && ( // Only show Manage staff link for Hospital Admin
+            <Link href={path("/staff-management")} className="text-sm font-semibold text-orange-600 hover:underline">Manage staff</Link>
+          )}
         </div>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {data.labStaff.length === 0 ? (

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { patients, queues } from "@/lib/db/schema";
+import { appointments, patients, queues } from "@/lib/db/schema";
 import { resolveDoctorContext } from "@/lib/doctor/server";
 import { announceQueueDestination, resolveQueueAnnouncements } from "@/lib/receptionist/data";
 
@@ -236,11 +236,31 @@ export async function PATCH(request: NextRequest) {
 
     const existing = await db.query.queues.findFirst({
       where: and(eq(queues.id, id), eq(queues.tenantId, doctor.tenantId), eq(queues.assignedTo, doctor.id), isNull(queues.deletedAt)),
-      columns: { id: true, calledAt: true },
+      columns: { id: true, patientId: true, calledAt: true },
     });
 
     if (!existing) {
       return NextResponse.json({ error: "Queue item not found" }, { status: 404 });
+    }
+
+    if (status === "called" || status === "in-progress") {
+      const activeOther = await db.query.queues.findFirst({
+        where: and(
+          eq(queues.tenantId, doctor.tenantId),
+          eq(queues.assignedTo, doctor.id),
+          isNull(queues.deletedAt),
+          or(eq(queues.status, "called"), eq(queues.status, "in-progress"))!,
+          sql`${queues.id} <> ${id}`,
+        ),
+        columns: { id: true, status: true },
+      });
+
+      if (activeOther) {
+        return NextResponse.json(
+          { error: "Finish or close the active patient before calling the next patient." },
+          { status: 409 },
+        );
+      }
     }
 
     const updateData: Record<string, unknown> = { status };
@@ -262,6 +282,30 @@ export async function PATCH(request: NextRequest) {
       .set(updateData)
       .where(and(eq(queues.id, id), eq(queues.tenantId, doctor.tenantId), eq(queues.assignedTo, doctor.id)))
       .returning();
+
+    if (existing.patientId && ["called", "in-progress", "completed", "no-show"].includes(status)) {
+      const appointment = await db.query.appointments.findFirst({
+        where: and(
+          eq(appointments.tenantId, doctor.tenantId),
+          eq(appointments.patientId, existing.patientId),
+          eq(appointments.doctorId, doctor.id),
+          inArray(appointments.status, ["scheduled", "checked-in", "in-progress"]),
+          isNull(appointments.deletedAt),
+        ),
+        orderBy: [desc(appointments.updatedAt)],
+        columns: { id: true },
+      });
+
+      if (appointment?.id) {
+        await db
+          .update(appointments)
+          .set({
+            status: status === "no-show" ? "no-show" : status === "completed" ? "completed" : status === "in-progress" ? "in-progress" : "checked-in",
+            updatedAt: new Date(),
+          })
+          .where(and(eq(appointments.id, appointment.id), eq(appointments.tenantId, doctor.tenantId)));
+      }
+    }
 
     if (status === "called") {
       await announceQueueDestination(doctor.tenantId, id, "the doctor's office", doctor.id);

@@ -113,6 +113,8 @@ export default function QueuePage() {
       if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Failed to load queue");
       return response.json();
     },
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 
   const patientsQuery = useQuery<{ patients: Patient[] }>({
@@ -196,6 +198,7 @@ export default function QueuePage() {
   const queue = queueQuery.data?.queue ?? [];
   const activeEntry = queueQuery.data?.activeEntry ?? null;
   const nextEntry = queueQuery.data?.nextUp?.[0] ?? null;
+  const canCallNext = Boolean(nextEntry) && !activeEntry && !queueAction.isPending;
   const recentCompleted = queueQuery.data?.recentCompleted ?? [];
   const patients = patientsQuery.data?.patients ?? [];
 
@@ -250,7 +253,7 @@ export default function QueuePage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setAddOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"><Plus className="h-4 w-4" />Add to Queue</button>
-          <button onClick={() => nextEntry && queueAction.mutate({ id: nextEntry.id, nextStatus: "called" })} disabled={!nextEntry || queueAction.isPending} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground disabled:cursor-not-allowed disabled:opacity-50"><PhoneCall className="h-4 w-4" />{queueAction.isPending && activeQueueAction?.id === nextEntry?.id ? "Calling..." : "Call Next"}</button>
+          <button onClick={() => nextEntry && queueAction.mutate({ id: nextEntry.id, nextStatus: "called" })} disabled={!canCallNext} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground disabled:cursor-not-allowed disabled:opacity-50"><PhoneCall className="h-4 w-4" />{queueAction.isPending && activeQueueAction?.id === nextEntry?.id ? "Calling..." : activeEntry ? "Patient Active" : "Call Next"}</button>
           <button onClick={() => queueQuery.refetch()} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground"><RefreshCw className={`h-4 w-4 ${queueQuery.isRefetching ? "animate-spin" : ""}`} />Refresh</button>
         </div>
       </div>

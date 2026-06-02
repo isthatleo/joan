@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock3, FileText, Pill, Printer, RefreshCw, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { KPICard } from "@/components/KPICard";
@@ -39,6 +39,16 @@ export default function PrescriptionDetailsPage() {
   const id = String(params?.id || "");
   const queryClient = useQueryClient();
   const [activeAction, setActiveAction] = useState<"complete" | "discontinue" | "refill" | null>(null);
+  const [changeForm, setChangeForm] = useState({
+    drugName: "",
+    dosage: "",
+    frequency: "",
+    duration: "",
+    quantity: 1,
+    route: "oral",
+    instructions: "",
+    notes: "",
+  });
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["doctor-prescription", id],
@@ -80,6 +90,56 @@ export default function PrescriptionDetailsPage() {
       setActiveAction(null);
     },
   });
+
+  const changeMutation = useMutation({
+    mutationFn: async () => {
+      const firstItem = data?.items?.[0];
+      const response = await fetch(`/api/doctor/prescriptions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "change-medication",
+          notes: changeForm.notes,
+          item: {
+            id: firstItem?.id,
+            drugName: changeForm.drugName,
+            dosage: changeForm.dosage,
+            frequency: changeForm.frequency,
+            duration: changeForm.duration,
+            quantity: changeForm.quantity,
+            route: changeForm.route,
+            instructions: changeForm.instructions,
+          },
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Failed to change prescription");
+      return payload;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["doctor-prescription", id] });
+      queryClient.invalidateQueries({ queryKey: ["doctor-prescriptions"] });
+      toast.success("Prescription changed");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to change prescription");
+    },
+  });
+
+  useEffect(() => {
+    const firstItem = data?.items?.[0];
+    if (!firstItem) return;
+    setChangeForm({
+      drugName: firstItem.drugName || data.medication || "",
+      dosage: firstItem.dosage || "",
+      frequency: firstItem.frequency || "",
+      duration: firstItem.duration || "",
+      quantity: Number(firstItem.quantity || 1),
+      route: firstItem.route || "oral",
+      instructions: firstItem.instructions || "",
+      notes: data.notes || "",
+    });
+  }, [data]);
 
   if (isLoading) {
     return (
@@ -189,9 +249,9 @@ export default function PrescriptionDetailsPage() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KPICard title="Medication Count" value={data.items?.length ?? 0} subtitle="Line items" icon={Pill} tone="info" />
+        <KPICard title="Admin Doses" value={data.administrationStats?.administered ?? 0} subtitle={`${data.administrationStats?.pending ?? 0} pending of ${data.administrationStats?.total ?? 0}`} icon={CheckCircle2} tone="success" />
         <KPICard title="Refills Remaining" value={data.refillsRemaining ?? 0} subtitle="Primary order tracking" icon={RefreshCw} tone="warning" />
         <KPICard title="Prescribed" value={formatDate(data.prescribedAt)} subtitle={data.prescribedBy || "Doctor"} icon={Clock3} tone="primary" />
-        <KPICard title="Patient" value={data.patientName} subtitle={data.patientEmail || data.patientPhone || "No contact details"} icon={UserRound} tone="success" />
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.3fr_0.7fr]">
@@ -203,6 +263,7 @@ export default function PrescriptionDetailsPage() {
                 <tr>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Drug</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Regimen</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Administration</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Refills</th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">Stock</th>
                 </tr>
@@ -227,6 +288,18 @@ export default function PrescriptionDetailsPage() {
                       <p className="text-xs text-muted-foreground">
                         Qty {item.quantity || 0} {item.route ? `· ${item.route}` : ""}
                       </p>
+                    </td>
+                    <td className="px-4 py-4">
+                      {item.administrationProgress?.total ? (
+                        <div className="space-y-1 text-xs text-muted-foreground">
+                          <p className="font-medium text-foreground">
+                            {item.administrationProgress.administered} administered / {item.administrationProgress.total} scheduled
+                          </p>
+                          <p>{item.administrationProgress.pending} pending</p>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Pharmacy pickup / take-home</span>
+                      )}
                     </td>
                     <td className="px-4 py-4 text-foreground">{item.refills ?? 0}</td>
                     <td className="px-4 py-4">
@@ -308,6 +381,81 @@ export default function PrescriptionDetailsPage() {
                   </ul>
                 </div>
               )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
+            <h2 className="text-base font-semibold text-foreground">Change medication order</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Use this when a patient reacts badly or the route/dose must change. Pending nurse administrations are cancelled and rebuilt if needed.
+            </p>
+            <div className="mt-4 space-y-3">
+              <input
+                value={changeForm.drugName}
+                onChange={(event) => setChangeForm((current) => ({ ...current, drugName: event.target.value }))}
+                placeholder="Medication"
+                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+              />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <input
+                  value={changeForm.dosage}
+                  onChange={(event) => setChangeForm((current) => ({ ...current, dosage: event.target.value }))}
+                  placeholder="Dosage"
+                  className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+                />
+                <input
+                  value={changeForm.frequency}
+                  onChange={(event) => setChangeForm((current) => ({ ...current, frequency: event.target.value }))}
+                  placeholder="Frequency"
+                  className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+                />
+                <input
+                  value={changeForm.duration}
+                  onChange={(event) => setChangeForm((current) => ({ ...current, duration: event.target.value }))}
+                  placeholder="Duration"
+                  className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+                />
+                <input
+                  type="number"
+                  min={1}
+                  value={changeForm.quantity}
+                  onChange={(event) => setChangeForm((current) => ({ ...current, quantity: Number(event.target.value || 1) }))}
+                  className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+                />
+              </div>
+              <select
+                value={changeForm.route}
+                onChange={(event) => setChangeForm((current) => ({ ...current, route: event.target.value }))}
+                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+              >
+                <option value="oral">Oral</option>
+                <option value="iv">IV</option>
+                <option value="injection">Injection</option>
+                <option value="im">IM</option>
+                <option value="subcutaneous">Subcutaneous</option>
+                <option value="topical">Topical</option>
+                <option value="inhaled">Inhaled</option>
+              </select>
+              <textarea
+                value={changeForm.instructions}
+                onChange={(event) => setChangeForm((current) => ({ ...current, instructions: event.target.value }))}
+                placeholder="Updated instructions"
+                className="min-h-20 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+              />
+              <textarea
+                value={changeForm.notes}
+                onChange={(event) => setChangeForm((current) => ({ ...current, notes: event.target.value }))}
+                placeholder="Reason for change, reaction notes, or follow-up plan"
+                className="min-h-20 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+              />
+              <button
+                type="button"
+                onClick={() => changeMutation.mutate()}
+                disabled={changeMutation.isPending || data.status === "completed" || data.status === "discontinued"}
+                className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {changeMutation.isPending ? "Saving change..." : "Save Medication Change"}
+              </button>
             </div>
           </div>
         </div>

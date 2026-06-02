@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, CheckCircle, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, CheckCircle, Download, Loader2, RefreshCw } from "lucide-react"; // Import Download icon
 
 function money(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
@@ -73,7 +73,13 @@ export default function InvoiceDetailPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link href={`/tenant/${slug}/billing`} className="inline-flex items-center gap-2 text-sm text-orange-600 hover:underline"><ArrowLeft className="size-4" />Back to billing</Link>
-        <button onClick={() => load(true)} disabled={refreshing} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60"><RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => load(true)} disabled={refreshing} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60"><RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button>
+          <a href={`/api/tenant/${slug}/billing/invoices/${id}/download`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90">
+            <Download className="size-4" />
+            Download Invoice
+          </a>
+        </div>
       </div>
 
       {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}

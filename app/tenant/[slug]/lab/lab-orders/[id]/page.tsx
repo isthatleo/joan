@@ -13,7 +13,9 @@ import {
   MapPin,
   Microscope,
   RefreshCw,
+  Upload, // Import Upload icon
 } from "lucide-react";
+import { useAuthStore } from "@/stores/auth"; // Import useAuthStore
 
 function formatDate(value?: string) {
   if (!value) return "-";
@@ -53,6 +55,7 @@ export default function LabOrderDetailPage() {
   const id = params?.id as string;
   const hostname = typeof window !== "undefined" ? window.location.hostname : null;
   const path = (value: string) => withTenantPrefix(value, slug, hostname);
+  const { user } = useAuthStore(); // Get user from auth store
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -81,6 +84,9 @@ export default function LabOrderDetailPage() {
   useEffect(() => {
     if (slug && id) load();
   }, [slug, id]);
+
+  const isLabTechnician = user?.role === "lab_technician";
+  const isHospitalAdmin = user?.role === "hospital_admin";
 
   if (loading) {
     return <div className="flex min-h-[50vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-orange-500" /></div>;
@@ -114,7 +120,9 @@ export default function LabOrderDetailPage() {
       <div className="rounded-2xl border border-border bg-card p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Hospital admin lab order detail</p>
+            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+              {isHospitalAdmin ? "Hospital Admin Lab Order Detail" : "Lab Technician Lab Order Detail"}
+            </p>
             <h1 className="mt-1 text-3xl font-bold text-foreground">{order.testName}</h1>
             <p className="mt-1 text-sm text-muted-foreground">Code {order.testCode || "-"} • {order.category}</p>
           </div>
@@ -123,6 +131,12 @@ export default function LabOrderDetailPage() {
               <Link href={path(`/lab/lab-results/${order.result.id}`)} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted">
                 <Microscope className="h-4 w-4" />
                 View Result
+              </Link>
+            )}
+            {isLabTechnician && !order.result?.id && ( // Show Upload Results button only for Lab Technicians if no result exists
+              <Link href={path(`/lab/lab-results/upload?orderId=${order.id}`)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+                <Upload className="h-4 w-4" />
+                Upload Results
               </Link>
             )}
           </div>
@@ -137,7 +151,7 @@ export default function LabOrderDetailPage() {
 
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
           <div className="rounded-xl border border-border bg-background p-4">
-            <div className="mb-3 flex items-center gap-2 font-medium text-foreground"><CalendarClock className="h-4 w-4 text-orange-600" />Timeline</div>
+            <div className="mb-3 flex items-center gap-2 font-medium text-foreground"><CalendarClock className="h-4 w-4" />Timeline</div>
             <div className="space-y-2 text-sm text-muted-foreground">
               <p>Ordered: {formatDate(order.orderedAt)}</p>
               <p>Collected: {formatDate(order.collectedAt)}</p>
@@ -147,7 +161,7 @@ export default function LabOrderDetailPage() {
             </div>
           </div>
           <div className="rounded-xl border border-border bg-background p-4">
-            <div className="mb-3 flex items-center gap-2 font-medium text-foreground"><MapPin className="h-4 w-4 text-orange-600" />Location and notes</div>
+            <div className="mb-3 flex items-center gap-2 font-medium text-foreground"><MapPin className="h-4 w-4" />Location and notes</div>
             <p className="text-sm text-muted-foreground">Location: {order.labLocation || "Main Laboratory"}</p>
             <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{order.notes || "No order notes added."}</p>
           </div>
@@ -162,7 +176,11 @@ export default function LabOrderDetailPage() {
         ) : (
           <div className="mt-6 rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-800">
             <div className="mb-2 flex items-center gap-2 font-semibold"><AlertCircle className="h-4 w-4" />Result pending</div>
-            <p>Hospital admins can monitor this order, but lab technicians are responsible for uploading results.</p>
+            <p>
+              {isHospitalAdmin
+                ? "Hospital admins can monitor this order, but lab technicians are responsible for uploading results."
+                : "Upload results once the lab analysis is complete."}
+            </p>
           </div>
         )}
       </div>

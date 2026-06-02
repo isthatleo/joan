@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { Activity, Calendar, Eye, Loader2, Mail, Phone, RefreshCw, Search, UserCheck, Users } from "lucide-react";
+import { Activity, Calendar, Eye, Loader2, Mail, Phone, RefreshCw, Search, UserCheck, UserPlus, Users } from "lucide-react";
 import Link from "next/link";
 import { withTenantPrefix } from "@/lib/tenant-routing";
+import { useAuthStore } from "@/stores/auth"; // Import useAuthStore
 
 type Patient = {
   id: string;
@@ -61,6 +62,7 @@ export default function PatientsPage() {
   const params = useParams();
   const slug = params?.slug as string;
   const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+  const { user } = useAuthStore(); // Get user from auth store
   const [patients, setPatients] = useState<Patient[]>([]);
   const [stats, setStats] = useState<PatientStats>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
@@ -126,6 +128,8 @@ export default function PatientsPage() {
     });
   }, [patients, search, statusFilter]);
 
+  const isHospitalAdmin = user?.role === "hospital_admin"; // Check if user is hospital_admin
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -136,15 +140,26 @@ export default function PatientsPage() {
             Read-only patient directory for tenant users assigned the patient role.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={fetchPatients}
-          disabled={refreshing}
-          className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-muted disabled:opacity-60"
-        >
-          <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {!isHospitalAdmin && ( // Conditionally render button for non-hospital_admin roles
+            <Link
+              href={toTenantPath("/patients/register")}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+            >
+              <UserPlus className="size-4" />
+              New Patient
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={fetchPatients}
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-muted disabled:opacity-60"
+          >
+            <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && (

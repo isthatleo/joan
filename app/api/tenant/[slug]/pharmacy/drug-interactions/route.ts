@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
 import { getPharmacySettings, listDrugInteractions, saveInteractions } from "@/lib/pharmacy/data";
-import { requireTenantAdmin } from "@/lib/tenant-staff";
+import { requirePharmacistOrAdmin } from "@/lib/tenant-staff"; // Changed import to requirePharmacistOrAdmin
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -9,9 +9,9 @@ export const revalidate = 0;
 async function requireAdminTenant(headers: Headers, slug: string) {
   const tenantId = await getTenantIdBySlug(slug);
   if (!tenantId) return { ok: false as const, status: 404, error: "Tenant not found" };
-  const admin = await requireTenantAdmin(headers, tenantId);
-  if (!admin.ok) return { ok: false as const, status: admin.status, error: admin.error };
-  return { ok: true as const, tenantId, admin };
+  const authCheck = await requirePharmacistOrAdmin(headers, tenantId); // Changed to requirePharmacistOrAdmin
+  if (!authCheck.ok) return { ok: false as const, status: authCheck.status, error: authCheck.error };
+  return { ok: true as const, tenantId, user: authCheck.user }; // Pass user from authCheck
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       ...settings.interactions.filter((item) => item.id !== body.id),
     ];
 
-    await saveInteractions(context.tenantId, interactions, context.admin.user?.id || null);
+    await saveInteractions(context.tenantId, interactions, context.user?.id || null); // Use user from context
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Error saving tenant drug interaction:", error);
@@ -74,7 +74,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     await saveInteractions(
       context.tenantId,
       settings.interactions.filter((item) => item.id !== body.id),
-      context.admin.user?.id || null,
+      context.user?.id || null, // Use user from context
     );
 
     return NextResponse.json({ success: true });

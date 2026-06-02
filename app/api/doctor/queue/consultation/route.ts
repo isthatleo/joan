@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { labOrders, notifications, patientConditions, patients, queues, roles, userRoles, users, visits } from "@/lib/db/schema";
+import { appointments, labOrders, notifications, patientConditions, patients, queues, roles, userRoles, users, visits } from "@/lib/db/schema";
 import { resolveDoctorContext } from "@/lib/doctor/server";
 
 export async function POST(request: NextRequest) {
@@ -70,6 +70,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Patient not found" }, { status: 404 });
     }
 
+    const activeAppointment = await db.query.appointments.findFirst({
+      where: and(
+        eq(appointments.tenantId, doctor.tenantId),
+        eq(appointments.patientId, patientId),
+        eq(appointments.doctorId, doctor.id),
+        inArray(appointments.status, ["checked-in", "in-progress", "scheduled"]),
+        isNull(appointments.deletedAt),
+      ),
+      orderBy: [desc(appointments.updatedAt)],
+      columns: { id: true },
+    });
+
     const compiledNotes = [
       `Presenting Symptoms: ${symptoms}`,
       examination ? `Examination Findings: ${examination}` : null,
@@ -88,6 +100,7 @@ export async function POST(request: NextRequest) {
         tenantId: doctor.tenantId,
         patientId,
         doctorId: doctor.id,
+        appointmentId: activeAppointment?.id || null,
         reason,
         notes: compiledNotes,
       })
@@ -165,8 +178,15 @@ export async function POST(request: NextRequest) {
 
     await db
       .update(queues)
-      .set({ status: "completed", completedAt: new Date() })
+      .set({ status: "completed", completedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(queues.id, queueId), eq(queues.tenantId, doctor.tenantId), eq(queues.assignedTo, doctor.id)));
+
+    if (activeAppointment?.id) {
+      await db
+        .update(appointments)
+        .set({ status: "completed", updatedAt: new Date() })
+        .where(and(eq(appointments.id, activeAppointment.id), eq(appointments.tenantId, doctor.tenantId)));
+    }
 
     return NextResponse.json({ visit, labOrder: createdLabOrder }, { status: 201 });
   } catch (error) {

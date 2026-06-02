@@ -9,12 +9,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
-    const { patientId, appointmentId, paymentMethod, insuranceProvider, insurancePolicyNumber, saveAsDefault, recordedBy } = await request.json();
+    const { patientId, appointmentId, doctorId, paymentMethod, insuranceProvider, insurancePolicyNumber, saveAsDefault, recordedBy } = await request.json();
     if (!patientId) {
       return NextResponse.json({ error: "Patient ID is required" }, { status: 400 });
     }
 
     const result = await checkInReceptionPatient(tenant.id, patientId, appointmentId, {
+      doctorId: doctorId || null,
       paymentMethod: paymentMethod || null,
       insuranceProvider: insuranceProvider || null,
       insurancePolicyNumber: insurancePolicyNumber || null,
@@ -24,6 +25,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json(result);
   } catch (error) {
     console.error("Failed to check in patient:", error);
-    return NextResponse.json({ error: "Failed to check in patient" }, { status: 500 });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to check in patient" },
+      { status: 500 },
+    );
   }
 }

@@ -22,15 +22,19 @@ export default function LabResultUploadPage() {
 
   useEffect(() => {
     (async () => {
+      // Corrected API endpoint and fetching logic for unfilled orders
       const [inProgressRes, pendingRes, devicesRes] = await Promise.all([
-        fetch(`/api/lab/orders?slug=${slug}&status=in-progress&limit=100`, { cache: "no-store" }),
-        fetch(`/api/lab/orders?slug=${slug}&status=pending&limit=100`, { cache: "no-store" }),
+        fetch(`/api/tenant/${slug}/lab?status=in-progress&limit=250`, { cache: "no-store" }),
+        fetch(`/api/tenant/${slug}/lab?status=pending&limit=250`, { cache: "no-store" }),
         fetch(`/api/lab/device-results?slug=${slug}`, { cache: "no-store" }),
       ]);
-      const current = inProgressRes.ok ? await inProgressRes.json() : { orders: [] };
-      const pending = pendingRes.ok ? await pendingRes.json() : { orders: [] };
+      const inProgressOrders = inProgressRes.ok ? (await inProgressRes.json()).orders || [] : [];
+      const pendingOrders = pendingRes.ok ? (await pendingRes.json()).orders || [] : [];
       const devices = devicesRes.ok ? await devicesRes.json() : { devices: [], pendingResults: [] };
-      setOrders([...(current.orders || []), ...(pending.orders || [])]);
+
+      // Combine and filter out orders that already have results
+      const unfilledOrders = [...inProgressOrders, ...pendingOrders].filter((order) => !order.result?.id);
+      setOrders(unfilledOrders);
       setDeviceData({ devices: devices.devices || [], pendingResults: devices.pendingResults || [] });
       setLoadingDevices(false);
     })();
@@ -100,7 +104,14 @@ export default function LabResultUploadPage() {
         <div className="mt-6 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
-              <select value={form.orderId} onChange={(e) => setForm({ ...form, orderId: e.target.value })} className="h-10 rounded-lg border border-border bg-background px-3 text-sm"><option value="">Select lab order</option>{orders.map((order) => <option key={order.id} value={order.id}>{order.patientName} - {order.testType}</option>)}</select>
+              <select value={form.orderId} onChange={(e) => setForm({ ...form, orderId: e.target.value })} className="h-10 rounded-lg border border-border bg-background px-3 text-sm">
+                <option value="">Select lab order</option>
+                {orders.map((order) => (
+                  <option key={order.id} value={order.id}>
+                    {order.patientName} - {order.testName} ({order.status.replace('-', ' ')})
+                  </option>
+                ))}
+              </select>
               <label className="flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm text-foreground"><UploadCloud className="h-4 w-4 text-primary" />{selectedFile ? selectedFile.name : "Choose local result file"}<input type="file" accept=".pdf,.csv,.txt,.json,.xml" className="hidden" onChange={(e) => setSelectedFile(e.target.files?.[0] || null)} /></label>
               <input value={form.summary} onChange={(e) => setForm({ ...form, summary: e.target.value })} placeholder="Summary" className="h-10 rounded-lg border border-border bg-background px-3 text-sm md:col-span-2" />
               <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" className="min-h-[110px] rounded-lg border border-border bg-background px-3 py-2 text-sm" />

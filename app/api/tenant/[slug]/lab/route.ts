@@ -4,7 +4,7 @@ import { getTenantIdBySlug } from "@/lib/accountant/server";
 import { db } from "@/lib/db";
 import { auditLogs, inventoryItems, labOrders, labResults, notifications, patients, roles, userRoles, users } from "@/lib/db/schema";
 import { parseLabResultData } from "@/lib/doctor/lab-results";
-import { requireTenantAdmin } from "@/lib/tenant-staff";
+import { requireLabTechnicianOrAdmin } from "@/lib/tenant-staff"; // Import the new function
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -206,7 +206,7 @@ async function getLabData(tenantId: string, request: NextRequest) {
         createdAt: toIso(result.createdAt),
         fileUrl: parsed.fileUrl || result.fileUrl || "",
         status: parsed.status || "available",
-        flag: resultFlag(parsed),
+        flag: parsed.flag || resultFlag(parsed),
         summary: parsed.summary || parsed.notes || "",
       };
     }),
@@ -237,8 +237,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    const admin = await requireTenantAdmin(request.headers, tenantId);
-    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
+    const authCheck = await requireLabTechnicianOrAdmin(request.headers, tenantId); // Use new function
+    if (!authCheck.ok) return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
 
     return NextResponse.json(await getLabData(tenantId, request), {
       headers: { "Cache-Control": "no-store, max-age=0" },
@@ -255,8 +255,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    const admin = await requireTenantAdmin(request.headers, tenantId);
-    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
+    const authCheck = await requireLabTechnicianOrAdmin(request.headers, tenantId); // Use new function
+    if (!authCheck.ok) return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
 
     const body = await request.json().catch(() => ({}));
     const orderId = String(body.orderId || "").trim();
@@ -325,7 +325,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     await db.insert(auditLogs).values({
       tenantId,
-      userId: admin.user?.id || null,
+      userId: authCheck.user?.id || null, // Use user from authCheck
       action: auditAction,
       entity: "lab_order",
       entityId: orderId,

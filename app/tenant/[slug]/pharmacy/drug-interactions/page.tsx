@@ -15,14 +15,21 @@ export default function PharmacyDrugInteractionsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ medicationA: "", medicationB: "", severity: "moderate", effect: "", recommendation: "", source: "" });
+  const [error, setError] = useState<string | null>(null); // Add state for error message
 
   const fetchData = async (silent = false) => {
     if (!silent) setLoading(true);
     setRefreshing(true);
+    setError(null); // Clear previous errors
     try {
       const res = await fetch(`/api/tenant/${slug}/pharmacy/drug-interactions`, { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to load interactions");
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(errorData.error || "Failed to load interactions");
+      }
       setData(await res.json());
+    } catch (fetchError: any) { // Catch the error and set it
+      setError(fetchError.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -53,6 +60,12 @@ export default function PharmacyDrugInteractionsPage() {
         </div>
         <div className="flex gap-2"><button onClick={() => fetchData(true)} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"><RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />Refresh</button><button onClick={() => setShowForm((v) => !v)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"><Plus className="h-4 w-4" />Add Rule</button></div>
       </div>
+
+      {error && ( // Display API errors here
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+          {error}
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-4">
         {[["Configured", data?.stats.configuredRules ?? 0], ["Critical rules", data?.stats.criticalRules ?? 0], ["Active risks", data?.stats.activeRisks ?? 0], ["Severe risks", data?.stats.severeActiveRisks ?? 0]].map(([label, value]) => <div key={String(label)} className="rounded-2xl border border-border bg-card p-4 shadow-sm"><p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{label}</p><p className="mt-3 text-2xl font-semibold text-foreground">{value}</p></div>)}

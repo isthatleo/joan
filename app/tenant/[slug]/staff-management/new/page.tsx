@@ -130,6 +130,7 @@ export default function NewStaffMemberPage() {
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [departmentsLoading, setDepartmentsLoading] = useState(true);
   const [employeeIdSettings, setEmployeeIdSettings] = useState<EmployeeIdSettings>(DEFAULT_EMPLOYEE_ID_SETTINGS);
+  const [manualEmployeeId, setManualEmployeeId] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ temporaryPassword: string; loginUrl: string; employeeId?: string } | null>(null);
 
@@ -205,11 +206,14 @@ export default function NewStaffMemberPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, employeeId: manualEmployeeId ? form.employeeId : "" }),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(data?.error || "Failed to register staff member");
       setResult({ temporaryPassword: data.temporaryPassword, loginUrl: data.loginUrl, employeeId: data.employeeId });
+      if (employeeIdSettings.enabled && !manualEmployeeId) {
+        setEmployeeIdSettings((current) => ({ ...current, nextNumber: current.nextNumber + 1 }));
+      }
       setStep(3);
     } catch (submitError: any) {
       setError(submitError?.message || "Failed to register staff member");
@@ -223,7 +227,7 @@ export default function NewStaffMemberPage() {
     await navigator.clipboard.writeText([
       `Login URL: ${result.loginUrl}`,
       `Email: ${form.email}`,
-      `Employee ID: ${result.employeeId || form.employeeId || "Not assigned"}`,
+      `Employee ID: ${result.employeeId || (manualEmployeeId ? form.employeeId : "") || "Not assigned"}`,
       `Temporary password: ${result.temporaryPassword}`,
       "The user must change this password immediately after login.",
     ].join("\n")).catch(() => null);
@@ -302,14 +306,17 @@ export default function NewStaffMemberPage() {
                     <p className="mt-1 font-mono text-sm font-semibold text-foreground">{previewEmployeeId(employeeIdSettings)}</p>
                     <button
                       type="button"
-                      onClick={() => update("employeeId", form.employeeId ? "" : previewEmployeeId(employeeIdSettings))}
+                      onClick={() => {
+                        setManualEmployeeId((current) => !current);
+                        update("employeeId", "");
+                      }}
                       className="mt-2 text-xs font-semibold text-primary hover:underline"
                     >
-                      {form.employeeId ? "Use automatic ID instead" : "Override manually"}
+                      {manualEmployeeId ? "Use automatic ID instead" : "Override manually"}
                     </button>
                   </div>
                 ) : null}
-                {(!employeeIdSettings.enabled || form.employeeId) ? (
+                {(!employeeIdSettings.enabled || manualEmployeeId) ? (
                   <input
                     value={form.employeeId}
                     onChange={(e) => update("employeeId", e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 40))}
@@ -336,7 +343,7 @@ export default function NewStaffMemberPage() {
                 Role: ROLES.find((role) => role.value === form.role)?.label || form.role,
                 Department: form.department,
                 "Job title": form.title,
-                "Employee ID": form.employeeId || (employeeIdSettings.enabled ? `Auto-generate next ID (${previewEmployeeId(employeeIdSettings)})` : "Not provided"),
+                "Employee ID": (manualEmployeeId && form.employeeId) || (employeeIdSettings.enabled ? `Auto-generate next ID (${previewEmployeeId(employeeIdSettings)})` : "Not provided"),
                 "License number": form.licenseNumber || "Not provided",
               }).map(([label, value]) => (
                 <div key={label} className="rounded-xl border border-border bg-background/70 p-4"><p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-1 text-sm font-medium text-foreground">{value}</p></div>
@@ -353,7 +360,7 @@ export default function NewStaffMemberPage() {
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Login URL</p>
               <p className="mt-1 break-all font-mono text-sm text-foreground">{result.loginUrl}</p>
               <p className="mt-4 text-xs uppercase tracking-wide text-muted-foreground">Employee ID</p>
-              <p className="mt-1 font-mono text-lg font-semibold text-foreground">{result.employeeId || form.employeeId || "Not assigned"}</p>
+              <p className="mt-1 font-mono text-lg font-semibold text-foreground">{result.employeeId || (manualEmployeeId ? form.employeeId : "") || "Not assigned"}</p>
               <p className="mt-4 text-xs uppercase tracking-wide text-muted-foreground">Temporary password</p>
               <p className="mt-1 font-mono text-lg font-semibold text-foreground">{result.temporaryPassword}</p>
             </div>

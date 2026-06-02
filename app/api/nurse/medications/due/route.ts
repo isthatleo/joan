@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, asc, eq, isNull, lte } from "drizzle-orm";
-import { bedAssignments, medicationAdministrations, patients, prescriptionItems } from "@/lib/db/schema";
+import { bedAssignments, medicationAdministrations, patients, prescriptionItems, prescriptions } from "@/lib/db/schema";
 import { db } from "@/lib/db";
 import { resolveNurseContext } from "@/lib/nurse/server";
 import { patientNameSql } from "@/lib/nurse/utils";
+import { isPrescriptionClosed } from "@/lib/medication-workflow";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest) {
   const rows = await db
     .select({
       id: medicationAdministrations.id,
+      prescriptionStatus: prescriptions.status,
       patientName: patientNameSql,
       medication: prescriptionItems.drugName,
       dosage: prescriptionItems.dosage,
@@ -30,14 +32,15 @@ export async function GET(request: NextRequest) {
       room: bedAssignments.room,
     })
     .from(medicationAdministrations)
+    .innerJoin(prescriptions, eq(prescriptions.id, medicationAdministrations.prescriptionId))
     .innerJoin(patients, eq(patients.id, medicationAdministrations.patientId))
     .leftJoin(prescriptionItems, eq(prescriptionItems.id, medicationAdministrations.prescriptionItemId))
     .leftJoin(bedAssignments, and(eq(bedAssignments.patientId, patients.id), eq(bedAssignments.tenantId, context.nurse.tenantId), isNull(bedAssignments.deletedAt)))
-    .where(and(eq(medicationAdministrations.tenantId, context.nurse.tenantId), isNull(medicationAdministrations.deletedAt), eq(medicationAdministrations.status, "pending"), lte(medicationAdministrations.scheduledAt, addHours(new Date(), 2))))
+    .where(and(eq(medicationAdministrations.tenantId, context.nurse.tenantId), isNull(medicationAdministrations.deletedAt), isNull(prescriptions.deletedAt), eq(medicationAdministrations.status, "pending"), lte(medicationAdministrations.scheduledAt, addHours(new Date(), 2))))
     .orderBy(asc(medicationAdministrations.scheduledAt))
     .limit(8);
 
-  return NextResponse.json(rows.map((row) => ({
+  return NextResponse.json(rows.filter((row) => !isPrescriptionClosed(row.prescriptionStatus)).map((row) => ({
     ...row,
     dueTime: row.scheduledAt ? new Date(row.scheduledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Now",
   })));

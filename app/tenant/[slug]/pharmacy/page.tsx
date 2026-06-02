@@ -24,6 +24,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { useAuthStore } from "@/stores/auth"; // Import useAuthStore
 
 type Prescription = {
   id: string;
@@ -46,7 +47,7 @@ type Prescription = {
   notes?: string;
   interactions: unknown[];
   isEmergency: boolean;
-  medications: Array<{ name: string; strength?: string; dosage?: string; quantity?: number; instructions?: string }>;
+  medications: Array<{ name: string; strength?: string; dosage?: string; quantity?: number; instructions?: string; route?: string; fulfillment?: string }>;
 };
 
 type PharmacyData = {
@@ -112,6 +113,7 @@ export default function PharmacyAdminPage() {
   const slug = params?.slug as string;
   const hostname = typeof window !== "undefined" ? window.location.hostname : null;
   const path = (value: string) => withTenantPrefix(value, slug, hostname);
+  const { user } = useAuthStore(); // Get user from auth store
   const [data, setData] = useState<PharmacyData>(EMPTY_DATA);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -231,7 +233,20 @@ export default function PharmacyAdminPage() {
     { label: "Filled Today", value: stats.filledToday || 0, icon: CheckCircle2, tone: "bg-green-50 text-green-700" },
     { label: "Stock Risk", value: (stats.lowStock || 0) + (stats.outOfStock || 0), icon: Boxes, tone: "bg-red-50 text-red-700" },
     { label: "Pharmacists", value: stats.pharmacistCount || 0, icon: UserRound, tone: "bg-slate-100 text-slate-700" },
+    { label: "Nurse Admin", value: stats.nurseAdministration || 0, icon: ShieldAlert, tone: "bg-cyan-50 text-cyan-700" },
   ];
+
+  const isHospitalAdmin = user?.role === "hospital_admin";
+  const isPharmacist = user?.role === "pharmacist";
+
+  const pageTitle = isHospitalAdmin ? "Pharmacy Operations" : "Pharmacist Dashboard";
+  const pageDescription = isHospitalAdmin
+    ? "Administrative oversight for prescriptions, medication safety, stock risk, replenishment, and pharmacy staff coverage."
+    : "Manage prescriptions, review medication safety, and monitor pharmacy inventory.";
+  const worklistTitle = isHospitalAdmin ? "Admin Prescription Worklist" : "Prescription Worklist";
+  const worklistDescription = isHospitalAdmin
+    ? "Oversight actions do not replace pharmacist dispensing."
+    : "Current prescriptions for review and dispensing.";
 
   if (loading) {
     return (
@@ -245,11 +260,11 @@ export default function PharmacyAdminPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-mono uppercase tracking-[0.25em] text-muted-foreground">Hospital Admin</p>
-          <h1 className="mt-1 text-3xl font-bold text-foreground">Pharmacy Operations</h1>
-          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Administrative oversight for prescriptions, medication safety, stock risk, replenishment, and pharmacy staff coverage.
+          <p className="text-xs font-mono uppercase tracking-[0.25em] text-muted-foreground">
+            {isHospitalAdmin ? "Hospital Admin" : "Pharmacist"}
           </p>
+          <h1 className="mt-1 text-3xl font-bold text-foreground">{pageTitle}</h1>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{pageDescription}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => load(true)} disabled={refreshing} className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60">
@@ -260,10 +275,12 @@ export default function PharmacyAdminPage() {
             <Download className="h-4 w-4" />
             Export CSV
           </button>
-          <Link href={path("/pharmacy/analytics")} className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600">
-            <BarChart3 className="h-4 w-4" />
-            Analytics
-          </Link>
+          {isHospitalAdmin && ( // Only show Analytics link for Hospital Admin
+            <Link href={path("/pharmacy/analytics")} className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600">
+              <BarChart3 className="h-4 w-4" />
+              Analytics
+            </Link>
+          )}
         </div>
       </div>
 
@@ -351,8 +368,8 @@ export default function PharmacyAdminPage() {
         <section className="rounded-2xl border border-border bg-card">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-5">
             <div>
-              <h2 className="text-lg font-semibold">Admin Prescription Worklist</h2>
-              <p className="text-sm text-muted-foreground">Oversight actions do not replace pharmacist dispensing.</p>
+              <h2 className="text-lg font-semibold">{worklistTitle}</h2>
+              <p className="text-sm text-muted-foreground">{worklistDescription}</p>
             </div>
             <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">{filteredPrescriptions.length} visible</span>
           </div>
@@ -377,6 +394,11 @@ export default function PharmacyAdminPage() {
                     <td className="px-4 py-4">
                       <p className="font-semibold">{item.medication}</p>
                       <p className="text-xs text-muted-foreground">{[item.genericName, item.strength, item.dosage].filter(Boolean).join(" • ") || "No medication detail"}</p>
+                      <p className="mt-1 text-xs font-medium text-muted-foreground">
+                        {(item.medications || []).some((medication) => medication.fulfillment === "nurse_administration")
+                          ? "Includes nurse-administered IV/injection item(s)"
+                          : "Pharmacy / dispensary pickup"}
+                      </p>
                     </td>
                     <td className="px-4 py-4"><p className="font-medium">{item.patientName}</p><p className="text-xs text-muted-foreground">{item.patientPhone || "No contact"}</p></td>
                     <td className="px-4 py-4">{item.doctorName}</td>
@@ -386,10 +408,10 @@ export default function PharmacyAdminPage() {
                     <td className="px-4 py-4">
                       <div className="flex justify-end gap-2">
                         <button onClick={() => setSelected(item)} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 font-semibold hover:bg-muted"><Eye className="h-4 w-4" />View</button>
-                        {!["filled", "dispensed", "cancelled"].includes(item.status) && (
+                        {isHospitalAdmin && !["filled", "dispensed", "cancelled"].includes(item.status) && ( // Only show Flag review for Hospital Admin
                           <button disabled={busyId === item.id} onClick={() => runAction(item, "flag_review")} className="inline-flex items-center gap-2 rounded-lg border border-blue-200 px-3 py-2 font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-60">Flag review</button>
                         )}
-                        {!["filled", "dispensed", "cancelled"].includes(item.status) && (
+                        {isHospitalAdmin && !["filled", "dispensed", "cancelled"].includes(item.status) && ( // Only show Escalate for Hospital Admin
                           <button disabled={busyId === item.id} onClick={() => runAction(item, "escalate")} className="inline-flex items-center gap-2 rounded-lg border border-red-200 px-3 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"><Zap className="h-4 w-4" />Escalate</button>
                         )}
                       </div>
@@ -451,7 +473,9 @@ export default function PharmacyAdminPage() {
             <h2 className="text-lg font-semibold">Pharmacy Staff Coverage</h2>
             <p className="text-sm text-muted-foreground">Active pharmacist accounts for this tenant.</p>
           </div>
-          <Link href={path("/staff-management")} className="text-sm font-semibold text-orange-600 hover:underline">Manage staff</Link>
+          {isHospitalAdmin && ( // Only show Manage staff link for Hospital Admin
+            <Link href={path("/staff-management")} className="text-sm font-semibold text-orange-600 hover:underline">Manage staff</Link>
+          )}
         </div>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           {data.pharmacyStaff.length === 0 ? (
@@ -488,6 +512,19 @@ export default function PharmacyAdminPage() {
                 <p className="mt-1 text-sm text-muted-foreground">{selected.dosage || "No dosage"} • {selected.frequency || "No frequency"} • {selected.duration || "No duration"}</p>
                 <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{selected.notes || selected.medications[0]?.instructions || "No additional notes."}</p>
               </div>
+              <div className="rounded-lg border border-border bg-background p-4">
+                <p className="font-semibold">Fulfillment routing</p>
+                <div className="mt-3 space-y-2">
+                  {(selected.medications || []).map((medication) => (
+                    <div key={`${medication.name}-${medication.route || "route"}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm">
+                      <span>{medication.name} {medication.route ? `(${medication.route})` : ""}</span>
+                      <span className="rounded-full bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">
+                        {medication.fulfillment === "nurse_administration" ? "Nurse administration queue" : "Pharmacy pickup / dispensary"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
               {selected.interactions.length > 0 && (
                 <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
                   <p className="font-semibold">Interaction / safety flags</p>
@@ -495,12 +532,14 @@ export default function PharmacyAdminPage() {
                 </div>
               )}
               <div className="flex flex-wrap justify-end gap-2">
-                {!["filled", "dispensed", "cancelled"].includes(selected.status) && (
-                  <>
-                    <button disabled={busyId === selected.id} onClick={() => runAction(selected, "flag_review")} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60">Flag review</button>
-                    <button disabled={busyId === selected.id} onClick={() => runAction(selected, "escalate")} className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60">Escalate</button>
-                    <button disabled={busyId === selected.id} onClick={() => runAction(selected, "cancel", { reason: "Administrative cancellation" })} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60">Cancel</button>
-                  </>
+                {isPharmacist && !["filled", "dispensed", "cancelled"].includes(selected.status) && ( // Only show Flag review for Pharmacist
+                  <button disabled={busyId === selected.id} onClick={() => runAction(selected, "flag_review")} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60">Flag review</button>
+                )}
+                {isHospitalAdmin && !["filled", "dispensed", "cancelled"].includes(selected.status) && ( // Only show Escalate for Hospital Admin
+                  <button disabled={busyId === selected.id} onClick={() => runAction(selected, "escalate")} className="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60">Escalate</button>
+                )}
+                {isHospitalAdmin && !["filled", "dispensed", "cancelled"].includes(selected.status) && ( // Only show Cancel for Hospital Admin
+                  <button disabled={busyId === selected.id} onClick={() => runAction(selected, "cancel", { reason: "Administrative cancellation" })} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-60">Cancel</button>
                 )}
               </div>
             </div>
