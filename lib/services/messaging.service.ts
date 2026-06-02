@@ -605,6 +605,12 @@ export class MessagingService {
         u.role,
         u.email,
         u.full_name,
+        EXISTS (
+          SELECT 1
+          FROM tenants t
+          WHERE t.admin_user_id = u.id
+            AND t.deleted_at IS NULL
+        ) AS is_tenant_admin,
         COALESCE(
           ARRAY_AGG(DISTINCT LOWER(r.name)) FILTER (WHERE r.name IS NOT NULL),
           ARRAY[]::text[]
@@ -624,10 +630,12 @@ export class MessagingService {
       throw new Error("User not found");
     }
 
+    const primaryRole = pickPrimaryRole(Array.isArray(user.linked_roles) ? user.linked_roles : [], user.role);
+
     return {
       id: user.id,
       tenantId: user.tenant_id || null,
-      role: pickPrimaryRole(Array.isArray(user.linked_roles) ? user.linked_roles : [], user.role),
+      role: user.is_tenant_admin && primaryRole !== "super_admin" ? "hospital_admin" : primaryRole,
       email: user.email,
       fullName: user.full_name,
     };
@@ -645,6 +653,10 @@ export class MessagingService {
 
     if (sender.role === "super_admin") {
       return allowedRoles.includes(receiver.role);
+    }
+
+    if (receiver.role === "super_admin" && allowedRoles.includes("super_admin")) {
+      return true;
     }
 
     if (sameTenant && allowedRoles.includes(receiver.role)) {

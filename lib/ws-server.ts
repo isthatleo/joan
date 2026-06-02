@@ -5,9 +5,10 @@ import { ensureRedisConnection, redis } from "@/lib/redis";
 
 const httpServer = createServer();
 const io = new Server(httpServer, {
-  cors: { origin: "*" },
+  cors: { origin: process.env.SOCKET_CORS_ORIGIN || "*" },
 });
 const activeSocketCounts = new Map<string, number>();
+const port = Number(process.env.SOCKET_PORT || process.env.PORT || 4000);
 
 io.on("connection", (socket) => {
   const { tenantId, departmentId, userId } = socket.handshake.auth;
@@ -58,13 +59,16 @@ io.on("connection", (socket) => {
 
     socket.on("call:start", (data) => {
       io.to(`user:${data.receiverId}`).emit("call:incoming", {
+        callId: data.callId,
         callerId: userId,
         callType: data.callType,
+        offer: data.offer,
       });
     });
 
     socket.on("call:offer", (data) => {
       io.to(`user:${data.receiverId}`).emit("call:offer", {
+        callId: data.callId,
         callerId: userId,
         offer: data.offer,
         callType: data.callType,
@@ -73,6 +77,7 @@ io.on("connection", (socket) => {
 
     socket.on("call:answer", (data) => {
       io.to(`user:${data.receiverId}`).emit("call:answer", {
+        callId: data.callId,
         answer: data.answer,
         receiverId: userId,
       });
@@ -87,12 +92,14 @@ io.on("connection", (socket) => {
 
     socket.on("call:reject", (data) => {
       io.to(`user:${data.receiverId}`).emit("call:reject", {
+        callId: data.callId,
         receiverId: userId,
       });
     });
 
     socket.on("call:end", (data) => {
       io.to(`user:${data.receiverId}`).emit("call:end", {
+        callId: data.callId,
         senderId: userId,
       });
     });
@@ -141,12 +148,31 @@ void (async () => {
     await redisSub.subscribe("notifications", (message) => {
       const payload = JSON.parse(message);
       io.to(`user:${payload.userId}`).emit("notification", payload);
+      if (payload.type === "message" && payload.metadata?.message) {
+        io.to(`user:${payload.userId}`).emit("message:new", {
+          senderId: payload.metadata.senderId,
+          message: payload.metadata.message,
+        });
+      }
+      if (payload.type === "message.read") {
+        io.to(`user:${payload.userId}`).emit("message:read", {
+          readerId: payload.metadata?.readerId,
+          conversationUserId: payload.metadata?.conversationUserId,
+          messageIds: payload.metadata?.messageIds || [],
+        });
+      }
+    });
+
+    await redisSub.subscribe("messaging-events", (message) => {
+      const payload = JSON.parse(message);
+      if (!payload?.userId || !payload?.event) return;
+      io.to(`user:${payload.userId}`).emit(payload.event, payload.data || {});
     });
   } catch (error) {
     console.error("Failed to initialize Redis subscriptions for realtime messaging:", error);
   }
 })();
 
-httpServer.listen(4000, () => {
-  console.log("WebSocket server running on port 4000");
+httpServer.listen(port, () => {
+  console.log(`WebSocket server running on port ${port}`);
 });

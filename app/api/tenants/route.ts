@@ -91,6 +91,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    if (deleted && isSuperAdmin) {
+      await service.purgeDueTenants(10).catch((error) => {
+        console.error("Automatic due tenant purge failed:", error);
+      });
+    }
+
     const tenants = await service.getAllTenants({
       search,
       plan,

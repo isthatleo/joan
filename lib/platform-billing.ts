@@ -473,7 +473,7 @@ export async function createTenantSubscriptionInvoice(input: {
       type: "platform_invoice",
       title: "Subscription invoice issued",
       message: `Invoice ${invoice.invoiceNumber} for ${input.plan.name} is ${invoice.status} and due ${dueAt.toLocaleDateString()}.`,
-      metadata: { invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, total: amount, status: invoice.status },
+      metadata: { invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, total: amount, status: invoice.status, tenantSlug: input.tenantSlug, actionUrl: `/billing/platform-invoices/${invoice.id}` },
     }).catch(() => null);
   }
 
@@ -585,7 +585,7 @@ export async function createPlatformInvoice(input: {
       type: "platform_invoice",
       title: "Platform invoice issued",
       message: `Invoice ${invoice.invoiceNumber} for ${input.currency} ${total.toFixed(2)} is due ${input.dueAt.toLocaleDateString()}.`,
-      metadata: { invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, total: total.toFixed(2), status: invoice.status },
+      metadata: { invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, total: total.toFixed(2), status: invoice.status, tenantSlug: input.tenantSlug, actionUrl: `/billing/platform-invoices/${invoice.id}` },
     }).catch(() => null);
   }
 

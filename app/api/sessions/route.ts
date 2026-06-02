@@ -1,24 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { userSessions, deviceFingerprints } from "@/lib/db/schema";
+import { userSessions, users } from "@/lib/db/schema";
 import { getIpAddress, generateSessionToken } from "@/lib/fingerprinting";
-import { and, eq, desc, gt } from "drizzle-orm";
+import { and, desc, eq, gt, ilike, isNull } from "drizzle-orm";
+import { auth } from "@/lib/auth";
 
 export interface CreateSessionRequest {
   userId: string;
-  tenantId: string;
+  tenantId?: string | null;
   deviceFingerprintId?: string;
+}
+
+async function resolveCurrentUser(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
+  if (!session?.user?.email) return null;
+
+  return db.query.users.findFirst({
+    where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
+    columns: { id: true, tenantId: true, role: true },
+  });
 }
 
 // Create a new session
 export async function POST(request: NextRequest) {
   try {
+    const appUser = await resolveCurrentUser(request);
+    if (!appUser?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body: CreateSessionRequest = await request.json();
     const { userId, tenantId, deviceFingerprintId } = body;
 
-    if (!userId || !tenantId) {
-      return NextResponse.json({ error: "Missing userId or tenantId" }, { status: 400 });
+    if (!userId) {
+      return NextResponse.json({ error: "Missing userId" }, { status: 400 });
     }
+
+    if (userId !== appUser.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const effectiveTenantId = tenantId || appUser.tenantId || null;
 
     const userAgent = request.headers.get("user-agent") || "Unknown";
     const ipAddress = getIpAddress(request);
@@ -26,7 +48,7 @@ export async function POST(request: NextRequest) {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     await db.insert(userSessions).values({
-      tenantId,
+      tenantId: effectiveTenantId,
       userId,
       deviceFingerprintId,
       sessionToken,

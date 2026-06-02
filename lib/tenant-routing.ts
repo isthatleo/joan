@@ -15,10 +15,24 @@ function getProductionTenantDomains() {
 
   const domains = configured
     .flatMap((value) => String(value || "").split(","))
-    .map((value) => value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, ""))
+    .map((value) => value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "").replace(/^\*\./, ""))
     .filter(Boolean);
 
   return domains.length ? domains : FALLBACK_PRODUCTION_TENANT_DOMAINS;
+}
+
+function getAppOrigin() {
+  return process.env.NEXT_PUBLIC_APP_URL || process.env.BETTER_AUTH_URL || "http://localhost:3000";
+}
+
+function getTenantRootDomain(base: URL) {
+  const [configured] = getProductionTenantDomains();
+  if (configured && !FALLBACK_PRODUCTION_TENANT_DOMAINS.includes(configured)) {
+    return configured;
+  }
+
+  const hostParts = base.hostname.split(".");
+  return hostParts[0] === "www" ? hostParts.slice(1).join(".") : base.hostname;
 }
 
 export const TENANT_ROLE_HOME: Record<Exclude<AppRole, "super_admin">, string> = {
@@ -88,6 +102,36 @@ export function getTenantSubdomain(hostname?: string | null) {
   }
 
   return null;
+}
+
+export function buildTenantUrl(slug: string, path = "/login") {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const base = new URL(getAppOrigin());
+
+  if (base.hostname === "localhost") {
+    return `${base.protocol}//${slug}.localhost:${base.port || "3000"}${normalizedPath}`;
+  }
+
+  if (base.hostname === "127.0.0.1") {
+    if (normalizedPath.startsWith("/login")) {
+      return `${base.protocol}//localhost:${base.port || "3000"}/tenant-login/${slug}${normalizedPath.includes("?") ? normalizedPath.slice(normalizedPath.indexOf("?")) : ""}`;
+    }
+    return `${base.protocol}//localhost:${base.port || "3000"}/tenant/${slug}${normalizedPath}`;
+  }
+
+  const domain = getTenantRootDomain(base);
+  return `${base.protocol}//${slug}.${domain}${base.port ? `:${base.port}` : ""}${normalizedPath}`;
+}
+
+export function buildTenantLoginUrl(slug: string, params?: URLSearchParams | Record<string, string | undefined | null>) {
+  const searchParams = params instanceof URLSearchParams ? params : new URLSearchParams();
+  if (params && !(params instanceof URLSearchParams)) {
+    Object.entries(params).forEach(([key, value]) => {
+      if (value) searchParams.set(key, value);
+    });
+  }
+  const query = searchParams.toString();
+  return buildTenantUrl(slug, `/login${query ? `?${query}` : ""}`);
 }
 
 export function isTenantSubdomainHost(hostname?: string | null, slug?: string | null) {

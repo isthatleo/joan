@@ -48,12 +48,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       tenantId,
       tenantName: tenant.name,
+      tenantSlug: tenant.slug,
       createdAt: tenant.createdAt,
       patientCount: patientCount[0]?.count ?? 0,
       staffCount: userCount[0]?.count ?? 0,
       plan: tenant.plan,
       isArchived: !tenant.isActive,
       scheduledPurgeAt: tenant.scheduledPurgeAt,
+      archiveGraceDays: 60,
     });
   } catch (error) {
     console.error("[danger-zone GET]", error);

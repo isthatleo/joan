@@ -1,6 +1,7 @@
 import { and, desc, eq, gt, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { auditLogs, messageCallSessions } from "@/lib/db/schema";
+import { ensureRedisConnection, redis } from "@/lib/redis";
 
 const CALL_TTL_MS = 60_000;
 const ACTIVE_STATUSES = ["ringing", "active"];
@@ -8,6 +9,29 @@ const ACTIVE_STATUSES = ["ringing", "active"];
 type CallStatus = "ringing" | "active" | "rejected" | "ended" | "missed";
 
 export class MessagingCallService {
+  private publishCallEvent(call: typeof messageCallSessions.$inferSelect, event: string, recipients?: string[]) {
+    const userIds = Array.from(new Set(recipients || [call.callerId, call.calleeId]));
+    void (async () => {
+      try {
+        await ensureRedisConnection();
+        await Promise.all(
+          userIds.map((userId) =>
+            redis.publish(
+              "messaging-events",
+              JSON.stringify({
+                userId,
+                event,
+                data: { call },
+              })
+            )
+          )
+        );
+      } catch (error) {
+        console.error("Failed to publish realtime call event:", error);
+      }
+    })();
+  }
+
   async cleanupExpiredCalls() {
     const expiredSessions = await db
       .select({
@@ -146,6 +170,9 @@ export class MessagingCallService {
       },
     });
 
+    this.publishCallEvent(created, "call:incoming", [created.calleeId]);
+    this.publishCallEvent(created, "call:update");
+
     return created;
   }
 
@@ -207,6 +234,7 @@ export class MessagingCallService {
           status: updated.status,
         },
       });
+      this.publishCallEvent(updated, "call:update");
     }
     return updated;
   }
@@ -237,6 +265,7 @@ export class MessagingCallService {
           status: updated.status,
         },
       });
+      this.publishCallEvent(updated, "call:update");
     }
     return updated;
   }
@@ -277,6 +306,7 @@ export class MessagingCallService {
           status: updated.status,
         },
       });
+      this.publishCallEvent(updated, "call:update");
     }
     return updated;
   }
@@ -301,6 +331,10 @@ export class MessagingCallService {
       } as any)
       .where(eq(messageCallSessions.id, id))
       .returning();
+
+    if (updated) {
+      this.publishCallEvent(updated, "call:update");
+    }
 
     return updated;
   }

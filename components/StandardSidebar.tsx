@@ -99,8 +99,6 @@ export function StandardSidebar({
       } catch {}
     };
 
-    let brandingPollInterval: ReturnType<typeof setInterval> | null = null;
-    let modulesPollInterval: ReturnType<typeof setInterval> | null = null;
     const fetchLatestBranding = async () => {
       if (!tenantSlug) return;
       try {
@@ -133,18 +131,25 @@ export function StandardSidebar({
     syncFromStorage();
     window.addEventListener("storage", syncFromLocalStorageEvent);
     window.addEventListener(getTenantSettingsSyncEventName(), syncFromEvent as EventListener);
-    fetchLatestBranding();
-    fetchLatestModules();
+    const scheduleRefresh = (task: () => Promise<void>) => {
+      const run = () => void task();
+      if ("requestIdleCallback" in window) {
+        window.requestIdleCallback(run, { timeout: 2000 });
+      } else {
+        globalThis.setTimeout(run, 0);
+      }
+    };
+
     if (tenantSlug) {
-      brandingPollInterval = setInterval(fetchLatestBranding, 10000);
-      modulesPollInterval = setInterval(fetchLatestModules, 10000);
+      scheduleRefresh(fetchLatestBranding);
+      if (!sessionStorage.getItem("active_tenant_modules")) {
+        scheduleRefresh(fetchLatestModules);
+      }
     }
 
     return () => {
       window.removeEventListener("storage", syncFromLocalStorageEvent);
       window.removeEventListener(getTenantSettingsSyncEventName(), syncFromEvent as EventListener);
-      if (brandingPollInterval) clearInterval(brandingPollInterval);
-      if (modulesPollInterval) clearInterval(modulesPollInterval);
     };
   }, [logo, productName, tenantSlug]);
 

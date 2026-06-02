@@ -23,6 +23,18 @@ const DEFAULTS = {
     faviconUrl: "",
     accentColor: "#EA580C",
     lightLogoUrl: "",
+    employeeIds: {
+      enabled: true,
+      prefix: "EMP",
+      separator: "-",
+      includeYear: true,
+      padding: 4,
+      nextNumber: 1,
+      codeType: "qr",
+      cardTheme: "clinical",
+      customPatternEnabled: false,
+      customPattern: "EMP-{YYYY}-{SEQ}",
+    },
   },
   hospital: {
     name: "Hospital Name",
@@ -203,6 +215,11 @@ export async function GET(request: NextRequest) {
         settings[row.key] = row.value;
       }
     }
+
+    settings.branding.employeeIds = {
+      ...DEFAULTS.branding.employeeIds,
+      ...(settings.branding.employeeIds || {}),
+    };
 
     // Get integrations
     const integrationRows = await db

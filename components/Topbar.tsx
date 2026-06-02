@@ -13,6 +13,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { NotificationDialog } from "./NotificationDialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui";
+import { connectRealtimeSocket, socket } from "@/lib/socket";
+import { playNotificationSound } from "@/lib/notification-sounds";
 
 interface BreadcrumbItem {
   label: string;
@@ -23,6 +25,8 @@ interface TopbarProps {
   breadcrumbs?: BreadcrumbItem[];
   onMobileMenuClick?: () => void;
 }
+
+let cachedNotificationSoundSettings: { sound: string; volume: number; customDataUrl: string } | null = null;
 
 /**
  * Auto-derive breadcrumbs from the current pathname when none are passed.
@@ -50,6 +54,9 @@ export function Topbar({ breadcrumbs, onMobileMenuClick }: TopbarProps) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<any>(null);
   const [notificationDialogOpen, setNotificationDialogOpen] = useState(false);
+  const notificationSoundRef = useRef({ sound: "chime", volume: 0.65, customDataUrl: "" });
+  const playedNotificationIdsRef = useRef<Set<string>>(new Set());
+  const lastFallbackNotificationIdRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
 
   // Extract tenant slug from pathname
@@ -87,7 +94,9 @@ export function Topbar({ breadcrumbs, onMobileMenuClick }: TopbarProps) {
       return response.json();
     },
     enabled: !!user?.id,
-    refetchInterval: 30000, // Refetch every 30 seconds
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 
   // Fetch notifications for dropdown
@@ -98,11 +107,112 @@ export function Topbar({ breadcrumbs, onMobileMenuClick }: TopbarProps) {
       if (!response.ok) throw new Error("Failed to fetch notifications");
       return response.json();
     },
-    enabled: !!user?.id,
-    refetchInterval: 30000, // Refetch every 30 seconds
+    enabled: !!user?.id && notifOpen,
+    staleTime: 30_000,
+    refetchInterval: notifOpen ? 60_000 : false,
+    refetchIntervalInBackground: false,
   });
 
   const unreadCount = notificationData?.unreadCount || 0;
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const latestNonMessageUnread = notificationsData?.notifications?.find((notification: any) => !notification.read && notification.type !== "message");
+    if (!latestNonMessageUnread?.id) return;
+    if (lastFallbackNotificationIdRef.current === null) {
+      lastFallbackNotificationIdRef.current = latestNonMessageUnread.id;
+      return;
+    }
+    if (latestNonMessageUnread.id !== lastFallbackNotificationIdRef.current) {
+      lastFallbackNotificationIdRef.current = latestNonMessageUnread.id;
+      playNotificationSound(notificationSoundRef.current);
+    }
+  }, [notificationsData?.notifications, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    if (cachedNotificationSoundSettings) {
+      notificationSoundRef.current = cachedNotificationSoundSettings;
+      return;
+    }
+
+    let active = true;
+    void fetch("/api/users/settings", { cache: "no-store", credentials: "include" })
+      .then((response) => response.json())
+      .then((settings) => {
+        if (!active) return;
+        const notifications = settings?.notifications || {};
+        cachedNotificationSoundSettings = {
+          sound: String(notifications.notificationSound || "chime"),
+          volume: typeof notifications.notificationVolume === "number" ? notifications.notificationVolume : 0.65,
+          customDataUrl: String(notifications.customNotificationSoundDataUrl || ""),
+        };
+        notificationSoundRef.current = cachedNotificationSoundSettings;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    void connectRealtimeSocket({
+      userId: user.id,
+      tenantId: user.tenantId,
+    });
+
+    const onNotification = (payload: any) => {
+      if (!payload || payload.type === "message") return;
+      const notificationId = payload.id || payload.notificationId || payload.metadata?.notificationId || payload.metadata?.messageId;
+      if (notificationId) {
+        if (playedNotificationIdsRef.current.has(notificationId)) return;
+        playedNotificationIdsRef.current.add(notificationId);
+        window.setTimeout(() => {
+          playedNotificationIdsRef.current.delete(notificationId);
+        }, 10_000);
+      }
+
+      playNotificationSound(notificationSoundRef.current);
+      queryClient.invalidateQueries({ queryKey: ["notification-count"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    };
+
+    socket.on("notification", onNotification);
+    return () => {
+      socket.off("notification", onNotification);
+    };
+  }, [queryClient, user?.id, user?.tenantId]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const heartbeatPath = tenantSlug ? `/api/tenant/${tenantSlug}/messages/presence` : "/api/messages/presence";
+    const sendHeartbeat = () =>
+      fetch(heartbeatPath, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        keepalive: true,
+      }).catch(() => undefined);
+
+    void sendHeartbeat();
+    const interval = window.setInterval(sendHeartbeat, 10_000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void sendHeartbeat();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [tenantSlug, user?.id]);
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -337,7 +447,9 @@ export function Topbar({ breadcrumbs, onMobileMenuClick }: TopbarProps) {
               method: "POST",
             }).then(() => {
               queryClient.invalidateQueries({ queryKey: ["notification-count"] });
-              queryClient.invalidateQueries({ queryKey: ["notifications"] });
+              if (notifOpen) {
+                queryClient.invalidateQueries({ queryKey: ["notifications"] });
+              }
               setSelectedNotification((prev: any) => (prev ? { ...prev, read: true } : null));
             });
           }}

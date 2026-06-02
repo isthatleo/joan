@@ -125,7 +125,8 @@ function getDeviceMetadata() {
 async function registerDeviceFingerprint(user: CachedBootstrap["user"]) {
   if (typeof window === "undefined" || !user?.id) return;
 
-  const cacheKey = `${user.id}:${user.tenantId || "platform"}`;
+  const effectiveTenantId = user.tenantId || user.hospitalId || null;
+  const cacheKey = `${user.id}:${effectiveTenantId || "platform"}`;
   try {
     const cached = JSON.parse(sessionStorage.getItem(DEVICE_FINGERPRINT_CACHE_KEY) || "null");
     if (cached?.cacheKey === cacheKey && cached?.fingerprintId) {
@@ -140,7 +141,7 @@ async function registerDeviceFingerprint(user: CachedBootstrap["user"]) {
       credentials: "include",
       body: JSON.stringify({
         userId: user.id,
-        tenantId: user.tenantId || null,
+        tenantId: effectiveTenantId,
         ...getDeviceMetadata(),
       }),
     });
@@ -157,18 +158,16 @@ async function registerDeviceFingerprint(user: CachedBootstrap["user"]) {
       })
     );
 
-    if (user.tenantId) {
-      await fetch("/api/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          userId: user.id,
-          tenantId: user.tenantId,
-          deviceFingerprintId: fingerprintPayload.fingerprintId,
-        }),
-      }).catch(() => null);
-    }
+    await fetch("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        userId: user.id,
+        tenantId: effectiveTenantId,
+        deviceFingerprintId: fingerprintPayload.fingerprintId,
+      }),
+    }).catch(() => null);
   } catch {
     // Fingerprinting must never block dashboard rendering.
   }
@@ -260,7 +259,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           try {
             const controller = new AbortController();
-            const timeout = window.setTimeout(() => controller.abort(), 3_000);
+            const timeout = window.setTimeout(() => controller.abort(), 2_000);
             const response = await fetch("/api/auth/get-session", {
               credentials: "include",
               cache: "no-store",
@@ -294,7 +293,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               router.replace(getResolvedTenantLoginPath(pathname, hostname, storedSlug));
             }
           }
-        }, 5_000);
+        }, 1_200);
         return;
       }
 

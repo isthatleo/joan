@@ -313,9 +313,9 @@ export default function BillingPage() {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[920px] text-sm">
-                <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="px-5 py-3">Invoice</th><th className="px-5 py-3">Plan / Period</th><th className="px-5 py-3">Amount</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Due</th><th className="px-5 py-3">Items</th></tr></thead>
+                <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground"><tr><th className="px-5 py-3">Invoice</th><th className="px-5 py-3">Plan / Period</th><th className="px-5 py-3">Amount</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Due</th><th className="px-5 py-3">Items</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
                 <tbody className="divide-y divide-border">
-                  {filteredPlatformInvoices.length === 0 ? <tr><td colSpan={6} className="py-16 text-center text-muted-foreground">No hospital invoices found.</td></tr> : filteredPlatformInvoices.map((invoice) => (
+                  {filteredPlatformInvoices.length === 0 ? <tr><td colSpan={7} className="py-16 text-center text-muted-foreground">No hospital invoices found.</td></tr> : filteredPlatformInvoices.map((invoice) => (
                     <tr key={invoice.id} className="hover:bg-muted/30">
                       <td className="px-5 py-3"><p className="font-mono font-semibold">#{invoice.invoiceNumber}</p><p className="text-xs text-muted-foreground">Issued {formatDate(invoice.issuedAt)}</p></td>
                       <td className="px-5 py-3"><p className="font-semibold">{invoice.planName || "Platform invoice"}</p><p className="text-xs text-muted-foreground">{invoice.periodStart ? `${formatDate(invoice.periodStart)} - ${formatDate(invoice.periodEnd)}` : invoice.planCode || "Manual charge"}</p></td>
@@ -323,6 +323,11 @@ export default function BillingPage() {
                       <td className="px-5 py-3"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${statusClass(invoice.status)}`}>{invoice.status}</span></td>
                       <td className="px-5 py-3">{formatDate(invoice.dueAt)}</td>
                       <td className="px-5 py-3"><p className="text-sm">{invoice.lineItems?.length || 0} line items</p><p className="text-xs text-muted-foreground">{invoice.notes || "No notes"}</p></td>
+                      <td className="px-5 py-3">
+                        <div className="flex justify-end">
+                          <Link href={`/tenant/${slug}/billing/platform-invoices/${invoice.id}`} className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-xs font-semibold hover:bg-muted"><Eye className="size-3" />View</Link>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

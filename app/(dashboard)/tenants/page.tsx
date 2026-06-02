@@ -10,6 +10,7 @@ import {
 import { useDebounce } from "@/hooks/use-debounce";
 import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
 import { AddressFields } from "@/components/forms/AddressFields";
+import { buildTenantUrl } from "@/lib/tenant-routing";
 
 type Tenant = {
   id: string;
@@ -272,13 +273,14 @@ export default function TenantsPage() {
 
   const stats = useMemo(() => {
     const active = tenants.filter(t => t.isActive).length;
+    const activePlanCount = plans.filter((plan) => plan.isActive).length || new Set(tenants.map((tenant) => tenant.plan).filter(Boolean)).size;
     return {
       total: tenants.length,
       active,
-      premium: tenants.filter(t => t.plan === "Premium").length,
+      activePlans: activePlanCount,
       newThisMonth: tenants.filter(t => t.createdAt && (Date.now() - new Date(t.createdAt).getTime()) / 86400000 < 30).length,
     };
-  }, [tenants]);
+  }, [plans, tenants]);
 
   const openWizard = () => {
     setForm({
@@ -492,7 +494,7 @@ export default function TenantsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <Stat icon={Building2} label="Total Tenants" value={stats.total} />
           <Stat icon={Check} label="Active" value={stats.active} />
-          <Stat icon={Plus} label="Premium" value={stats.premium} />
+          <Stat icon={CreditCard} label="Active Plans" value={stats.activePlans} />
           <Stat icon={Building2} label="New This Month" value={stats.newThisMonth} />
         </div>
 
@@ -523,12 +525,14 @@ export default function TenantsPage() {
                   )}
                   <select value={planFilter} onChange={e => setPlanFilter(e.target.value)} className="h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300">
                     <option value="all">All Plans</option>
-                    <option value="Basic">Basic</option>
-                    <option value="Standard">Standard</option>
-                    <option value="Premium">Premium</option>
                     {plans.map((plan) => (
                       <option key={plan.id} value={plan.name}>{plan.name}</option>
                     ))}
+                    {Array.from(new Set(tenants.map((tenant) => tenant.plan).filter(Boolean)))
+                      .filter((planName) => !plans.some((plan) => plan.name === planName))
+                      .map((planName) => (
+                        <option key={planName} value={planName}>{planName}</option>
+                      ))}
                   </select>
                   <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="h-10 px-3 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:border-orange-300">
                     <option value="all">All Status</option>
@@ -597,7 +601,10 @@ export default function TenantsPage() {
                         </div>
                       </td>
                       <td className="px-5 py-3 whitespace-nowrap">
-                        <span className="px-2 py-1 rounded bg-muted border border-border text-foreground font-mono text-[10px]">{t.slug}</span>
+                        <div className="space-y-1">
+                          <span className="inline-flex px-2 py-1 rounded bg-muted border border-border text-foreground font-mono text-[10px]">{t.slug}</span>
+                          <p className="max-w-[220px] truncate font-mono text-[10px] text-muted-foreground">{buildTenantUrl(t.slug)}</p>
+                        </div>
                       </td>
                       <td className="px-5 py-3 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${PLAN_CHIP[t.plan] ?? "bg-muted text-foreground"}`}>{t.plan}</span>
@@ -613,7 +620,7 @@ export default function TenantsPage() {
                           <Link href={`/tenants/${t.slug}`} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-muted-foreground hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-500/10 font-semibold text-xs transition-colors border border-transparent hover:border-orange-100 dark:hover:border-orange-500/20">
                             Config
                           </Link>
-                          <a href={`http://${t.slug}.localhost:3000`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-muted-foreground hover:text-orange-600 hover:bg-orange-50 font-semibold text-xs transition-colors border border-transparent hover:border-orange-100">
+                          <a href={buildTenantUrl(t.slug)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-muted-foreground hover:text-orange-600 hover:bg-orange-50 font-semibold text-xs transition-colors border border-transparent hover:border-orange-100">
                             Open <ExternalLink className="size-3" />
                           </a>
                           {t.isActive ? (
@@ -806,7 +813,7 @@ export default function TenantsPage() {
                     <p className="text-sm text-muted-foreground mt-1">Share these one-time credentials with the new admin.</p>
                   </div>
                   <Field label="Tenant Slug" value={provisionResult.tenant?.slug} />
-                  <Field label="Tenant URL (development)" value={`http://${provisionResult.tenant?.slug}.localhost:3000`} />
+                  <Field label="Tenant URL" value={provisionResult.tenant?.tenantUrl || (provisionResult.tenant?.slug ? buildTenantUrl(provisionResult.tenant.slug) : "")} />
                   <Field label="Admin Email" value={provisionResult.admin?.email} />
                   <Field label="Temporary Password" value={provisionResult.admin?.tempPassword} mono />
                   {provisionResult.tenant?.invoiceNumber && <Field label="Subscription Invoice" value={`${provisionResult.tenant.invoiceNumber} (${provisionResult.tenant.invoiceStatus})`} />}

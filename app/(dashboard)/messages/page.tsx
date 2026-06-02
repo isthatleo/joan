@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuthStore } from "@/stores/auth";
-import { useParams, useSearchParams } from "next/navigation";
-import { socket } from "@/lib/socket";
+import { useParams, usePathname, useSearchParams } from "next/navigation";
+import { connectRealtimeSocket, socket } from "@/lib/socket";
 import {
   Button,
   Input,
@@ -43,6 +43,7 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { formatTimeForUser } from "@/lib/time-format";
+import { resolveTenantSlug } from "@/lib/tenant-routing";
 
 interface User {
   id: string;
@@ -94,9 +95,151 @@ type ActiveCallState =
   | { callId: string; status: "connected"; targetUserId: string; callType: "audio" | "video" }
   | null;
 
-const rtcConfig: RTCConfiguration = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+function getRtcConfig(): RTCConfiguration {
+  const configuredTurnUrls = String(process.env.NEXT_PUBLIC_TURN_URLS || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  const iceServers: RTCIceServer[] = [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302", "stun:stun.cloudflare.com:3478"] },
+  ];
+
+  if (configuredTurnUrls.length > 0) {
+    iceServers.push({
+      urls: configuredTurnUrls,
+      username: process.env.NEXT_PUBLIC_TURN_USERNAME || undefined,
+      credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL || undefined,
+    });
+  }
+
+  return {
+    iceServers,
+    iceCandidatePoolSize: 10,
+    bundlePolicy: "max-bundle",
+    rtcpMuxPolicy: "require",
+  };
+}
+
+function getMediaConstraints(callType: "audio" | "video"): MediaStreamConstraints {
+  return {
+    audio: {
+      echoCancellation: { ideal: true },
+      noiseSuppression: { ideal: true },
+      autoGainControl: { ideal: true },
+      channelCount: { ideal: 1 },
+      sampleRate: { ideal: 48000 },
+      sampleSize: { ideal: 16 },
+    },
+    video:
+      callType === "video"
+        ? {
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 },
+            frameRate: { ideal: 30, max: 30 },
+            aspectRatio: { ideal: 16 / 9 },
+            facingMode: "user",
+          }
+        : false,
+  };
+}
+
+function applyTrackQualityHints(stream: MediaStream, callType: "audio" | "video") {
+  stream.getAudioTracks().forEach((track) => {
+    track.contentHint = "speech";
+  });
+  stream.getVideoTracks().forEach((track) => {
+    track.contentHint = callType === "video" ? "motion" : "";
+  });
+}
+
+const ringtonePatterns: Record<string, Array<[number, number, number]>> = {
+  classic: [[880, 0, 0.18], [660, 0.22, 0.18], [880, 0.48, 0.18]],
+  pulse: [[720, 0, 0.12], [720, 0.2, 0.12], [720, 0.4, 0.12]],
+  chime: [[523, 0, 0.18], [659, 0.2, 0.18], [784, 0.4, 0.24]],
+  digital: [[1046, 0, 0.08], [1318, 0.12, 0.08], [1046, 0.24, 0.08], [1568, 0.36, 0.12]],
+  soft: [[440, 0, 0.25], [554, 0.32, 0.25], [659, 0.64, 0.25]],
+  urgent: [[980, 0, 0.1], [980, 0.14, 0.1], [780, 0.32, 0.16], [980, 0.54, 0.18]],
+  bell: [[784, 0, 0.2], [1046, 0.28, 0.28]],
+  pop: [[660, 0, 0.08], [880, 0.1, 0.08]],
+  spark: [[1200, 0, 0.06], [1600, 0.09, 0.08], [1000, 0.2, 0.08]],
+  tone: [[587, 0, 0.25], [587, 0.32, 0.2]],
 };
+
+function playGeneratedSound(sound: string, volume: number, repeat = false) {
+  if (typeof window === "undefined" || sound === "silent" || volume <= 0) return null;
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextClass) return null;
+  const context = new AudioContextClass();
+  let stopped = false;
+  const playPattern = () => {
+    if (stopped) return;
+    const gain = context.createGain();
+    gain.gain.value = Math.min(1, Math.max(0, volume));
+    gain.connect(context.destination);
+    const pattern = ringtonePatterns[sound] || ringtonePatterns.classic;
+    for (const [frequency, offset, duration] of pattern) {
+      const oscillator = context.createOscillator();
+      const noteGain = context.createGain();
+      oscillator.type = sound === "digital" ? "square" : "sine";
+      oscillator.frequency.value = frequency;
+      noteGain.gain.setValueAtTime(0.0001, context.currentTime + offset);
+      noteGain.gain.exponentialRampToValueAtTime(Math.max(0.05, volume), context.currentTime + offset + 0.02);
+      noteGain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + offset + duration);
+      oscillator.connect(noteGain);
+      noteGain.connect(gain);
+      oscillator.start(context.currentTime + offset);
+      oscillator.stop(context.currentTime + offset + duration + 0.03);
+    }
+  };
+  playPattern();
+  const interval = repeat ? window.setInterval(playPattern, 1800) : null;
+  const timeout = !repeat ? window.setTimeout(() => void context.close().catch(() => undefined), 1300) : null;
+  return () => {
+    stopped = true;
+    if (interval) window.clearInterval(interval);
+    if (timeout) window.clearTimeout(timeout);
+    void context.close().catch(() => undefined);
+  };
+}
+
+function playCustomAudio(dataUrl: string, volume: number, repeat = false) {
+  if (typeof window === "undefined" || !dataUrl || volume <= 0) return null;
+  const audio = new Audio(dataUrl);
+  audio.volume = Math.min(1, Math.max(0, volume));
+  audio.loop = repeat;
+  void audio.play().catch(() => undefined);
+  return () => {
+    audio.pause();
+    audio.currentTime = 0;
+  };
+}
+
+async function applySenderQuality(sender: RTCRtpSender, callType: "audio" | "video") {
+  const trackKind = sender.track?.kind;
+  const params = sender.getParameters();
+  if (!params.encodings || params.encodings.length === 0) {
+    params.encodings = [{}];
+  }
+
+  for (const encoding of params.encodings) {
+    if (trackKind === "audio") {
+      encoding.maxBitrate = 96_000;
+      (encoding as any).priority = "high";
+      (encoding as any).networkPriority = "high";
+    }
+    if (trackKind === "video" && callType === "video") {
+      encoding.maxBitrate = 2_500_000;
+      encoding.maxFramerate = 30;
+      encoding.scaleResolutionDownBy = 1;
+      (encoding as any).priority = "high";
+      (encoding as any).networkPriority = "high";
+    }
+  }
+
+  (params as any).degradationPreference = callType === "video" ? "balanced" : "maintain-framerate";
+  await sender.setParameters(params).catch(() => undefined);
+}
 
 function getDisplayName(user?: User | null) {
   return user?.fullName || user?.email || "User";
@@ -109,8 +252,10 @@ function getInitial(user?: User | null) {
 export default function MessagesPage() {
   const { user } = useAuthStore();
   const params = useParams<{ slug?: string }>();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const tenantSlug = typeof params?.slug === "string" ? params.slug : "";
+  const [hostname, setHostname] = useState(() => (typeof window === "undefined" ? "" : window.location.hostname));
+  const tenantSlug = resolveTenantSlug(pathname, hostname, typeof params?.slug === "string" ? params.slug : null) || "";
   const messagesApiBase = tenantSlug ? `/api/tenant/${tenantSlug}/messages` : "/api/messages";
   const userIdFromQuery = searchParams.get("userId");
   const queryClient = useQueryClient();
@@ -130,9 +275,19 @@ export default function MessagesPage() {
   const [isCameraEnabled, setIsCameraEnabled] = useState(true);
   const [remoteMediaReady, setRemoteMediaReady] = useState(false);
   const [callDurationSeconds, setCallDurationSeconds] = useState(0);
+  const [soundPreference, setSoundPreference] = useState({
+    notificationSound: "chime",
+    notificationVolume: 0.65,
+    customNotificationSoundDataUrl: "",
+    ringtone: "classic",
+    ringtoneVolume: 0.75,
+    customRingtoneDataUrl: "",
+  });
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const typingActiveRef = useRef(false);
   const selectedChatRef = useRef<string | null>(userIdFromQuery);
+  const activeCallRef = useRef<ActiveCallState>(null);
+  const incomingCallRef = useRef<IncomingCallState | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -140,6 +295,36 @@ export default function MessagesPage() {
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const processedRemoteCandidateKeysRef = useRef<Set<string>>(new Set());
+  const ringtoneStopRef = useRef<(() => void) | null>(null);
+  const recentlyPlayedNotificationIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    setHostname(window.location.hostname);
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let active = true;
+    void fetch("/api/users/settings", { cache: "no-store", credentials: "include" })
+      .then((response) => response.json())
+      .then((settings) => {
+        if (!active) return;
+        const notifications = settings?.notifications || {};
+        const messageSettings = settings?.communication?.messageSettings || {};
+        setSoundPreference({
+          notificationSound: String(notifications.notificationSound || "chime"),
+          notificationVolume: typeof notifications.notificationVolume === "number" ? notifications.notificationVolume : 0.65,
+          customNotificationSoundDataUrl: String(notifications.customNotificationSoundDataUrl || ""),
+          ringtone: String(notifications.ringtone || messageSettings.ringtone || "classic"),
+          ringtoneVolume: typeof notifications.ringtoneVolume === "number" ? notifications.ringtoneVolume : typeof messageSettings.ringtoneVolume === "number" ? messageSettings.ringtoneVolume : 0.75,
+          customRingtoneDataUrl: String(notifications.customRingtoneDataUrl || ""),
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
 
   const stopMediaTracks = () => {
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -155,8 +340,44 @@ export default function MessagesPage() {
     setCallDurationSeconds(0);
   };
 
+  const stopRingtone = () => {
+    ringtoneStopRef.current?.();
+    ringtoneStopRef.current = null;
+  };
+
+  const playIncomingRingtone = () => {
+    stopRingtone();
+    ringtoneStopRef.current =
+      soundPreference.ringtone === "custom"
+        ? playCustomAudio(soundPreference.customRingtoneDataUrl, soundPreference.ringtoneVolume, true)
+        : playGeneratedSound(soundPreference.ringtone, soundPreference.ringtoneVolume, true);
+  };
+
+  const playNotificationSound = () => {
+    if (soundPreference.notificationSound === "custom") {
+      playCustomAudio(soundPreference.customNotificationSoundDataUrl, soundPreference.notificationVolume, false);
+      return;
+    }
+    playGeneratedSound(soundPreference.notificationSound, soundPreference.notificationVolume, false);
+  };
+
+  const playNotificationSoundOnce = (messageId?: string | null) => {
+    if (messageId) {
+      if (recentlyPlayedNotificationIdsRef.current.has(messageId)) return;
+      recentlyPlayedNotificationIdsRef.current.add(messageId);
+      window.setTimeout(() => {
+        recentlyPlayedNotificationIdsRef.current.delete(messageId);
+      }, 10_000);
+    }
+    playNotificationSound();
+  };
+
   const endCallCleanup = (emitSignal = false) => {
     if (emitSignal && activeCall?.callId) {
+      socket.emit("call:end", {
+        receiverId: activeCall.targetUserId,
+        callId: activeCall.callId,
+      });
       void fetch(`${messagesApiBase}/calls/${activeCall.callId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -166,6 +387,7 @@ export default function MessagesPage() {
     }
     peerConnectionRef.current?.close();
     peerConnectionRef.current = null;
+    stopRingtone();
     stopMediaTracks();
     processedRemoteCandidateKeysRef.current = new Set();
     setIncomingCall(null);
@@ -174,7 +396,7 @@ export default function MessagesPage() {
   };
 
   const { data: selfData } = useQuery({
-    queryKey: ["messaging-self", user?.id],
+    queryKey: ["messaging-self", messagesApiBase, user?.id, user?.email],
     queryFn: async () => {
       const params = new URLSearchParams({ type: "self" });
       if (user?.id) params.set("userId", user.id);
@@ -182,16 +404,18 @@ export default function MessagesPage() {
       if (!response.ok) throw new Error("Failed to resolve messaging user");
       return response.json();
     },
-    enabled: !!user?.email || !!user?.id,
+    enabled: Boolean(messagesApiBase),
   });
 
   const messagingUserId = selfData?.currentUser?.id ?? null;
   const messagingTenantId = selfData?.currentUser?.tenantId ?? null;
 
   const updateTypingState = async (receiverId: string, isTyping: boolean) => {
+    socket.emit("typing", { receiverId, isTyping });
     await fetch(`${messagesApiBase}/typing`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       cache: "no-store",
       body: JSON.stringify({ receiverId, isTyping }),
     });
@@ -202,24 +426,39 @@ export default function MessagesPage() {
   }, [selectedChat]);
 
   useEffect(() => {
+    activeCallRef.current = activeCall;
+  }, [activeCall]);
+
+  useEffect(() => {
+    incomingCallRef.current = incomingCall;
+  }, [incomingCall]);
+
+  useEffect(() => {
     if (!messagingUserId) return;
 
-    socket.auth = {
+    void connectRealtimeSocket({
       userId: messagingUserId,
       tenantId: messagingTenantId,
+    });
+
+    const refreshPresence = () => {
+      queryClient.invalidateQueries({ queryKey: ["messaging-presence", messagesApiBase, messagingUserId] });
     };
-    if (!socket.connected) {
-      socket.connect();
-    }
 
     const onConnect = () => {
-      console.log("Connected to messaging socket");
+      setOnlineUsers((current) => new Set(current).add(messagingUserId));
+      refreshPresence();
     };
 
     const onMessageNew = ({ senderId, message }: { senderId: string; message: any }) => {
       const activeChatId = selectedChatRef.current;
-      if (!activeChatId || senderId !== activeChatId || !message) return;
-      queryClient.setQueryData(["chat", messagingUserId, activeChatId], (current: any) => {
+      if (!message) return;
+      if (senderId !== messagingUserId) playNotificationSoundOnce(message.id);
+      if (!activeChatId || senderId !== activeChatId) {
+        queryClient.invalidateQueries({ queryKey: ["conversations", messagesApiBase, messagingUserId] });
+        return;
+      }
+      queryClient.setQueryData(["chat", messagesApiBase, messagingUserId, activeChatId], (current: any) => {
         const existingMessages = Array.isArray(current?.messages) ? current.messages : [];
         if (existingMessages.some((entry: any) => entry.id === message.id)) return current;
         return {
@@ -228,12 +467,12 @@ export default function MessagesPage() {
           messages: [...existingMessages, message],
         };
       });
-      queryClient.invalidateQueries({ queryKey: ["conversations", messagingUserId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations", messagesApiBase, messagingUserId] });
     };
 
     const onMessageRead = ({ readerId }: { readerId: string }) => {
       if (!selectedChatRef.current || readerId !== selectedChatRef.current) return;
-      queryClient.setQueryData(["chat", messagingUserId, selectedChatRef.current], (current: any) => ({
+      queryClient.setQueryData(["chat", messagesApiBase, messagingUserId, selectedChatRef.current], (current: any) => ({
         ...current,
         messages: Array.isArray(current?.messages)
           ? current.messages.map((entry: Message) =>
@@ -241,14 +480,15 @@ export default function MessagesPage() {
             )
           : [],
       }));
-      queryClient.invalidateQueries({ queryKey: ["conversations", messagingUserId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations", messagesApiBase, messagingUserId] });
     };
 
     const onNotification = (payload: any) => {
       if (payload.type === "message") {
+        if (payload.metadata?.senderId !== messagingUserId) playNotificationSoundOnce(payload.metadata?.message?.id || payload.metadata?.messageId);
         const activeChatId = selectedChatRef.current;
         if (payload.metadata?.message && payload.metadata?.senderId === activeChatId) {
-          queryClient.setQueryData(["chat", messagingUserId, activeChatId], (current: any) => {
+          queryClient.setQueryData(["chat", messagesApiBase, messagingUserId, activeChatId], (current: any) => {
             const existingMessages = Array.isArray(current?.messages) ? current.messages : [];
             const incomingMessage = payload.metadata.message;
             if (existingMessages.some((entry: any) => entry.id === incomingMessage.id)) return current;
@@ -259,13 +499,13 @@ export default function MessagesPage() {
             };
           });
         }
-        queryClient.invalidateQueries({ queryKey: ["conversations", messagingUserId] });
+        queryClient.invalidateQueries({ queryKey: ["conversations", messagesApiBase, messagingUserId] });
         if (payload.metadata?.senderId === activeChatId) {
-          queryClient.invalidateQueries({ queryKey: ["chat", messagingUserId, activeChatId] });
+          queryClient.invalidateQueries({ queryKey: ["chat", messagesApiBase, messagingUserId, activeChatId] });
         }
       }
       if (payload.type === "message.read" && selectedChatRef.current && payload.metadata?.readerId === selectedChatRef.current) {
-        queryClient.setQueryData(["chat", messagingUserId, selectedChatRef.current], (current: any) => ({
+        queryClient.setQueryData(["chat", messagesApiBase, messagingUserId, selectedChatRef.current], (current: any) => ({
           ...current,
           messages: Array.isArray(current?.messages)
             ? current.messages.map((entry: Message) =>
@@ -273,7 +513,7 @@ export default function MessagesPage() {
               )
             : [],
         }));
-        queryClient.invalidateQueries({ queryKey: ["conversations", messagingUserId] });
+        queryClient.invalidateQueries({ queryKey: ["conversations", messagesApiBase, messagingUserId] });
       }
     };
 
@@ -281,24 +521,153 @@ export default function MessagesPage() {
       setCallError(null);
     };
 
+    const onPresenceSnapshot = ({ onlineUserIds }: { onlineUserIds?: string[] }) => {
+      setOnlineUsers((current) => {
+        const next = new Set(current);
+        for (const userId of onlineUserIds || []) next.add(userId);
+        next.add(messagingUserId);
+        return next;
+      });
+      refreshPresence();
+    };
+
+    const onUserStatus = ({ userId, status }: { userId?: string; status?: "online" | "offline" }) => {
+      if (!userId) return;
+      setOnlineUsers((current) => {
+        const next = new Set(current);
+        if (status === "online") next.add(userId);
+        return next;
+      });
+      refreshPresence();
+    };
+
+    const onUserTyping = ({ userId, isTyping }: { userId?: string; isTyping?: boolean }) => {
+      if (!userId) return;
+      setTypingUsers((current) => {
+        const next = new Set(current);
+        if (isTyping) next.add(userId);
+        else next.delete(userId);
+        return next;
+      });
+    };
+
+    const onCallEvent = ({ call }: { call?: any }) => {
+      if (!call?.id || !messagingUserId) return;
+
+      queryClient.invalidateQueries({ queryKey: ["messaging-incoming-call", messagesApiBase, messagingUserId] });
+      queryClient.invalidateQueries({ queryKey: ["messaging-active-call", messagesApiBase, messagingUserId] });
+
+      const currentActiveCall = activeCallRef.current;
+      const currentIncomingCall = incomingCallRef.current;
+
+      if (call.status === "ringing" && call.calleeId === messagingUserId && currentIncomingCall?.callId !== call.id) {
+        setIncomingCall({
+          callId: call.id,
+          callerId: call.callerId,
+          callType: call.callType,
+          offer: call.offer || undefined,
+        });
+        playIncomingRingtone();
+      }
+
+      if (currentIncomingCall?.callId === call.id && call.status !== "ringing") {
+        stopRingtone();
+        setIncomingCall(null);
+      }
+
+      if (currentActiveCall?.callId !== call.id) return;
+
+      if (call.status === "ended") {
+        toast.info("Call ended");
+        endCallCleanup(false);
+        return;
+      }
+
+      if (call.status === "rejected") {
+        toast.error("Call declined");
+        endCallCleanup(false);
+        return;
+      }
+
+      if (call.answer && peerConnectionRef.current?.signalingState === "have-local-offer") {
+        peerConnectionRef.current
+          .setRemoteDescription(new RTCSessionDescription(call.answer))
+          .then(() => setActiveCall((current) => (current ? { ...current, status: "connected" } : current)))
+          .catch((error) => console.error("Failed to set realtime remote answer", error));
+      }
+    };
+
+    const onCallOffer = ({ callId, callerId, callType, offer }: { callId?: string; callerId?: string; callType?: "audio" | "video"; offer?: RTCSessionDescriptionInit }) => {
+      if (!callId || !callerId || !callType) return;
+      const isNewIncomingCall = incomingCallRef.current?.callId !== callId;
+      setIncomingCall((current) =>
+        current?.callId === callId
+          ? current
+          : {
+              callId,
+              callerId,
+              callType,
+              offer,
+            }
+      );
+      if (isNewIncomingCall) playIncomingRingtone();
+      queryClient.invalidateQueries({ queryKey: ["messaging-incoming-call", messagesApiBase, messagingUserId] });
+    };
+
+    const onCallAnswer = ({ callId, answer }: { callId?: string; answer?: RTCSessionDescriptionInit }) => {
+      if (!callId || activeCallRef.current?.callId !== callId || !answer) return;
+      if (peerConnectionRef.current?.signalingState !== "have-local-offer") return;
+      peerConnectionRef.current
+        .setRemoteDescription(new RTCSessionDescription(answer))
+        .then(() => setActiveCall((current) => (current ? { ...current, status: "connected" } : current)))
+        .catch((error) => console.error("Failed to set socket remote answer", error));
+    };
+
+    const onCallRejected = ({ callId }: { callId?: string }) => {
+      if (!callId || activeCallRef.current?.callId !== callId) return;
+      toast.error("Call declined");
+      endCallCleanup(false);
+    };
+
+    const onCallEnded = ({ callId }: { callId?: string }) => {
+      if (!callId || activeCallRef.current?.callId !== callId) return;
+      toast.info("Call ended");
+      endCallCleanup(false);
+    };
+
     socket.on("connect", onConnect);
+    socket.on("presence:snapshot", onPresenceSnapshot);
+    socket.on("user-status", onUserStatus);
+    socket.on("user-typing", onUserTyping);
     socket.on("message:new", onMessageNew);
     socket.on("message:read", onMessageRead);
+    socket.on("call:incoming", onCallEvent);
+    socket.on("call:update", onCallEvent);
+    socket.on("call:offer", onCallOffer);
+    socket.on("call:answer", onCallAnswer);
+    socket.on("call:reject", onCallRejected);
+    socket.on("call:end", onCallEnded);
     socket.on("notification", onNotification);
     socket.on("disconnect", onDisconnect);
 
     return () => {
       socket.off("connect", onConnect);
+      socket.off("presence:snapshot", onPresenceSnapshot);
+      socket.off("user-status", onUserStatus);
+      socket.off("user-typing", onUserTyping);
       socket.off("message:new", onMessageNew);
       socket.off("message:read", onMessageRead);
+      socket.off("call:incoming", onCallEvent);
+      socket.off("call:update", onCallEvent);
+      socket.off("call:offer", onCallOffer);
+      socket.off("call:answer", onCallAnswer);
+      socket.off("call:reject", onCallRejected);
+      socket.off("call:end", onCallEnded);
       socket.off("notification", onNotification);
       socket.off("disconnect", onDisconnect);
-      if (socket.connected) {
-        socket.disconnect();
-      }
       endCallCleanup(false);
     };
-  }, [messagingTenantId, messagingUserId, queryClient]);
+  }, [messagesApiBase, messagingTenantId, messagingUserId, queryClient, soundPreference]);
 
   const handleTyping = (nextValue: string) => {
     if (!selectedChat) return;
@@ -323,117 +692,146 @@ export default function MessagesPage() {
     }, 3000);
   };
 
-  const { data: usersData, isLoading: usersLoading } = useQuery({
-    queryKey: ["users-search", userSearchQuery, messagingUserId],
+  const { data: usersData, isLoading: usersLoading, error: usersError, refetch: refetchUsers } = useQuery({
+    queryKey: ["users-search", messagesApiBase, userSearchQuery, messagingUserId],
     queryFn: async () => {
       const response = await fetch(`${messagesApiBase}?type=available-users&search=${encodeURIComponent(userSearchQuery)}`, { cache: "no-store", credentials: "include" });
-      if (!response.ok) throw new Error("Failed to fetch users");
-      return response.json();
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || "Failed to fetch users");
+      return payload;
     },
     enabled: newChatDialogOpen && !!messagingUserId,
   });
 
-  const { data: conversationsData, isLoading: conversationsLoading, refetch: refetchConversations } = useQuery({
-    queryKey: ["conversations", messagingUserId],
+  const { data: conversationsData, isLoading: conversationsLoading, error: conversationsError, refetch: refetchConversations } = useQuery({
+    queryKey: ["conversations", messagesApiBase, messagingUserId],
     queryFn: async () => {
       const response = await fetch(`${messagesApiBase}?type=conversations`, { cache: "no-store", credentials: "include" });
-      if (!response.ok) throw new Error("Failed to fetch conversations");
-      return response.json();
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || "Failed to fetch conversations");
+      return payload;
     },
     enabled: !!messagingUserId,
     refetchOnWindowFocus: true,
-    refetchInterval: messagingUserId ? 1500 : false,
-    refetchIntervalInBackground: true,
+    staleTime: 5_000,
+    refetchInterval: messagingUserId ? 5_000 : false,
+    refetchIntervalInBackground: false,
   });
 
-  const { data: chatData, isLoading: chatLoading, refetch: refetchChat } = useQuery({
-    queryKey: ["chat", messagingUserId, selectedChat],
+  const { data: chatData, isLoading: chatLoading, error: chatError, refetch: refetchChat } = useQuery({
+    queryKey: ["chat", messagesApiBase, messagingUserId, selectedChat],
     queryFn: async () => {
       const response = await fetch(`${messagesApiBase}?type=chat&otherUserId=${selectedChat}`, { cache: "no-store", credentials: "include" });
-      if (!response.ok) throw new Error("Failed to fetch messages");
-      return response.json();
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || "Failed to fetch messages");
+      return payload;
     },
     enabled: !!messagingUserId && !!selectedChat,
     refetchOnWindowFocus: true,
-    refetchInterval: messagingUserId && selectedChat ? 800 : false,
-    refetchIntervalInBackground: true,
+    staleTime: 2_000,
+    refetchInterval: messagingUserId && selectedChat ? 2_500 : false,
+    refetchIntervalInBackground: false,
   });
 
   useEffect(() => {
     if (!messagingUserId) return;
 
-    const sendHeartbeat = () =>
-      fetch(`${messagesApiBase}/presence`, {
+    const sendHeartbeat = async () => {
+      await fetch(`${messagesApiBase}/presence`, {
         method: "POST",
         cache: "no-store",
+        credentials: "include",
         keepalive: true,
       }).catch(() => undefined);
+      setOnlineUsers((current) => new Set(current).add(messagingUserId));
+      queryClient.invalidateQueries({ queryKey: ["messaging-presence", messagesApiBase, messagingUserId] });
+    };
 
     void sendHeartbeat();
-    const interval = setInterval(sendHeartbeat, 10000);
+    const interval = setInterval(sendHeartbeat, 5000);
     return () => clearInterval(interval);
-  }, [messagingUserId]);
+  }, [messagesApiBase, messagingUserId, queryClient]);
+
+  const conversations: Conversation[] = conversationsData?.conversations || [];
+  const messages: Message[] = chatData?.messages || [];
+  const availableUsers: User[] = usersData?.users || [];
+  const presenceUserIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            ...conversations.map((conversation) => conversation.user.id),
+            ...availableUsers.map((entry) => entry.id),
+            selectedChat,
+          ].filter(Boolean) as string[]
+        )
+      ),
+    [availableUsers, conversations, selectedChat]
+  );
 
   const { data: presenceData } = useQuery({
-    queryKey: ["messaging-presence", messagingUserId],
+    queryKey: ["messaging-presence", messagesApiBase, messagingUserId, presenceUserIds.join(",")],
     queryFn: async () => {
-      const response = await fetch(`${messagesApiBase}/presence`, { cache: "no-store", credentials: "include" });
+      const params = presenceUserIds.length ? `?userIds=${encodeURIComponent(presenceUserIds.join(","))}` : "";
+      const response = await fetch(`${messagesApiBase}/presence${params}`, { cache: "no-store", credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch presence");
       return response.json();
     },
     enabled: !!messagingUserId,
-    refetchInterval: 5000,
-    refetchIntervalInBackground: true,
+    staleTime: 5_000,
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
 
   const { data: typingData } = useQuery({
-    queryKey: ["messaging-typing", messagingUserId, selectedChat],
+    queryKey: ["messaging-typing", messagesApiBase, messagingUserId, selectedChat],
     queryFn: async () => {
       const response = await fetch(`${messagesApiBase}/typing?otherUserId=${selectedChat}`, { cache: "no-store", credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch typing state");
       return response.json();
     },
     enabled: !!messagingUserId && !!selectedChat,
-    refetchInterval: selectedChat ? 300 : false,
-    refetchIntervalInBackground: true,
+    staleTime: 800,
+    refetchInterval: selectedChat ? 1_000 : false,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
 
   const { data: incomingCallData } = useQuery({
-    queryKey: ["messaging-incoming-call", messagingUserId],
+    queryKey: ["messaging-incoming-call", messagesApiBase, messagingUserId],
     queryFn: async () => {
       const response = await fetch(`${messagesApiBase}/calls?type=incoming`, { cache: "no-store", credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch incoming call");
       return response.json();
     },
     enabled: !!messagingUserId,
-    refetchInterval: 1500,
-    refetchIntervalInBackground: true,
+    staleTime: 1_000,
+    refetchInterval: incomingCall ? 1_000 : 2_000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
 
   const activePeerUserId = activeCall?.targetUserId ?? incomingCall?.callerId ?? selectedChat;
   const { data: activeCallData } = useQuery({
-    queryKey: ["messaging-active-call", messagingUserId, activePeerUserId],
+    queryKey: ["messaging-active-call", messagesApiBase, messagingUserId, activePeerUserId],
     queryFn: async () => {
       const response = await fetch(`${messagesApiBase}/calls?type=conversation&otherUserId=${activePeerUserId}`, { cache: "no-store", credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch active call");
       return response.json();
     },
     enabled: !!messagingUserId && !!activePeerUserId,
-    refetchInterval: activePeerUserId ? 1000 : false,
-    refetchIntervalInBackground: true,
+    staleTime: 1_000,
+    refetchInterval: activePeerUserId ? 1_500 : false,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
 
-  const conversations: Conversation[] = conversationsData?.conversations || [];
-  const messages: Message[] = chatData?.messages || [];
-  const availableUsers: User[] = usersData?.users || [];
-
   useEffect(() => {
-    setOnlineUsers(new Set(presenceData?.onlineUserIds || []));
-  }, [presenceData?.onlineUserIds]);
+    const next = new Set<string>(presenceData?.onlineUserIds || []);
+    if (messagingUserId) next.add(messagingUserId);
+    setOnlineUsers(next);
+  }, [messagingUserId, presenceData?.onlineUserIds]);
 
   useEffect(() => {
     setTypingUsers(new Set(typingData?.typingUserIds || []));
@@ -442,6 +840,7 @@ export default function MessagesPage() {
   useEffect(() => {
     const call = incomingCallData?.call;
     if (!call || activeCall) return;
+    const isNewIncomingCall = incomingCallRef.current?.callId !== call.id;
     setIncomingCall((current) =>
       current?.callId === call.id
         ? current
@@ -452,6 +851,7 @@ export default function MessagesPage() {
             offer: call.offer || undefined,
           }
     );
+    if (isNewIncomingCall) playIncomingRingtone();
   }, [activeCall, incomingCallData?.call]);
 
   useEffect(() => {
@@ -522,7 +922,7 @@ export default function MessagesPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          senderId: user?.id,
+          senderId: messagingUserId,
           receiverId: selectedChat,
           message,
         }),
@@ -533,8 +933,8 @@ export default function MessagesPage() {
     onMutate: async (message) => {
       if (!selectedChat || !messagingUserId) return null;
       const optimisticId = `temp-${Date.now()}`;
-      const previousChat = queryClient.getQueryData(["chat", messagingUserId, selectedChat]);
-      queryClient.setQueryData(["chat", messagingUserId, selectedChat], (current: any) => {
+      const previousChat = queryClient.getQueryData(["chat", messagesApiBase, messagingUserId, selectedChat]);
+      queryClient.setQueryData(["chat", messagesApiBase, messagingUserId, selectedChat], (current: any) => {
         const existingMessages = Array.isArray(current?.messages) ? current.messages : [];
         return {
           ...current,
@@ -567,7 +967,7 @@ export default function MessagesPage() {
       const createdMessage = payload?.message;
       if (createdMessage && selectedChat) {
         socket.emit("message:new", { receiverId: selectedChat, message: createdMessage });
-        queryClient.setQueryData(["chat", messagingUserId, selectedChat], (current: any) => {
+        queryClient.setQueryData(["chat", messagesApiBase, messagingUserId, selectedChat], (current: any) => {
           const existingMessages = Array.isArray(current?.messages) ? current.messages : [];
           const alreadyExists = existingMessages.some((entry: any) => entry.id === createdMessage.id);
           if (alreadyExists) return current;
@@ -590,14 +990,14 @@ export default function MessagesPage() {
           };
         });
       }
-      queryClient.invalidateQueries({ queryKey: ["chat", messagingUserId, selectedChat] });
-      queryClient.invalidateQueries({ queryKey: ["conversations", messagingUserId] });
+      queryClient.invalidateQueries({ queryKey: ["chat", messagesApiBase, messagingUserId, selectedChat] });
+      queryClient.invalidateQueries({ queryKey: ["conversations", messagesApiBase, messagingUserId] });
       void refetchChat();
       void refetchConversations();
     },
     onError: (error, _message, context) => {
       if (selectedChat && messagingUserId && context?.previousChat) {
-        queryClient.setQueryData(["chat", messagingUserId, selectedChat], context.previousChat);
+        queryClient.setQueryData(["chat", messagesApiBase, messagingUserId, selectedChat], context.previousChat);
       }
       toast.error(error instanceof Error ? error.message : "Failed to send message");
     },
@@ -613,13 +1013,13 @@ export default function MessagesPage() {
       return { messageId };
     },
     onSuccess: ({ messageId }) => {
-      queryClient.setQueryData(["chat", messagingUserId, selectedChat], (current: any) => ({
+      queryClient.setQueryData(["chat", messagesApiBase, messagingUserId, selectedChat], (current: any) => ({
         ...current,
         messages: Array.isArray(current?.messages)
           ? current.messages.filter((entry: Message) => entry.id !== messageId)
           : [],
       }));
-      queryClient.invalidateQueries({ queryKey: ["conversations", messagingUserId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations", messagesApiBase, messagingUserId] });
       toast.success("Message deleted");
     },
     onError: (error) => {
@@ -638,11 +1038,11 @@ export default function MessagesPage() {
       return payload;
     },
     onSuccess: () => {
-      queryClient.setQueryData(["chat", messagingUserId, selectedChat], (current: any) => ({
+      queryClient.setQueryData(["chat", messagesApiBase, messagingUserId, selectedChat], (current: any) => ({
         ...current,
         messages: [],
       }));
-      queryClient.invalidateQueries({ queryKey: ["conversations", messagingUserId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations", messagesApiBase, messagingUserId] });
       setProfileDialogOpen(false);
       toast.success("Chat cleared");
     },
@@ -672,7 +1072,7 @@ export default function MessagesPage() {
         messageIds,
       }),
     }).then(() => {
-      queryClient.setQueryData(["chat", messagingUserId, selectedChat], (current: any) => ({
+      queryClient.setQueryData(["chat", messagesApiBase, messagingUserId, selectedChat], (current: any) => ({
         ...current,
         messages: Array.isArray(current?.messages)
           ? current.messages.map((entry: Message) =>
@@ -680,11 +1080,11 @@ export default function MessagesPage() {
             )
           : [],
       }));
-      queryClient.invalidateQueries({ queryKey: ["conversations", messagingUserId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations", messagesApiBase, messagingUserId] });
       void refetchChat();
       void refetchConversations();
     });
-  }, [chatData?.messages, messagingUserId, queryClient, selectedChat]);
+  }, [chatData?.messages, messagesApiBase, messagingUserId, queryClient, selectedChat]);
 
   useEffect(() => {
     if (userIdFromQuery) {
@@ -700,7 +1100,7 @@ export default function MessagesPage() {
         void updateTypingState(selectedChatRef.current, false).catch(() => undefined);
       }
     };
-  }, []);
+  }, [messagesApiBase]);
 
   const filteredConversations = conversations.filter((conv: Conversation) =>
     conv.user.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -774,22 +1174,8 @@ export default function MessagesPage() {
       throw new Error("Media devices are not available in this browser");
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video:
-        callType === "video"
-          ? {
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              frameRate: { ideal: 30, max: 30 },
-              facingMode: "user",
-            }
-          : false,
-    });
+    const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(callType));
+    applyTrackQualityHints(stream, callType);
     attachLocalStream(stream);
     return stream;
   };
@@ -835,7 +1221,7 @@ export default function MessagesPage() {
     callType: "audio" | "video",
     onLocalCandidate: (candidate: RTCIceCandidateInit) => void
   ) => {
-    const peer = new RTCPeerConnection(rtcConfig);
+    const peer = new RTCPeerConnection(getRtcConfig());
     peer.onicecandidate = (event) => {
       if (event.candidate) {
         onLocalCandidate(event.candidate.toJSON());
@@ -849,7 +1235,10 @@ export default function MessagesPage() {
       if (peer.connectionState === "connected") {
         setActiveCall((current) => (current ? { ...current, status: "connected", targetUserId, callType } : current));
       }
-      if (["failed", "closed", "disconnected"].includes(peer.connectionState)) {
+      if (peer.connectionState === "disconnected") {
+        peer.restartIce?.();
+      }
+      if (["failed", "closed"].includes(peer.connectionState)) {
         endCallCleanup(false);
       }
     };
@@ -873,7 +1262,8 @@ export default function MessagesPage() {
         }
         void sendCallCandidate(currentCallId, candidate);
       });
-      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+      const senders = stream.getTracks().map((track) => peer.addTrack(track, stream));
+      await Promise.all(senders.map((sender) => applySenderQuality(sender, callType)));
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
       const response = await fetch(`${messagesApiBase}/calls`, {
@@ -895,6 +1285,12 @@ export default function MessagesPage() {
       for (const candidate of pendingCandidates) {
         void sendCallCandidate(callId, candidate);
       }
+      socket.emit("call:offer", {
+        receiverId: selectedChat,
+        callId,
+        callType,
+        offer,
+      });
       setActiveCall({ callId, status: "calling", targetUserId: selectedChat, callType });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start call";
@@ -906,6 +1302,7 @@ export default function MessagesPage() {
 
   const acceptCall = async () => {
     if (!incomingCall) return;
+    stopRingtone();
     if (!incomingCall.offer) {
       toast.error("Call setup is still in progress. Try again.");
       return;
@@ -918,10 +1315,16 @@ export default function MessagesPage() {
       const peer = createPeerConnection(incomingCall.callerId, incomingCall.callType, (candidate) => {
         void sendCallCandidate(incomingCall.callId, candidate);
       });
-      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+      const senders = stream.getTracks().map((track) => peer.addTrack(track, stream));
+      await Promise.all(senders.map((sender) => applySenderQuality(sender, incomingCall.callType)));
       await peer.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
+      socket.emit("call:answer", {
+        receiverId: incomingCall.callerId,
+        callId: incomingCall.callId,
+        answer,
+      });
       const response = await fetch(`${messagesApiBase}/calls/${incomingCall.callId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -952,12 +1355,18 @@ export default function MessagesPage() {
 
   const rejectCall = () => {
     if (!incomingCall) return;
+    stopRingtone();
+    const rejectedCall = incomingCall;
     void fetch(`${messagesApiBase}/calls/${incomingCall.callId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       body: JSON.stringify({ action: "reject" }),
     }).catch(() => undefined);
+    socket.emit("call:reject", {
+      receiverId: rejectedCall.callerId,
+      callId: rejectedCall.callId,
+    });
     setIncomingCall(null);
   };
 
@@ -1048,6 +1457,15 @@ export default function MessagesPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          ) : conversationsError ? (
+            <div className="flex h-64 flex-col items-center justify-center px-6 text-center text-muted-foreground">
+              <MessageSquare className="mb-4 h-12 w-12" />
+              <p className="font-medium text-foreground">Could not load conversations</p>
+              <p className="mt-1 text-sm">{conversationsError instanceof Error ? conversationsError.message : "Refresh and try again."}</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => refetchConversations()}>
+                Retry
+              </Button>
             </div>
           ) : filteredConversations.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
@@ -1181,6 +1599,15 @@ export default function MessagesPage() {
                     </div>
                   ))}
                 </div>
+              ) : chatError ? (
+                <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
+                  <MessageSquare className="mb-4 h-12 w-12" />
+                  <p className="font-medium text-foreground">Could not load this chat</p>
+                  <p className="mt-1 max-w-md text-sm">{chatError instanceof Error ? chatError.message : "Refresh and try again."}</p>
+                  <Button variant="outline" size="sm" className="mt-4" onClick={() => refetchChat()}>
+                    Retry
+                  </Button>
+                </div>
               ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                   <MessageSquare className="h-12 w-12 mb-4" />
@@ -1310,6 +1737,14 @@ export default function MessagesPage() {
               {usersLoading ? (
                 <div className="space-y-2">
                   {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-full" />)}
+                </div>
+              ) : usersError ? (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-center">
+                  <p className="text-sm font-medium text-destructive">Could not load contacts</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{usersError instanceof Error ? usersError.message : "Refresh and try again."}</p>
+                  <Button variant="outline" size="sm" className="mt-3" onClick={() => refetchUsers()}>
+                    Retry
+                  </Button>
                 </div>
               ) : availableUsers.length === 0 ? (
                 <p className="text-center text-sm text-muted-foreground py-4">

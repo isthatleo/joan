@@ -1,7 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { tenants } from "@/lib/db/schema";
-import { and, isNotNull, lte, eq } from "drizzle-orm";
 import { TenantService } from "@/lib/services/tenant.service";
 
 export const dynamic = "force-dynamic";
@@ -20,37 +17,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const now = new Date();
-  const candidates = await db
-    .select()
-    .from(tenants)
-    .where(
-      and(
-        eq(tenants.provisioningStatus, "archived"),
-        isNotNull(tenants.scheduledPurgeAt),
-        lte(tenants.scheduledPurgeAt, now),
-      ),
-    );
-
   const service = new TenantService();
-  const purged: { id: string; slug: string }[] = [];
-  const failed: { id: string; slug: string; error: string }[] = [];
-
-  for (const t of candidates) {
-    try {
-      await service.deleteTenant(t.id);
-      purged.push({ id: t.id, slug: t.slug });
-    } catch (e: any) {
-      failed.push({ id: t.id, slug: t.slug, error: e?.message || "unknown" });
-    }
-  }
-
-  return NextResponse.json({
-    ranAt: now.toISOString(),
-    candidates: candidates.length,
-    purged,
-    failed,
-  });
+  return NextResponse.json(await service.purgeDueTenants(50));
 }
 
 export async function GET(req: NextRequest) {

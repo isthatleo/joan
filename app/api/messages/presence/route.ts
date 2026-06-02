@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, ilike, isNull } from "drizzle-orm";
+import { and, eq, ilike, isNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
+import { tenants, users } from "@/lib/db/schema";
 import { MessagingStateService } from "@/lib/services/messaging-state.service";
 
 export const dynamic = "force-dynamic";
@@ -20,17 +20,37 @@ async function resolveCurrentAppUser(request: NextRequest) {
   });
 }
 
+async function resolvePresenceTenantId(userId: string, tenantId?: string | null) {
+  if (tenantId) return tenantId;
+
+  const ownedTenant = await db.query.tenants.findFirst({
+    where: and(eq(tenants.adminUserId, userId), eq(tenants.isActive, true), isNull(tenants.deletedAt)),
+    columns: { id: true },
+  });
+  if (ownedTenant?.id) return ownedTenant.id;
+
+  const firstTenant = await db.query.tenants.findFirst({
+    where: and(eq(tenants.isActive, true), isNull(tenants.deletedAt)),
+    columns: { id: true },
+  });
+  return firstTenant?.id || null;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const currentUser = await resolveCurrentAppUser(request);
-    if (!currentUser?.tenantId) {
-      return NextResponse.json({ onlineUserIds: [] }, { headers: { "Cache-Control": "no-store, max-age=0" } });
+    if (!currentUser) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const tenantId = await resolvePresenceTenantId(currentUser.id, currentUser.tenantId);
+    if (!tenantId) return NextResponse.json({ onlineUserIds: [], currentUserId: currentUser.id }, { headers: { "Cache-Control": "no-store, max-age=0" } });
 
     const { searchParams } = new URL(request.url);
     const idsParam = searchParams.get("userIds");
     const userIds = idsParam ? idsParam.split(",").map((id) => id.trim()).filter(Boolean) : undefined;
-    const onlineUserIds = await stateService.getOnlineUserIds(currentUser.tenantId, userIds);
+    const onlineUserIds = userIds?.length
+      ? await stateService.getOnlineUserIdsForUsers(userIds)
+      : await stateService.getOnlineUserIds(tenantId);
 
     return NextResponse.json(
       { onlineUserIds, currentUserId: currentUser.id },
@@ -45,11 +65,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const currentUser = await resolveCurrentAppUser(request);
-    if (!currentUser?.tenantId) {
+    if (!currentUser) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    await stateService.heartbeat(currentUser.id, currentUser.tenantId);
+    const tenantId = await resolvePresenceTenantId(currentUser.id, currentUser.tenantId);
+    if (!tenantId) {
+      return NextResponse.json({ error: "No active tenant available for presence" }, { status: 409 });
+    }
+
+    await stateService.heartbeat(currentUser.id, tenantId);
     return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store, max-age=0" } });
   } catch (error) {
     console.error("[messages presence POST]", error);

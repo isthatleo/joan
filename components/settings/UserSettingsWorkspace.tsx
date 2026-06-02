@@ -1,6 +1,6 @@
-"use client";
+﻿"use client";
 
-import { ReactNode, useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   Bell,
@@ -14,6 +14,8 @@ import {
   Settings,
   Shield,
   Sparkles,
+  Upload,
+  Volume2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/components/theme/ThemeProvider";
@@ -42,9 +44,24 @@ const languages = [
   { value: "ar", label: "Arabic" },
 ];
 
+const soundOptions = [
+  { value: "classic", label: "Classic ring" },
+  { value: "pulse", label: "Pulse" },
+  { value: "chime", label: "Chime" },
+  { value: "digital", label: "Digital" },
+  { value: "soft", label: "Soft clinic" },
+  { value: "urgent", label: "Urgent" },
+  { value: "bell", label: "Bell" },
+  { value: "pop", label: "Pop" },
+  { value: "spark", label: "Spark" },
+  { value: "tone", label: "Clean tone" },
+  { value: "custom", label: "Uploaded audio" },
+  { value: "silent", label: "Silent" },
+];
+
 const tabs = [
   { id: "appearance", label: "Appearance", icon: Monitor },
-  { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "notifications", label: "Notifications & Sound", icon: Bell },
   { id: "privacy", label: "Privacy", icon: Shield },
   { id: "security", label: "Security", icon: Lock },
   { id: "communication", label: "Communication", icon: MessageSquare },
@@ -80,6 +97,8 @@ export function UserSettingsWorkspace({
   const [initialSettings, setInitialSettings] = useState<UserSettingsShape>(defaultUserSettings);
   const [desktopPermission, setDesktopPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   const [requestingDesktopPermission, setRequestingDesktopPermission] = useState(false);
+  const notificationUploadRef = useRef<HTMLInputElement>(null);
+  const ringtoneUploadRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void fetchSettings();
@@ -215,6 +234,52 @@ export function UserSettingsWorkspace({
     }));
   }
 
+  function updateSoundSettings(patch: Partial<UserSettingsShape["notifications"]>) {
+    setSettings((current) => ({
+      ...current,
+      notifications: {
+        ...current.notifications,
+        ...patch,
+      },
+      communication: {
+        ...current.communication,
+        messageSettings: {
+          ...current.communication.messageSettings,
+          ...(patch.ringtone ? { ringtone: patch.ringtone } : {}),
+          ...(typeof patch.ringtoneVolume === "number" ? { ringtoneVolume: patch.ringtoneVolume } : {}),
+        },
+      },
+    }));
+  }
+
+  function previewNotificationSound() {
+    playSoundPreview(settings.notifications.notificationSound, settings.notifications.notificationVolume, settings.notifications.customNotificationSoundDataUrl);
+  }
+
+  function previewRingtone() {
+    playSoundPreview(settings.notifications.ringtone, settings.notifications.ringtoneVolume, settings.notifications.customRingtoneDataUrl);
+  }
+
+  async function handleAudioUpload(file: File | undefined, kind: "notification" | "ringtone") {
+    if (!file) return;
+    if (!file.type.startsWith("audio/")) {
+      toast.error("Select an audio file.");
+      return;
+    }
+    if (file.size > 1_500_000) {
+      toast.error("Audio file is too large. Use a file under 1.5 MB.");
+      return;
+    }
+    const dataUrl = await readFileAsDataUrl(file);
+    if (kind === "notification") {
+      updateSoundSettings({ notificationSound: "custom", customNotificationSoundName: file.name, customNotificationSoundDataUrl: dataUrl });
+      toast.success("Custom notification sound loaded. Save settings to persist it.");
+      return;
+    }
+    updateSoundSettings({ ringtone: "custom", customRingtoneName: file.name, customRingtoneDataUrl: dataUrl });
+    toast.success("Custom ringtone loaded. Save settings to persist it.");
+  }
+
   const dirty = useMemo(
     () => JSON.stringify(settings) !== JSON.stringify(initialSettings),
     [settings, initialSettings]
@@ -225,7 +290,7 @@ export function UserSettingsWorkspace({
       { label: "Theme", value: settings.appearance.theme },
       { label: "Timezone", value: settings.appearance.timezone },
       { label: "Session Timeout", value: `${settings.security.sessionTimeout} min` },
-      { label: "Messages From", value: settings.communication.messageSettings.allowMessagesFrom },
+      { label: "Ringtone", value: settings.notifications.ringtone === "custom" ? settings.notifications.customRingtoneName || "Custom" : settings.notifications.ringtone },
       { label: "Landing Page", value: settings.workflow.defaultLandingPage },
       { label: "Export Format", value: settings.workflow.preferredExportFormat },
     ],
@@ -392,9 +457,38 @@ export function UserSettingsWorkspace({
           {activeTab === "notifications" && (
             <div className="space-y-4">
               <SectionIntro
-                title="Notifications"
-                description="Choose which alerts are worth your attention across accounting, messaging, and security activity."
+                title="Notifications & Sound"
+                description="Choose alert channels, notification tones, incoming-call ringtones, and custom audio for this user account."
               />
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                <SoundCard
+                  title="Notification sound"
+                  description="Played for new messages and realtime in-app alerts."
+                  sound={settings.notifications.notificationSound}
+                  volume={settings.notifications.notificationVolume}
+                  customName={settings.notifications.customNotificationSoundName}
+                  onSoundChange={(value) => updateSoundSettings({ notificationSound: value as any })}
+                  onVolumeChange={(value) => updateSoundSettings({ notificationVolume: value })}
+                  onPreview={previewNotificationSound}
+                  onUploadClick={() => notificationUploadRef.current?.click()}
+                />
+                <SoundCard
+                  title="Incoming call ringtone"
+                  description="Played when another user starts a voice or video call."
+                  sound={settings.notifications.ringtone}
+                  volume={settings.notifications.ringtoneVolume}
+                  customName={settings.notifications.customRingtoneName}
+                  onSoundChange={(value) => updateSoundSettings({ ringtone: value as any })}
+                  onVolumeChange={(value) => updateSoundSettings({ ringtoneVolume: value })}
+                  onPreview={previewRingtone}
+                  onUploadClick={() => ringtoneUploadRef.current?.click()}
+                />
+                <input ref={notificationUploadRef} type="file" accept="audio/*" className="hidden" onChange={(event) => void handleAudioUpload(event.target.files?.[0], "notification")} />
+                <input ref={ringtoneUploadRef} type="file" accept="audio/*" className="hidden" onChange={(event) => void handleAudioUpload(event.target.files?.[0], "ringtone")} />
+              </div>
+              <p className="rounded-xl border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+                Custom audio is stored in your user settings as a small browser-compatible audio file. Use short MP3, WAV, OGG, or M4A clips under 1.5 MB for reliable sync across dashboards.
+              </p>
               <div className="rounded-2xl border border-border bg-muted/30 p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div>
@@ -615,6 +709,116 @@ function SectionIntro({ title, description }: { title: string; description: stri
     <div>
       <h2 className="text-xl font-semibold text-foreground">{title}</h2>
       <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Failed to read audio file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function playSoundPreview(sound: string, volume: number, customDataUrl?: string) {
+  if (typeof window === "undefined") return;
+  if (sound === "custom" && customDataUrl) {
+    const audio = new Audio(customDataUrl);
+    audio.volume = Math.min(1, Math.max(0, volume));
+    void audio.play().catch(() => undefined);
+    window.setTimeout(() => {
+      audio.pause();
+      audio.currentTime = 0;
+    }, 3000);
+    return;
+  }
+
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextClass || sound === "silent" || volume <= 0) return;
+  const context = new AudioContextClass();
+  const gain = context.createGain();
+  gain.gain.value = Math.min(1, Math.max(0, volume));
+  gain.connect(context.destination);
+  const patterns: Record<string, Array<[number, number, number]>> = {
+    classic: [[880, 0, 0.18], [660, 0.22, 0.18], [880, 0.48, 0.18]],
+    pulse: [[720, 0, 0.12], [720, 0.2, 0.12], [720, 0.4, 0.12]],
+    chime: [[523, 0, 0.18], [659, 0.2, 0.18], [784, 0.4, 0.24]],
+    digital: [[1046, 0, 0.08], [1318, 0.12, 0.08], [1046, 0.24, 0.08], [1568, 0.36, 0.12]],
+    soft: [[440, 0, 0.25], [554, 0.32, 0.25], [659, 0.64, 0.25]],
+    urgent: [[980, 0, 0.1], [980, 0.14, 0.1], [780, 0.32, 0.16], [980, 0.54, 0.18]],
+    bell: [[784, 0, 0.2], [1046, 0.28, 0.28]],
+    pop: [[660, 0, 0.08], [880, 0.1, 0.08]],
+    spark: [[1200, 0, 0.06], [1600, 0.09, 0.08], [1000, 0.2, 0.08]],
+    tone: [[587, 0, 0.25], [587, 0.32, 0.2]],
+  };
+  for (const [frequency, offset, duration] of patterns[sound] || patterns.classic) {
+    const oscillator = context.createOscillator();
+    const noteGain = context.createGain();
+    oscillator.type = sound === "digital" ? "square" : "sine";
+    oscillator.frequency.value = frequency;
+    noteGain.gain.setValueAtTime(0.0001, context.currentTime + offset);
+    noteGain.gain.exponentialRampToValueAtTime(Math.max(0.05, volume), context.currentTime + offset + 0.02);
+    noteGain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + offset + duration);
+    oscillator.connect(noteGain);
+    noteGain.connect(gain);
+    oscillator.start(context.currentTime + offset);
+    oscillator.stop(context.currentTime + offset + duration + 0.03);
+  }
+  window.setTimeout(() => void context.close().catch(() => undefined), 1300);
+}
+
+function SoundCard({
+  title,
+  description,
+  sound,
+  volume,
+  customName,
+  onSoundChange,
+  onVolumeChange,
+  onPreview,
+  onUploadClick,
+}: {
+  title: string;
+  description: string;
+  sound: string;
+  volume: number;
+  customName: string;
+  onSoundChange: (value: string) => void;
+  onVolumeChange: (value: number) => void;
+  onPreview: () => void;
+  onUploadClick: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-muted/20 p-4">
+      <div className="mb-4">
+        <p className="font-semibold text-foreground">{title}</p>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
+      <div className="space-y-4">
+        <SelectField label="Sound" value={sound} onChange={onSoundChange} options={soundOptions} />
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-foreground">Volume</span>
+            <span className="text-xs text-muted-foreground">{Math.round(volume * 100)}%</span>
+          </div>
+          <input type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => onVolumeChange(Number(event.target.value))} className="w-full accent-orange-500" />
+        </div>
+        {sound === "custom" && (
+          <p className="text-xs text-muted-foreground">Current file: {customName || "No custom audio uploaded"}</p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={onPreview} className="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm font-semibold hover:bg-muted">
+            <Volume2 className="size-4" />
+            Preview
+          </button>
+          <button type="button" onClick={onUploadClick} className="inline-flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm font-semibold hover:bg-muted">
+            <Upload className="size-4" />
+            Upload audio
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -596,6 +596,7 @@ export async function searchReceptionPatients(tenantId: string, query: string) {
   await syncDeferredPatientPortalAccesses(tenantId);
   const term = query.trim();
   if (!term || term.length < 2) return [];
+  const phoneDigits = term.replace(/\D/g, "");
 
   const eligiblePatientIds = await getEligiblePatientIdsForTenant(tenantId);
   if (!eligiblePatientIds.length) return [];
@@ -611,6 +612,9 @@ export async function searchReceptionPatients(tenantId: string, query: string) {
         ilike(patients.globalPatientId, `%${term}%`),
         ilike(patients.mrn, `%${term}%`),
         ilike(patients.phone, `%${term}%`),
+        phoneDigits.length >= 2
+          ? sql`regexp_replace(coalesce(${patients.phone}, ''), '[^0-9]', '', 'g') ilike ${`%${phoneDigits}%`}`
+          : sql`false`,
       ),
     ),
     orderBy: [desc(patients.updatedAt)],

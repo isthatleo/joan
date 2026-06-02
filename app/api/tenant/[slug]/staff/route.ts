@@ -83,6 +83,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({
       success: true,
       staffId: result.staff.id,
+      employeeId: result.employeeId,
       loginUrl: result.loginUrl,
       temporaryPassword: result.temporaryPassword,
       message: "Staff member registered. They must change the temporary password after first login.",

@@ -33,6 +33,28 @@ type StaffForm = {
   emergencyContact: string;
 };
 
+type EmployeeIdSettings = {
+  enabled: boolean;
+  prefix: string;
+  separator: string;
+  includeYear: boolean;
+  padding: number;
+  nextNumber: number;
+  customPatternEnabled: boolean;
+  customPattern: string;
+};
+
+const DEFAULT_EMPLOYEE_ID_SETTINGS: EmployeeIdSettings = {
+  enabled: true,
+  prefix: "EMP",
+  separator: "-",
+  includeYear: true,
+  padding: 4,
+  nextNumber: 1,
+  customPatternEnabled: false,
+  customPattern: "EMP-{YYYY}-{SEQ}",
+};
+
 const INITIAL_FORM: StaffForm = {
   fullName: "",
   email: "",
@@ -70,6 +92,33 @@ type DepartmentOption = {
   level?: string;
 };
 
+function normalizeEmployeeIdSettings(value?: Partial<EmployeeIdSettings>): EmployeeIdSettings {
+  const raw = value || {};
+  return {
+    ...DEFAULT_EMPLOYEE_ID_SETTINGS,
+    ...raw,
+    prefix: String(raw.prefix || DEFAULT_EMPLOYEE_ID_SETTINGS.prefix).toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 16).replace(/^-+|-+$/g, "") || DEFAULT_EMPLOYEE_ID_SETTINGS.prefix,
+    separator: ["-", "/", "."].includes(String(raw.separator)) ? String(raw.separator) : DEFAULT_EMPLOYEE_ID_SETTINGS.separator,
+    padding: Math.min(8, Math.max(2, Number(raw.padding || DEFAULT_EMPLOYEE_ID_SETTINGS.padding))),
+    nextNumber: Math.max(1, Number(raw.nextNumber || DEFAULT_EMPLOYEE_ID_SETTINGS.nextNumber)),
+    customPattern: String(raw.customPattern || DEFAULT_EMPLOYEE_ID_SETTINGS.customPattern).toUpperCase().replace(/[^A-Z0-9{}:_-]/g, "").slice(0, 80) || DEFAULT_EMPLOYEE_ID_SETTINGS.customPattern,
+  };
+}
+
+function previewEmployeeId(settings: EmployeeIdSettings) {
+  const sequence = String(settings.nextNumber).padStart(settings.padding, "0");
+  if (settings.customPatternEnabled && settings.customPattern) {
+    return settings.customPattern
+      .replace(/\{YYYY\}/g, String(new Date().getFullYear()))
+      .replace(/\{YY\}/g, String(new Date().getFullYear()).slice(-2))
+      .replace(/\{SEQ\}/g, sequence)
+      .replace(/\{RAND(\d+)\}/g, (_, size) => "9".repeat(Math.min(12, Math.max(1, Number(size || 4)))))
+      .replace(/\{ALPHA(\d+)\}/g, (_, size) => "A".repeat(Math.min(12, Math.max(1, Number(size || 2)))))
+      .replace(/\{PREFIX\}/g, settings.prefix);
+  }
+  return [settings.prefix, settings.includeYear ? new Date().getFullYear() : null, sequence].filter(Boolean).join(settings.separator);
+}
+
 export default function NewStaffMemberPage() {
   const params = useParams();
   const router = useRouter();
@@ -80,8 +129,9 @@ export default function NewStaffMemberPage() {
   const [submitting, setSubmitting] = useState(false);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [departmentsLoading, setDepartmentsLoading] = useState(true);
+  const [employeeIdSettings, setEmployeeIdSettings] = useState<EmployeeIdSettings>(DEFAULT_EMPLOYEE_ID_SETTINGS);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ temporaryPassword: string; loginUrl: string } | null>(null);
+  const [result, setResult] = useState<{ temporaryPassword: string; loginUrl: string; employeeId?: string } | null>(null);
 
   const update = (key: keyof StaffForm, value: string) => setForm((current) => ({ ...current, [key]: value }));
 
@@ -102,6 +152,25 @@ export default function NewStaffMemberPage() {
       }
     };
     loadDepartments();
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadEmployeeIdSettings = async () => {
+      if (!slug) return;
+      try {
+        const response = await fetch(`/api/tenants/${slug}/settings`, { credentials: "include" });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) return;
+        if (!cancelled) setEmployeeIdSettings(normalizeEmployeeIdSettings(data?.branding?.employeeIds));
+      } catch {
+        if (!cancelled) setEmployeeIdSettings(DEFAULT_EMPLOYEE_ID_SETTINGS);
+      }
+    };
+    loadEmployeeIdSettings();
     return () => {
       cancelled = true;
     };
@@ -140,7 +209,7 @@ export default function NewStaffMemberPage() {
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(data?.error || "Failed to register staff member");
-      setResult({ temporaryPassword: data.temporaryPassword, loginUrl: data.loginUrl });
+      setResult({ temporaryPassword: data.temporaryPassword, loginUrl: data.loginUrl, employeeId: data.employeeId });
       setStep(3);
     } catch (submitError: any) {
       setError(submitError?.message || "Failed to register staff member");
@@ -154,6 +223,7 @@ export default function NewStaffMemberPage() {
     await navigator.clipboard.writeText([
       `Login URL: ${result.loginUrl}`,
       `Email: ${form.email}`,
+      `Employee ID: ${result.employeeId || form.employeeId || "Not assigned"}`,
       `Temporary password: ${result.temporaryPassword}`,
       "The user must change this password immediately after login.",
     ].join("\n")).catch(() => null);
@@ -224,7 +294,30 @@ export default function NewStaffMemberPage() {
                 {!departmentsLoading && departments.length === 0 ? <span className="text-xs text-amber-600">No departments found. Sync departments from the departments page first.</span> : null}
               </label>
               <label className="space-y-1"><span className="text-sm font-medium text-foreground">Job title</span><input value={form.title} onChange={(e) => update("title", e.target.value)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" /></label>
-              <label className="space-y-1"><span className="text-sm font-medium text-foreground">Employee ID</span><input value={form.employeeId} onChange={(e) => update("employeeId", e.target.value)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" /></label>
+              <div className="space-y-1">
+                <span className="text-sm font-medium text-foreground">Employee ID</span>
+                {employeeIdSettings.enabled ? (
+                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                    <p className="text-xs text-muted-foreground">Auto-generated on registration</p>
+                    <p className="mt-1 font-mono text-sm font-semibold text-foreground">{previewEmployeeId(employeeIdSettings)}</p>
+                    <button
+                      type="button"
+                      onClick={() => update("employeeId", form.employeeId ? "" : previewEmployeeId(employeeIdSettings))}
+                      className="mt-2 text-xs font-semibold text-primary hover:underline"
+                    >
+                      {form.employeeId ? "Use automatic ID instead" : "Override manually"}
+                    </button>
+                  </div>
+                ) : null}
+                {(!employeeIdSettings.enabled || form.employeeId) ? (
+                  <input
+                    value={form.employeeId}
+                    onChange={(e) => update("employeeId", e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 40))}
+                    className="h-10 w-full rounded-lg border border-border bg-background px-3 font-mono text-sm"
+                    placeholder="Manual employee ID"
+                  />
+                ) : null}
+              </div>
               <label className="space-y-1"><span className="text-sm font-medium text-foreground">License number</span><input value={form.licenseNumber} onChange={(e) => update("licenseNumber", e.target.value)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" /></label>
               <label className="space-y-1"><span className="text-sm font-medium text-foreground">Start date</span><input type="date" value={form.startDate} onChange={(e) => update("startDate", e.target.value)} className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm" /></label>
               <label className="space-y-1"><span className="text-sm font-medium text-foreground">Emergency contact phone</span><PhoneNumberInput value={form.emergencyContact} onChange={(value) => update("emergencyContact", value)} placeholder="Emergency contact phone" /></label>
@@ -243,7 +336,7 @@ export default function NewStaffMemberPage() {
                 Role: ROLES.find((role) => role.value === form.role)?.label || form.role,
                 Department: form.department,
                 "Job title": form.title,
-                "Employee ID": form.employeeId || "Not provided",
+                "Employee ID": form.employeeId || (employeeIdSettings.enabled ? `Auto-generate next ID (${previewEmployeeId(employeeIdSettings)})` : "Not provided"),
                 "License number": form.licenseNumber || "Not provided",
               }).map(([label, value]) => (
                 <div key={label} className="rounded-xl border border-border bg-background/70 p-4"><p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-1 text-sm font-medium text-foreground">{value}</p></div>
@@ -259,6 +352,8 @@ export default function NewStaffMemberPage() {
             <div className="rounded-xl border border-border bg-background/70 p-4">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">Login URL</p>
               <p className="mt-1 break-all font-mono text-sm text-foreground">{result.loginUrl}</p>
+              <p className="mt-4 text-xs uppercase tracking-wide text-muted-foreground">Employee ID</p>
+              <p className="mt-1 font-mono text-lg font-semibold text-foreground">{result.employeeId || form.employeeId || "Not assigned"}</p>
               <p className="mt-4 text-xs uppercase tracking-wide text-muted-foreground">Temporary password</p>
               <p className="mt-1 font-mono text-lg font-semibold text-foreground">{result.temporaryPassword}</p>
             </div>

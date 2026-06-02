@@ -1,57 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, ilike, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { tenants, users } from "@/lib/db/schema";
-import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { users } from "@/lib/db/schema";
 import { MessagingCallService } from "@/lib/services/messaging-call.service";
 import { MessagingService } from "@/lib/services/messaging.service";
-import { getTenantSubdomain } from "@/lib/tenant-routing";
+import { resolveTenantMessagingUser } from "@/lib/tenant-messaging-auth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const callService = new MessagingCallService();
 const messagingService = new MessagingService();
-
-async function resolveTenantId(request: NextRequest, slug: string, sessionEmail: string) {
-  const directTenantId = await getTenantIdBySlug(slug);
-  if (directTenantId) return directTenantId;
-
-  const hostSlug = getTenantSubdomain(request.headers.get("host"));
-  if (hostSlug && hostSlug !== slug) {
-    const hostTenantId = await getTenantIdBySlug(hostSlug);
-    if (hostTenantId) return hostTenantId;
-  }
-
-  const appUser = await db.query.users.findFirst({
-    where: and(ilike(users.email, sessionEmail), eq(users.isActive, true), isNull(users.deletedAt)),
-    columns: { id: true, tenantId: true },
-  });
-  if (appUser?.tenantId) return appUser.tenantId;
-
-  if (appUser?.id) {
-    const adminTenant = await db.query.tenants.findFirst({
-      where: eq(tenants.adminUserId, appUser.id),
-      columns: { id: true },
-    });
-    if (adminTenant?.id) return adminTenant.id;
-  }
-
-  return null;
-}
-
-async function resolveTenantUser(request: NextRequest, sessionEmail: string, slug: string) {
-  const tenantId = await resolveTenantId(request, slug, sessionEmail);
-  if (!tenantId) return null;
-
-  const user = await db.query.users.findFirst({
-    where: and(ilike(users.email, sessionEmail), eq(users.isActive, true), isNull(users.deletedAt)),
-    columns: { id: true, tenantId: true },
-  });
-  if (!user) return null;
-  return { id: user.id, tenantId };
-}
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
@@ -61,7 +21,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     const { slug } = await params;
-    const currentUser = await resolveTenantUser(request, session.user.email, slug);
+    const currentUser = await resolveTenantMessagingUser(request, session.user.email, slug);
     if (!currentUser?.tenantId) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
@@ -96,7 +56,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const { slug } = await params;
-    const currentUser = await resolveTenantUser(request, session.user.email, slug);
+    const currentUser = await resolveTenantMessagingUser(request, session.user.email, slug);
     if (!currentUser?.tenantId) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
