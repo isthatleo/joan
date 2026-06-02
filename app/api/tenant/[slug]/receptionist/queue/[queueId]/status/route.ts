@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTenantBySlug, updateReceptionQueueStatus } from "@/lib/receptionist/data";
+import { revalidatePath } from "next/cache"; // Import revalidatePath
 
 export async function PATCH(
   request: NextRequest,
@@ -18,6 +19,15 @@ export async function PATCH(
     }
 
     const queue = await updateReceptionQueueStatus(tenant.id, queueId, status);
+
+    // Revalidate paths after status change
+    if (status === "with-doctor") {
+      revalidatePath(`/[slug]/doctor/queue`, 'page');
+    }
+    revalidatePath(`/[slug]/reception/queue`, 'page');
+    revalidatePath(`/[slug]/reception/waiting`, 'page');
+    revalidatePath(`/[slug]/reception`, 'page'); // Revalidate main receptionist dashboard as well
+
     return NextResponse.json({ success: true, queue });
   } catch (error) {
     console.error("Failed to update queue status:", error);

@@ -1,14 +1,17 @@
 ﻿"use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, CheckCircle2, Mail, Phone, RefreshCw } from "lucide-react";
+import { ArrowRight, CheckCircle2, Mail, Phone, RefreshCw, SkipForward, UserRound, XCircle } from "lucide-react"; // Added SkipForward and XCircle
 import { Badge, Button, PageHeader, SectionCard, Skeleton } from "@/components/ui";
+import { useTenantPath } from "@/hooks/useTenantPath"; // Import useTenantPath
 
 export default function NurseQueuePage() {
   const params = useParams();
   const slug = params?.slug as string;
+  const toTenantPath = useTenantPath(); // Initialize useTenantPath
   const queryClient = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -16,23 +19,23 @@ export default function NurseQueuePage() {
     queryKey: ["tenant-nurse-queue", slug],
     queryFn: async () => {
       const response = await fetch(`/api/nurse/queue?slug=${slug}`, { cache: "no-store" });
-      if (!response.ok) throw new Error("Failed to load queue");
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Failed to load queue"); // Improved error handling
       return response.json();
     },
     refetchInterval: 30000,
   });
 
   const actionMutation = useMutation({
-    mutationFn: async (payload: Record<string, unknown>) => {
+    mutationFn: async (payload: { id?: string; status?: string; patientId?: string; action?: string }) => { // Updated payload type
       const response = await fetch("/api/nurse/queue", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slug, ...payload }),
       });
-      if (!response.ok) throw new Error("Failed to update queue");
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "Failed to update queue"); // Improved error handling
       return response.json();
     },
-    onMutate: (payload) => setActiveId(String(payload.id || "call-next")),
+    onMutate: (payload) => setActiveId(String(payload.id || payload.action || "call-next")), // Handle action for activeId
     onSettled: () => {
       setActiveId(null);
       queryClient.invalidateQueries({ queryKey: ["tenant-nurse-queue"] });
@@ -49,8 +52,28 @@ export default function NurseQueuePage() {
       <PageHeader
         title="Nursing Queue"
         subtitle="Prepare patients for care tasks, move the ward queue forward, and close completed steps."
-        actions={<div className="flex gap-2"><Button variant="outline" onClick={() => queueQuery.refetch()} disabled={queueQuery.isFetching}><RefreshCw className={`mr-2 h-4 w-4 ${queueQuery.isFetching ? "animate-spin" : ""}`} />Refresh</Button><Button onClick={() => actionMutation.mutate({ action: "call-next" })} disabled={actionMutation.isPending}><ArrowRight className="mr-2 h-4 w-4" />Call Next</Button></div>}
+        actions={
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => queueQuery.refetch()} disabled={queueQuery.isFetching}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${queueQuery.isFetching ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button
+              onClick={() => actionMutation.mutate({ action: "call-next" })}
+              disabled={actionMutation.isPending || waiting.length === 0} // Disable if no waiting patients
+            >
+              <ArrowRight className="mr-2 h-4 w-4" />
+              Call Next
+            </Button>
+          </div>
+        }
       />
+
+      {queueQuery.isError && ( // Display API errors
+        <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {(queueQuery.error as Error).message}
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {queueQuery.isLoading ? Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-28 w-full" />) : (
@@ -78,7 +101,19 @@ export default function NurseQueuePage() {
                       </div>
                       <p className="mt-1 text-sm text-muted-foreground">Room {item.room || "-"} | Queue {item.queueNumber || item.position || "-"}</p>
                     </div>
-                    <Button onClick={() => actionMutation.mutate({ id: item.id, status: "in-progress", patientId: item.patientId })} disabled={actionMutation.isPending && activeId === item.id}>Start</Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Link href={toTenantPath(`/patients/${item.patientId}`)} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground">
+                        <UserRound className="h-4 w-4" />
+                        Profile
+                      </Link>
+                      <Button onClick={() => actionMutation.mutate({ id: item.id, status: "skipped", patientId: item.patientId })} disabled={actionMutation.isPending && activeId === item.id} variant="outline">
+                        <SkipForward className="h-4 w-4 mr-2" />Skip
+                      </Button>
+                      <Button onClick={() => actionMutation.mutate({ id: item.id, status: "no-show", patientId: item.patientId })} disabled={actionMutation.isPending && activeId === item.id} variant="destructive">
+                        <XCircle className="h-4 w-4 mr-2" />No-show
+                      </Button>
+                      <Button onClick={() => actionMutation.mutate({ id: item.id, status: "in-progress", patientId: item.patientId })} disabled={actionMutation.isPending && activeId === item.id}>Start</Button>
+                    </div>
                   </div>
                 </div>
               )) : <p className="text-sm text-muted-foreground">No waiting patients in the nursing queue.</p>}
@@ -100,8 +135,18 @@ export default function NurseQueuePage() {
                       <p className="mt-1 text-sm text-muted-foreground">Room {item.room || "-"} | Priority {item.priority || "normal"}</p>
                     </div>
                     <div className="flex flex-wrap gap-2 xl:justify-end">
+                      <Link href={toTenantPath(`/patients/${item.patientId}`)} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground">
+                        <UserRound className="h-4 w-4" />
+                        Profile
+                      </Link>
                       {item.patientEmail ? <a href={`mailto:${item.patientEmail}?subject=${encodeURIComponent(`Nursing update for ${item.patientName}`)}`} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground"><Mail className="h-4 w-4" />Email</a> : null}
                       {item.patientPhone ? <a href={`tel:${item.patientPhone}`} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground"><Phone className="h-4 w-4" />Call</a> : null}
+                      <Button onClick={() => actionMutation.mutate({ id: item.id, status: "skipped", patientId: item.patientId })} disabled={actionMutation.isPending && activeId === item.id} variant="outline">
+                        <SkipForward className="h-4 w-4 mr-2" />Skip
+                      </Button>
+                      <Button onClick={() => actionMutation.mutate({ id: item.id, status: "no-show", patientId: item.patientId })} disabled={actionMutation.isPending && activeId === item.id} variant="destructive">
+                        <XCircle className="h-4 w-4 mr-2" />No-show
+                      </Button>
                       <Button onClick={() => actionMutation.mutate({ id: item.id, status: "completed", patientId: item.patientId })} disabled={actionMutation.isPending && activeId === item.id}><CheckCircle2 className="mr-2 h-4 w-4" />Complete</Button>
                     </div>
                   </div>

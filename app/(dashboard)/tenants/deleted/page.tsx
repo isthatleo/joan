@@ -15,6 +15,15 @@ type DeletedTenant = {
   scheduledPurgeAt?: string | null;
 };
 
+type ConfirmationDialog = {
+  title: string;
+  description: string;
+  expectedText: string;
+  actionLabel: string;
+  actionTone: "restore" | "danger";
+  onConfirm: () => Promise<void>;
+};
+
 function daysUntil(date?: string | null) {
   if (!date) return null;
   return Math.max(0, Math.ceil((new Date(date).getTime() - Date.now()) / 86400000));
@@ -28,6 +37,10 @@ export default function DeletedTenantsPage() {
   const [bulkAction, setBulkAction] = useState<"restore" | "purge" | null>(null);
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<ConfirmationDialog | null>(null);
+  const [confirmationText, setConfirmationText] = useState("");
+  const [confirmationError, setConfirmationError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   async function loadDeletedTenants() {
     setLoading(true);
@@ -77,9 +90,33 @@ export default function DeletedTenantsPage() {
     });
   }
 
-  async function restoreTenant(tenant: DeletedTenant) {
-    const confirmText = prompt(`Restore "${tenant.name}"?\n\nType the tenant slug "${tenant.slug}" to confirm:`);
-    if (confirmText !== tenant.slug) return;
+  function requestConfirmation(dialog: ConfirmationDialog) {
+    setConfirmation(dialog);
+    setConfirmationText("");
+    setConfirmationError(null);
+  }
+
+  async function runConfirmedAction() {
+    if (!confirmation) return;
+    if (confirmationText !== confirmation.expectedText) {
+      setConfirmationError(`Type "${confirmation.expectedText}" exactly to continue.`);
+      return;
+    }
+
+    setConfirming(true);
+    setConfirmationError(null);
+    try {
+      await confirmation.onConfirm();
+      setConfirmation(null);
+      setConfirmationText("");
+    } catch (actionError) {
+      setConfirmationError(actionError instanceof Error ? actionError.message : "Action failed");
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  async function performRestoreTenant(tenant: DeletedTenant) {
     setActionId(tenant.id);
     try {
       await restoreOne(tenant);
@@ -89,16 +126,23 @@ export default function DeletedTenantsPage() {
         next.delete(tenant.id);
         return next;
       });
-    } catch (restoreError) {
-      alert(restoreError instanceof Error ? restoreError.message : "Failed to restore tenant");
     } finally {
       setActionId(null);
     }
   }
 
-  async function purgeTenant(tenant: DeletedTenant) {
-    const confirmText = prompt(`Permanently delete "${tenant.name}"?\n\nThis cannot be undone. Type "DELETE ${tenant.slug}" to confirm:`);
-    if (confirmText !== `DELETE ${tenant.slug}`) return;
+  function restoreTenant(tenant: DeletedTenant) {
+    requestConfirmation({
+      title: `Restore ${tenant.name}`,
+      description: `Restore this tenant and make it available again. Type the tenant slug to confirm.`,
+      expectedText: tenant.slug,
+      actionLabel: "Restore Tenant",
+      actionTone: "restore",
+      onConfirm: () => performRestoreTenant(tenant),
+    });
+  }
+
+  async function performPurgeTenant(tenant: DeletedTenant) {
     setActionId(tenant.id);
     try {
       await purgeOne(tenant);
@@ -108,17 +152,24 @@ export default function DeletedTenantsPage() {
         next.delete(tenant.id);
         return next;
       });
-    } catch (purgeError) {
-      alert(purgeError instanceof Error ? purgeError.message : "Failed to permanently delete tenant");
     } finally {
       setActionId(null);
     }
   }
 
-  async function restoreSelected() {
+  function purgeTenant(tenant: DeletedTenant) {
+    requestConfirmation({
+      title: `Permanently delete ${tenant.name}`,
+      description: `This cannot be undone. Type the deletion phrase to confirm permanent deletion.`,
+      expectedText: `DELETE ${tenant.slug}`,
+      actionLabel: "Permanently Delete",
+      actionTone: "danger",
+      onConfirm: () => performPurgeTenant(tenant),
+    });
+  }
+
+  async function performRestoreSelected() {
     if (!selectedTenants.length) return;
-    const confirmText = prompt(`Restore ${selectedTenants.length} tenant(s)?\n\nType "RESTORE ${selectedTenants.length}" to confirm:`);
-    if (confirmText !== `RESTORE ${selectedTenants.length}`) return;
     setBulkAction("restore");
     try {
       const results = await Promise.allSettled(selectedTenants.map(restoreOne));
@@ -127,17 +178,25 @@ export default function DeletedTenantsPage() {
       const ids = new Set(selectedTenants.map((tenant) => tenant.id));
       setTenants((current) => current.filter((tenant) => !ids.has(tenant.id)));
       setSelected(new Set());
-    } catch (restoreError) {
-      alert(restoreError instanceof Error ? restoreError.message : "Bulk restore failed");
     } finally {
       setBulkAction(null);
     }
   }
 
-  async function purgeSelected() {
+  function restoreSelected() {
     if (!selectedTenants.length) return;
-    const confirmText = prompt(`Permanently delete ${selectedTenants.length} tenant(s)?\n\nThis cannot be undone. Type "DELETE ${selectedTenants.length}" to confirm:`);
-    if (confirmText !== `DELETE ${selectedTenants.length}`) return;
+    requestConfirmation({
+      title: `Restore ${selectedTenants.length} tenant(s)`,
+      description: "Restore all selected tenants and make them available again.",
+      expectedText: `RESTORE ${selectedTenants.length}`,
+      actionLabel: "Restore Selected",
+      actionTone: "restore",
+      onConfirm: performRestoreSelected,
+    });
+  }
+
+  async function performPurgeSelected() {
+    if (!selectedTenants.length) return;
     setBulkAction("purge");
     try {
       const results = await Promise.allSettled(selectedTenants.map(purgeOne));
@@ -146,11 +205,21 @@ export default function DeletedTenantsPage() {
       const ids = new Set(selectedTenants.map((tenant) => tenant.id));
       setTenants((current) => current.filter((tenant) => !ids.has(tenant.id)));
       setSelected(new Set());
-    } catch (purgeError) {
-      alert(purgeError instanceof Error ? purgeError.message : "Bulk permanent delete failed");
     } finally {
       setBulkAction(null);
     }
+  }
+
+  function purgeSelected() {
+    if (!selectedTenants.length) return;
+    requestConfirmation({
+      title: `Permanently delete ${selectedTenants.length} tenant(s)`,
+      description: "This cannot be undone. Type the deletion phrase to confirm permanent deletion.",
+      expectedText: `DELETE ${selectedTenants.length}`,
+      actionLabel: "Permanently Delete Selected",
+      actionTone: "danger",
+      onConfirm: performPurgeSelected,
+    });
   }
 
   return (
@@ -287,6 +356,55 @@ export default function DeletedTenantsPage() {
           </div>
         </div>
       </div>
+
+      {confirmation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
+            <h2 className="text-xl font-bold text-foreground">{confirmation.title}</h2>
+            <p className="mt-2 text-sm text-muted-foreground">{confirmation.description}</p>
+            <div className="mt-4 rounded-lg border border-border bg-muted/40 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Required confirmation</p>
+              <p className="mt-1 font-mono text-sm font-semibold text-foreground">{confirmation.expectedText}</p>
+            </div>
+            <label className="mt-4 block text-sm font-semibold text-foreground">
+              Type confirmation text
+              <input
+                value={confirmationText}
+                onChange={(event) => {
+                  setConfirmationText(event.target.value);
+                  setConfirmationError(null);
+                }}
+                className="mt-2 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground focus:border-orange-300 focus:outline-none"
+                autoFocus
+              />
+            </label>
+            {confirmationError && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {confirmationError}
+              </div>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmation(null)}
+                disabled={confirming}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={runConfirmedAction}
+                disabled={confirming || confirmationText !== confirmation.expectedText}
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+                  confirmation.actionTone === "danger" ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+              >
+                {confirming && <Loader2 className="size-4 animate-spin" />}
+                {confirmation.actionLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

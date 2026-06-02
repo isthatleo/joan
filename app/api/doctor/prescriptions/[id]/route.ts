@@ -3,55 +3,21 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   inventoryItems,
-  notifications,
+  medicationAdministrations,
   patients,
   prescriptionItems,
   prescriptions,
-  roles,
-  userRoles,
-  users,
   visits,
 } from "@/lib/db/schema";
 import { buildStockInfo, formatPatientName } from "@/lib/doctor/prescriptions";
 import { resolveDoctorContext } from "@/lib/doctor/server";
-
-async function notifyPharmacyUsers(tenantId: string, message: string, metadata: Record<string, unknown>) {
-  const activeUsers = await db
-    .select({
-      id: users.id,
-      baseRole: users.role,
-      linkedRole: roles.name,
-    })
-    .from(users)
-    .leftJoin(userRoles, eq(userRoles.userId, users.id))
-    .leftJoin(roles, eq(roles.id, userRoles.roleId))
-    .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), isNull(users.deletedAt)));
-
-  const recipients = Array.from(
-    new Set(
-      activeUsers
-        .filter((user) => {
-          const roleNames = [user.baseRole, user.linkedRole].filter(Boolean).map((value) => String(value).toLowerCase());
-          return roleNames.includes("pharmacist") || roleNames.includes("pharmacy");
-        })
-        .map((user) => user.id)
-    )
-  );
-
-  if (recipients.length === 0) return;
-
-  await db.insert(notifications).values(
-    recipients.map((userId) => ({
-      tenantId,
-      userId,
-      type: "prescription_updated",
-      title: "Prescription updated",
-      message,
-      metadata,
-      read: false,
-    }))
-  );
-}
+import { syncPatientCareInvoice } from "@/lib/billing/patient-ledger";
+import {
+  cancelPendingMedicationAdministrations,
+  createMedicationAdministrationRecords,
+  isNurseAdministrationRoute,
+  notifyMedicationRoleUsers,
+} from "@/lib/medication-workflow";
 
 async function loadPrescription(id: string, doctorId: string, tenantId: string) {
   const rows = await db
@@ -135,13 +101,38 @@ async function loadPrescription(id: string, doctorId: string, tenantId: string) 
     .leftJoin(inventoryItems, eq(inventoryItems.id, prescriptionItems.medicationId))
     .where(and(eq(prescriptionItems.prescriptionId, id), isNull(prescriptionItems.deletedAt)));
 
+  const administrationRows = await db
+    .select({
+      prescriptionItemId: medicationAdministrations.prescriptionItemId,
+      status: medicationAdministrations.status,
+    })
+    .from(medicationAdministrations)
+    .where(and(eq(medicationAdministrations.prescriptionId, id), isNull(medicationAdministrations.deletedAt)));
+
+  const administrationProgress = administrationRows.reduce<Record<string, { total: number; pending: number; administered: number; terminal: number }>>((acc, row) => {
+    const key = row.prescriptionItemId || "unknown";
+    acc[key] ||= { total: 0, pending: 0, administered: 0, terminal: 0 };
+    acc[key].total += 1;
+    if (row.status === "pending") acc[key].pending += 1;
+    if (row.status === "administered") acc[key].administered += 1;
+    if (["administered", "skipped", "missed", "cancelled", "reaction"].includes(row.status)) acc[key].terminal += 1;
+    return acc;
+  }, {});
+
   return {
     ...prescription,
     patientName: formatPatientName(prescription.patientFirstName, prescription.patientLastName),
     items: items.map((item) => ({
       ...item,
       stockInfo: buildStockInfo(item.inventoryStock),
+      administrationProgress: administrationProgress[item.id] || { total: 0, pending: 0, administered: 0, terminal: 0 },
     })),
+    administrationStats: {
+      total: administrationRows.length,
+      pending: administrationRows.filter((row) => row.status === "pending").length,
+      administered: administrationRows.filter((row) => row.status === "administered").length,
+      reaction: administrationRows.filter((row) => row.status === "reaction").length,
+    },
   };
 }
 
@@ -192,6 +183,20 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         .where(and(eq(prescriptions.id, id), eq(prescriptions.tenantId, doctor.tenantId!), isNull(prescriptions.deletedAt)))
         .returning();
 
+      await cancelPendingMedicationAdministrations(doctor.tenantId!, id, "Prescription completed by doctor.");
+      await notifyPrescriptionWorkflow({
+        tenantId: doctor.tenantId!,
+        prescriptionId: id,
+        patientId: existing.patientId,
+        doctorId: doctor.id,
+        patientName: existing.patientName,
+        medication: existing.medication,
+        message: `${existing.medication || "A prescription"} for ${existing.patientName} was marked complete by the doctor.`,
+        roles: ["pharmacist", "pharmacy", "nurse", "nursing"],
+        type: "prescription_completed",
+        title: "Prescription completed",
+      });
+
       return NextResponse.json(updated);
     }
 
@@ -202,11 +207,19 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         .where(and(eq(prescriptions.id, id), eq(prescriptions.tenantId, doctor.tenantId!), isNull(prescriptions.deletedAt)))
         .returning();
 
-      await notifyPharmacyUsers(
-        doctor.tenantId!,
-        `${existing.medication || "A prescription"} for ${existing.patientName} was discontinued.`,
-        { prescriptionId: id, patientId: existing.patientId, updatedBy: doctor.id }
-      );
+      await cancelPendingMedicationAdministrations(doctor.tenantId!, id, "Prescription discontinued by doctor.");
+      await notifyPrescriptionWorkflow({
+        tenantId: doctor.tenantId!,
+        prescriptionId: id,
+        patientId: existing.patientId,
+        doctorId: doctor.id,
+        patientName: existing.patientName,
+        medication: existing.medication,
+        message: `${existing.medication || "A prescription"} for ${existing.patientName} was discontinued.`,
+        roles: ["pharmacist", "pharmacy", "nurse", "nursing"],
+        type: "prescription_discontinued",
+        title: "Prescription discontinued",
+      });
 
       return NextResponse.json(updated);
     }
@@ -225,11 +238,166 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         .where(and(eq(prescriptions.id, id), eq(prescriptions.tenantId, doctor.tenantId!), isNull(prescriptions.deletedAt)))
         .returning();
 
-      await notifyPharmacyUsers(
-        doctor.tenantId!,
-        `${existing.medication || "A prescription"} for ${existing.patientName} was renewed.`,
-        { prescriptionId: id, patientId: existing.patientId, updatedBy: doctor.id, refillAmount }
-      );
+      const sourceItems = existing.items.length
+        ? existing.items
+        : [{
+          medicationId: null,
+          drugName: existing.medication || "Medication",
+          genericName: existing.genericName,
+          strength: existing.strength,
+          dosage: existing.dosage,
+          frequency: existing.frequency,
+          duration: existing.duration,
+          quantity: existing.quantity,
+          instructions: existing.instructions,
+          refills: existing.refills,
+          isPrn: false,
+          route: null,
+        }];
+      const refillItems = await db.insert(prescriptionItems).values(
+        sourceItems.map((item: any) => ({
+          prescriptionId: id,
+          medicationId: item.medicationId || null,
+          drugName: item.drugName || existing.medication || "Medication",
+          genericName: item.genericName || null,
+          strength: item.strength || null,
+          dosage: item.dosage || "",
+          frequency: item.frequency || null,
+          duration: item.duration || null,
+          quantity: Number(item.quantity || 1),
+          instructions: [item.instructions, `Refill treatment x${refillAmount}`].filter(Boolean).join("\n"),
+          refills: Number(item.refills || 0),
+          isPrn: Boolean(item.isPrn),
+          route: item.route || null,
+        }))
+      ).returning({
+        id: prescriptionItems.id,
+        drugName: prescriptionItems.drugName,
+        quantity: prescriptionItems.quantity,
+        frequency: prescriptionItems.frequency,
+        route: prescriptionItems.route,
+      });
+
+      const nurseAdminItems = refillItems.filter((item: any) => isNurseAdministrationRoute(item.route));
+      const doseCount = await createMedicationAdministrationRecords({
+        tenantId: doctor.tenantId!,
+        prescriptionId: id,
+        patientId: existing.patientId,
+        items: nurseAdminItems,
+      });
+
+      await notifyPrescriptionWorkflow({
+        tenantId: doctor.tenantId!,
+        prescriptionId: id,
+        patientId: existing.patientId,
+        doctorId: doctor.id,
+        patientName: existing.patientName,
+        medication: existing.medication,
+        message: `${existing.medication || "A prescription"} for ${existing.patientName} was renewed.${doseCount ? ` ${doseCount} administration dose(s) were scheduled.` : ""}`,
+        roles: doseCount ? ["pharmacist", "pharmacy", "nurse", "nursing"] : ["pharmacist", "pharmacy"],
+        type: "prescription_refilled",
+        title: "Prescription renewed",
+        extra: { refillAmount, doseCount },
+      });
+
+      await syncPatientCareInvoice(doctor.tenantId!, existing.patientId).catch((error) => {
+        console.error("Failed to sync patient care invoice after prescription refill:", error);
+      });
+
+      return NextResponse.json(updated);
+    }
+
+    if (action === "change-medication") {
+      const itemPatch = body.item && typeof body.item === "object" ? body.item : {};
+      const targetItemId = String(itemPatch.id || existing.items[0]?.id || "");
+      const targetItem = existing.items.find((item: any) => item.id === targetItemId) || existing.items[0];
+      if (!targetItem) return NextResponse.json({ error: "Prescription has no medication item to update." }, { status: 400 });
+
+      const nextRoute = itemPatch.route !== undefined ? String(itemPatch.route || "").trim() || null : targetItem.route;
+      const nextQuantity = itemPatch.quantity !== undefined ? Number(itemPatch.quantity || 1) : targetItem.quantity;
+      const nextFrequency = itemPatch.frequency !== undefined ? String(itemPatch.frequency || "").trim() || null : targetItem.frequency;
+      const nextDrugName = itemPatch.drugName !== undefined ? String(itemPatch.drugName || "").trim() : targetItem.drugName;
+
+      const [changedItem] = await db
+        .insert(prescriptionItems)
+        .values({
+          prescriptionId: id,
+          medicationId: itemPatch.medicationId ? String(itemPatch.medicationId) : targetItem.medicationId || null,
+          drugName: nextDrugName,
+          genericName: itemPatch.genericName !== undefined ? String(itemPatch.genericName || "").trim() || null : targetItem.genericName,
+          strength: itemPatch.strength !== undefined ? String(itemPatch.strength || "").trim() || null : targetItem.strength,
+          dosage: itemPatch.dosage !== undefined ? String(itemPatch.dosage || "").trim() : targetItem.dosage,
+          frequency: nextFrequency,
+          duration: itemPatch.duration !== undefined ? String(itemPatch.duration || "").trim() || null : targetItem.duration,
+          quantity: nextQuantity,
+          instructions: [
+            itemPatch.instructions !== undefined ? String(itemPatch.instructions || "").trim() : targetItem.instructions,
+            "Medication change treatment",
+          ].filter(Boolean).join("\n"),
+          refills: Number(targetItem.refills || 0),
+          isPrn: Boolean(targetItem.isPrn),
+          route: nextRoute,
+        })
+        .returning({
+          id: prescriptionItems.id,
+          drugName: prescriptionItems.drugName,
+          quantity: prescriptionItems.quantity,
+          frequency: prescriptionItems.frequency,
+          route: prescriptionItems.route,
+        });
+
+      await db
+        .update(prescriptionItems)
+        .set({
+          instructions: [targetItem.instructions, "Superseded by medication change; do not dispense/administer this previous order."].filter(Boolean).join("\n"),
+          deletedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(prescriptionItems.id, targetItem.id), eq(prescriptionItems.prescriptionId, id), isNull(prescriptionItems.deletedAt)));
+
+      const [updated] = await db
+        .update(prescriptions)
+        .set({
+          medication: nextDrugName || existing.medication,
+          genericName: itemPatch.genericName !== undefined ? String(itemPatch.genericName || "").trim() || null : existing.genericName,
+          strength: itemPatch.strength !== undefined ? String(itemPatch.strength || "").trim() || null : existing.strength,
+          dosage: itemPatch.dosage !== undefined ? String(itemPatch.dosage || "").trim() : existing.dosage,
+          frequency: nextFrequency,
+          duration: itemPatch.duration !== undefined ? String(itemPatch.duration || "").trim() || null : existing.duration,
+          quantity: nextQuantity,
+          instructions: itemPatch.instructions !== undefined ? String(itemPatch.instructions || "").trim() || null : existing.instructions,
+          notes: body.notes !== undefined ? String(body.notes || "").trim() || null : existing.notes,
+          status: "active",
+          updatedAt: new Date(),
+        })
+        .where(and(eq(prescriptions.id, id), eq(prescriptions.tenantId, doctor.tenantId!), isNull(prescriptions.deletedAt)))
+        .returning();
+
+      await cancelPendingMedicationAdministrations(doctor.tenantId!, id, "Prescription changed by doctor.");
+      const doseCount = await createMedicationAdministrationRecords({
+        tenantId: doctor.tenantId!,
+        prescriptionId: id,
+        patientId: existing.patientId,
+        items: changedItem ? [changedItem] : [],
+      });
+
+      await notifyPrescriptionWorkflow({
+        tenantId: doctor.tenantId!,
+        prescriptionId: id,
+        patientId: existing.patientId,
+        doctorId: doctor.id,
+        patientName: existing.patientName,
+        medication: nextDrugName || existing.medication,
+        message: `${existing.medication || "A prescription"} for ${existing.patientName} was changed by the doctor.${doseCount ? ` ${doseCount} new administration dose(s) were scheduled.` : ""}`,
+        roles: doseCount ? ["pharmacist", "pharmacy", "nurse", "nursing"] : ["pharmacist", "pharmacy"],
+        type: "prescription_changed",
+        title: "Prescription changed",
+        extra: { doseCount, route: nextRoute },
+      });
+
+      await syncPatientCareInvoice(doctor.tenantId!, existing.patientId).catch((error) => {
+        console.error("Failed to sync patient care invoice after medication change:", error);
+      });
 
       return NextResponse.json(updated);
     }
@@ -247,11 +415,49 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       .where(and(eq(prescriptions.id, id), eq(prescriptions.tenantId, doctor.tenantId!), isNull(prescriptions.deletedAt)))
       .returning();
 
+    if (String(updateData.status || "").match(/^(completed|discontinued|cancelled|canceled)$/)) {
+      await cancelPendingMedicationAdministrations(doctor.tenantId!, id, "Prescription closed by doctor.");
+    }
+
     return NextResponse.json(updated);
   } catch (error) {
     console.error("Update doctor prescription error:", error);
     return NextResponse.json({ error: "Failed to update prescription" }, { status: 500 });
   }
+}
+
+async function notifyPrescriptionWorkflow({
+  tenantId,
+  prescriptionId,
+  patientId,
+  doctorId,
+  medication,
+  message,
+  roles,
+  type,
+  title,
+  extra = {},
+}: {
+  tenantId: string;
+  prescriptionId: string;
+  patientId: string;
+  doctorId: string;
+  patientName: string;
+  medication?: string | null;
+  message: string;
+  roles: string[];
+  type: string;
+  title: string;
+  extra?: Record<string, unknown>;
+}) {
+  await notifyMedicationRoleUsers({
+    tenantId,
+    roleNames: roles,
+    type,
+    title,
+    message,
+    metadata: { prescriptionId, patientId, medication, updatedBy: doctorId, ...extra },
+  });
 }
 
 export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {

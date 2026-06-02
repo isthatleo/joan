@@ -139,13 +139,18 @@ function buildEmployeeId(settings: StaffIdSettings, sequence: number) {
 
 async function resolveEmployeeId(tenantId: string, requested?: string | null) {
   const manual = String(requested || "").trim();
-  if (manual) return manual;
+  const staff = await getStaffRows(tenantId);
+  const existingIds = new Set(staff.map((member) => String(member.employeeId || "").toLowerCase()).filter(Boolean));
+  if (manual) {
+    if (existingIds.has(manual.toLowerCase())) {
+      throw new Error("Employee ID already exists for this tenant. Use a unique ID or leave it blank for auto-generation.");
+    }
+    return manual;
+  }
 
   const settings = await getStaffIdSettings(tenantId);
   if (!settings.enabled) return "";
 
-  const staff = await getStaffRows(tenantId);
-  const existingIds = new Set(staff.map((member) => String(member.employeeId || "").toLowerCase()).filter(Boolean));
   let sequence = settings.nextNumber;
   let employeeId = buildEmployeeId(settings, sequence);
   while (existingIds.has(employeeId.toLowerCase())) {
@@ -230,6 +235,86 @@ export async function requireTenantAdmin(headers: Headers, tenantId: string) {
 
   if (!isAdmin) {
     return { ok: false as const, status: 403, error: "Hospital admin access required" };
+  }
+
+  return { ok: true as const, user: appUser, session };
+}
+
+export async function requireLabTechnicianOrAdmin(headers: Headers, tenantId: string) {
+  const { auth } = await import("@/lib/auth");
+  const session = await auth.api.getSession({ headers });
+  if (!session?.user?.email) {
+    return { ok: false as const, status: 401, error: "Unauthorized" };
+  }
+
+  const appUser = await db.query.users.findFirst({
+    where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
+    columns: { id: true, email: true, tenantId: true, role: true, isActive: true },
+  });
+
+  if (!appUser?.id) {
+    return { ok: false as const, status: 403, error: "Forbidden" };
+  }
+
+  if (appUser.isActive === false) {
+    return { ok: false as const, status: 403, error: "Forbidden" };
+  }
+
+  const roleRows = await db
+    .select({ roleName: roles.name })
+    .from(userRoles)
+    .innerJoin(roles, eq(userRoles.roleId, roles.id))
+    .where(eq(userRoles.userId, appUser.id))
+    .catch(() => []);
+
+  const assignedRoles = roleRows.map((row) => normalizeRole(row.roleName));
+  const isSuperAdmin = assignedRoles.includes("super_admin") || normalizeRole(appUser.role) === "super_admin";
+  const isTenantScopedUser = appUser.tenantId === tenantId;
+
+  const isLabTechnicianOrAdmin = isSuperAdmin || (isTenantScopedUser && (assignedRoles.includes("hospital_admin") || normalizeRole(appUser.role) === "hospital_admin" || assignedRoles.includes("lab_technician") || normalizeRole(appUser.role) === "lab_technician"));
+
+  if (!isLabTechnicianOrAdmin) {
+    return { ok: false as const, status: 403, error: "Lab technician or hospital admin access required" };
+  }
+
+  return { ok: true as const, user: appUser, session };
+}
+
+export async function requirePharmacistOrAdmin(headers: Headers, tenantId: string) {
+  const { auth } = await import("@/lib/auth");
+  const session = await auth.api.getSession({ headers });
+  if (!session?.user?.email) {
+    return { ok: false as const, status: 401, error: "Unauthorized" };
+  }
+
+  const appUser = await db.query.users.findFirst({
+    where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
+    columns: { id: true, email: true, tenantId: true, role: true, isActive: true },
+  });
+
+  if (!appUser?.id) {
+    return { ok: false as const, status: 403, error: "Forbidden" };
+  }
+
+  if (appUser.isActive === false) {
+    return { ok: false as const, status: 403, error: "Forbidden" };
+  }
+
+  const roleRows = await db
+    .select({ roleName: roles.name })
+    .from(userRoles)
+    .innerJoin(roles, eq(userRoles.roleId, roles.id))
+    .where(eq(userRoles.userId, appUser.id))
+    .catch(() => []);
+
+  const assignedRoles = roleRows.map((row) => normalizeRole(row.roleName));
+  const isSuperAdmin = assignedRoles.includes("super_admin") || normalizeRole(appUser.role) === "super_admin";
+  const isTenantScopedUser = appUser.tenantId === tenantId;
+
+  const isPharmacistOrAdmin = isSuperAdmin || (isTenantScopedUser && (assignedRoles.includes("hospital_admin") || normalizeRole(appUser.role) === "hospital_admin" || assignedRoles.includes("pharmacist") || normalizeRole(appUser.role) === "pharmacist"));
+
+  if (!isPharmacistOrAdmin) {
+    return { ok: false as const, status: 403, error: "Pharmacist or hospital admin access required" };
   }
 
   return { ok: true as const, user: appUser, session };

@@ -3,7 +3,8 @@ import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { getTenantIdBySlug } from "@/lib/accountant/server";
 import { db } from "@/lib/db";
 import { auditLogs, inventoryItems, notifications, patients, prescriptionItems, prescriptions, roles, userRoles, users } from "@/lib/db/schema";
-import { requireTenantAdmin } from "@/lib/tenant-staff";
+import { requirePharmacistOrAdmin } from "@/lib/tenant-staff"; // Import the new function
+import { cancelPendingMedicationAdministrations, isNurseAdministrationRoute, isPrescriptionClosed, isTakeHomeRoute, notifyMedicationRoleUsers } from "@/lib/medication-workflow";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -57,13 +58,13 @@ export async function getPharmacyData(tenantId: string, request: NextRequest) {
         refillsRemaining: prescriptions.refillsRemaining,
         instructions: prescriptions.instructions,
         status: prescriptions.status,
+        priority: prescriptions.priority,
         prescribedAt: prescriptions.prescribedAt,
         filledAt: prescriptions.filledAt,
         expiresAt: prescriptions.expiresAt,
         pharmacy: prescriptions.pharmacy,
         notes: prescriptions.notes,
         interactions: prescriptions.interactions,
-        priority: prescriptions.priority,
         isEmergency: prescriptions.isEmergency,
         validUntil: prescriptions.validUntil,
         itemId: prescriptionItems.id,
@@ -75,6 +76,7 @@ export async function getPharmacyData(tenantId: string, request: NextRequest) {
         itemDuration: prescriptionItems.duration,
         itemQuantity: prescriptionItems.quantity,
         itemInstructions: prescriptionItems.instructions,
+        itemRoute: prescriptionItems.route,
       })
       .from(prescriptions)
       .leftJoin(patients, eq(patients.id, prescriptions.patientId))
@@ -162,6 +164,8 @@ export async function getPharmacyData(tenantId: string, request: NextRequest) {
         duration: row.itemDuration || row.duration || "",
         quantity: row.itemQuantity || row.quantity || 0,
         instructions: row.itemInstructions || row.instructions || "",
+        route: row.itemRoute || "",
+        fulfillment: isNurseAdministrationRoute(row.itemRoute) ? "nurse_administration" : "pharmacy_dispensing",
       });
     }
 
@@ -191,6 +195,9 @@ export async function getPharmacyData(tenantId: string, request: NextRequest) {
     }
   }
 
+  const takeHomePrescriptions = prescriptionList.filter((item) => item.medications.some((medication: any) => isTakeHomeRoute(medication.route)));
+  const nurseAdminPrescriptions = prescriptionList.filter((item) => item.medications.some((medication: any) => isNurseAdministrationRoute(medication.route)));
+
   return {
     stats: {
       totalPrescriptions: prescriptionsById.size,
@@ -206,6 +213,8 @@ export async function getPharmacyData(tenantId: string, request: NextRequest) {
       criticalInteractions: criticalInteractions.length,
       pharmacistCount: pharmacistById.size,
       inventoryItems: inventoryRows.length,
+      takeHomeDispensing: takeHomePrescriptions.length,
+      nurseAdministration: nurseAdminPrescriptions.length,
     },
     prescriptions: prescriptionList,
     inventoryAlerts: [...outOfStock, ...lowStock, ...expiringSoon]
@@ -240,8 +249,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    const admin = await requireTenantAdmin(request.headers, tenantId);
-    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
+    const authCheck = await requirePharmacistOrAdmin(request.headers, tenantId); // Use new function
+    if (!authCheck.ok) return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
 
     return NextResponse.json(await getPharmacyData(tenantId, request), {
       headers: { "Cache-Control": "no-store, max-age=0" },
@@ -258,8 +267,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
 
-    const admin = await requireTenantAdmin(request.headers, tenantId);
-    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
+    const authCheck = await requirePharmacistOrAdmin(request.headers, tenantId); // Use new function
+    if (!authCheck.ok) return NextResponse.json({ error: authCheck.error }, { status: authCheck.status });
 
     const body = await request.json().catch(() => ({}));
     const prescriptionId = String(body.prescriptionId || "").trim();
@@ -310,6 +319,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     const [updated] = await db.update(prescriptions).set(update).where(eq(prescriptions.id, prescriptionId)).returning();
 
+    if (isPrescriptionClosed(update.status as string | undefined)) {
+      await cancelPendingMedicationAdministrations(tenantId, prescriptionId, `Prescription ${update.status} by pharmacy administration.`);
+      await notifyMedicationRoleUsers({
+        tenantId,
+        roleNames: ["nurse", "nursing"],
+        type: "prescription_closed",
+        title: "Prescription closed",
+        message: `${prescription.medication || "Prescription"} was ${update.status}; pending administration tasks were closed.`,
+        metadata: { prescriptionId, patientId: prescription.patientId, action },
+      }).catch(() => null);
+    }
+
     if (notificationTitle && prescription.doctorId) {
       await db.insert(notifications).values({
         tenantId,
@@ -324,7 +345,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     await db.insert(auditLogs).values({
       tenantId,
-      userId: admin.user?.id || null,
+      userId: authCheck.user?.id || null, // Use user from authCheck
       action: auditAction,
       entity: "prescription",
       entityId: prescriptionId,

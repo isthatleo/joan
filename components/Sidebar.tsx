@@ -142,6 +142,7 @@ const sidebarConfigs: Record<string, SidebarItem[]> = {
     { label: "Appointments", path: "/appointments", icon: Calendar, category: "Front Desk" },
     { label: "Check-in", path: "/check-in", icon: UserCheck, category: "Front Desk" },
     { label: "Queue", path: "/queue", icon: ClipboardList, category: "Front Desk" },
+    { label: "Patients", path: "/patients", icon: Users, category: "Front Desk" }, // Added this line
     { label: "Patient Registration", path: "/patients/register", icon: Users, category: "Front Desk" },
     { label: "Waiting Room", path: "/reception/waiting", icon: BedDouble, category: "Front Desk" },
     { label: "Messages", path: "/messages", icon: MessageSquare, category: "Communication" },

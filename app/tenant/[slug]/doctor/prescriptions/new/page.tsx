@@ -459,10 +459,11 @@ export default function NewPrescriptionPage() {
                     >
                       <option value="oral">Oral</option>
                       <option value="iv">IV</option>
+                      <option value="injection">Injection</option>
                       <option value="im">IM</option>
+                      <option value="subcutaneous">Subcutaneous</option>
                       <option value="topical">Topical</option>
                       <option value="inhaled">Inhaled</option>
-                      <option value="subcutaneous">Subcutaneous</option>
                     </select>
                   </div>
                   <div className="xl:col-span-4">

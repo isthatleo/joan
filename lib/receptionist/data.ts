@@ -1,5 +1,5 @@
 ﻿import crypto from "node:crypto";
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   appointments,
@@ -595,28 +595,31 @@ export async function rescheduleReceptionAppointment(
 export async function searchReceptionPatients(tenantId: string, query: string) {
   await syncDeferredPatientPortalAccesses(tenantId);
   const term = query.trim();
-  if (!term || term.length < 2) return [];
-  const phoneDigits = term.replace(/\D/g, "");
+  // Modified to return all patients if term is empty, otherwise filter by term
+  const whereConditions: SQL[] = [eq(patients.tenantId, tenantId)];
 
   const eligiblePatientIds = await getEligiblePatientIdsForTenant(tenantId);
   if (!eligiblePatientIds.length) return [];
+  whereConditions.push(inArray(patients.id, eligiblePatientIds));
+
+  if (term) {
+    const phoneDigits = term.replace(/\D/g, "");
+    const searchCondition = or(
+      ilike(patients.fullName, `%${term}%`),
+      ilike(patients.firstName, `%${term}%`),
+      ilike(patients.lastName, `%${term}%`),
+      ilike(patients.globalPatientId, `%${term}%`),
+      ilike(patients.mrn, `%${term}%`),
+      ilike(patients.phone, `%${term}%`),
+      phoneDigits.length >= 2
+        ? sql`regexp_replace(coalesce(${patients.phone}, ''), '[^0-9]', '', 'g') ilike ${`%${phoneDigits}%`}`
+        : sql`false`,
+    );
+    if (searchCondition) whereConditions.push(searchCondition);
+  }
 
   const rows = await db.query.patients.findMany({
-    where: and(
-      eq(patients.tenantId, tenantId),
-      inArray(patients.id, eligiblePatientIds),
-      or(
-        ilike(patients.fullName, `%${term}%`),
-        ilike(patients.firstName, `%${term}%`),
-        ilike(patients.lastName, `%${term}%`),
-        ilike(patients.globalPatientId, `%${term}%`),
-        ilike(patients.mrn, `%${term}%`),
-        ilike(patients.phone, `%${term}%`),
-        phoneDigits.length >= 2
-          ? sql`regexp_replace(coalesce(${patients.phone}, ''), '[^0-9]', '', 'g') ilike ${`%${phoneDigits}%`}`
-          : sql`false`,
-      ),
-    ),
+    where: and(...whereConditions),
     orderBy: [desc(patients.updatedAt)],
   });
 
@@ -646,7 +649,7 @@ export async function searchReceptionPatients(tenantId: string, query: string) {
       dateOfBirth: patient.dob?.toISOString() || null,
       phone: patient.phone || "",
       email: patient.email || "",
-      address: patient.address || "",
+      address: patient.address || "", // Corrected: Removed reference to undefined 'payload'
       medicalRecordNumber: patient.globalPatientId || patient.mrn || "",
       lastVisit: latestVisit?.createdAt?.toISOString() || null,
       visitCount: patientVisits.length,
@@ -807,6 +810,7 @@ export async function checkInReceptionPatient(
   patientId: string,
   appointmentId?: string | null,
   paymentSelection?: {
+    doctorId?: string | null;
     paymentMethod?: string | null;
     insuranceProvider?: string | null;
     insurancePolicyNumber?: string | null;
@@ -820,6 +824,21 @@ export async function checkInReceptionPatient(
         where: and(eq(appointments.tenantId, tenantId), eq(appointments.id, appointmentId)),
       })
     : null;
+  const requestedDoctorId = String(paymentSelection?.doctorId || "").trim() || null;
+  const assignedDoctorId = requestedDoctorId || appointment?.doctorId;
+
+  if (!assignedDoctorId) {
+    throw new Error("A doctor must be selected before sending a patient to the queue.");
+  }
+
+  const assignedDoctor = await db.query.users.findFirst({
+    where: and(eq(users.tenantId, tenantId), eq(users.id, assignedDoctorId), eq(users.isActive, true), isNull(users.deletedAt)),
+    columns: { id: true, fullName: true },
+  });
+
+  if (!assignedDoctor) {
+    throw new Error("Selected doctor is not available.");
+  }
 
   if (!appointment) {
     const [createdAppointment] = await db
@@ -827,7 +846,7 @@ export async function checkInReceptionPatient(
       .values({
         tenantId,
         patientId,
-        doctorId: null,
+        doctorId: assignedDoctorId,
         scheduledAt: new Date(),
         status: "checked-in",
       } as any)
@@ -836,18 +855,24 @@ export async function checkInReceptionPatient(
   } else {
     await db
       .update(appointments)
-      .set({ status: "checked-in", updatedAt: new Date() })
+      .set({ doctorId: assignedDoctorId, status: "checked-in", updatedAt: new Date() })
       .where(eq(appointments.id, appointment.id));
+    appointment = { ...appointment, doctorId: assignedDoctorId, status: "checked-in" };
   }
 
   const existingQueue = await db.query.queues.findFirst({
-    where: and(eq(queues.tenantId, tenantId), eq(queues.patientId, patientId), inArray(queues.status, ["waiting", "called", "in-progress", "with-doctor"])),
+    where: and(
+      eq(queues.tenantId, tenantId),
+      eq(queues.patientId, patientId),
+      or(eq(queues.assignedTo, assignedDoctorId), isNull(queues.assignedTo))!,
+      inArray(queues.status, ["waiting", "called", "in-progress", "with-doctor"]),
+    ),
   });
 
   let queueEntry = existingQueue;
   if (!queueEntry) {
     const currentQueue = await db.query.queues.findMany({
-      where: eq(queues.tenantId, tenantId),
+      where: and(eq(queues.tenantId, tenantId), eq(queues.assignedTo, assignedDoctorId), inArray(queues.status, ["waiting", "called", "in-progress", "with-doctor"])),
       orderBy: [desc(queues.position)],
       limit: 1,
     });
@@ -855,16 +880,24 @@ export async function checkInReceptionPatient(
     const nextPosition = (currentQueue[0]?.position || 0) + 1;
     const [createdQueue] = await db
       .insert(queues)
-      .values({
-        tenantId,
-        patientId,
-        queueNumber: `Q${String(nextPosition).padStart(3, "0")}`,
-        status: "waiting",
-        priority: "normal",
-        position: nextPosition,
-      })
-      .returning();
+        .values({
+          tenantId,
+          patientId,
+          assignedTo: assignedDoctorId,
+          queueNumber: `Q${String(nextPosition).padStart(3, "0")}`,
+          status: "waiting",
+          priority: "routine",
+          position: nextPosition,
+        })
+        .returning();
     queueEntry = createdQueue;
+  } else if (queueEntry.assignedTo !== assignedDoctorId) {
+    const [updatedQueue] = await db
+      .update(queues)
+      .set({ assignedTo: assignedDoctorId, updatedAt: new Date() })
+      .where(and(eq(queues.tenantId, tenantId), eq(queues.id, queueEntry.id)))
+      .returning();
+    queueEntry = updatedQueue;
   }
 
   if (paymentSelection?.paymentMethod) {
@@ -889,10 +922,6 @@ export async function checkInReceptionPatient(
     where: and(eq(patients.tenantId, tenantId), eq(patients.id, patientId)),
   });
 
-  const doctor = appointment?.doctorId
-    ? await db.query.users.findFirst({ where: eq(users.id, appointment.doctorId) })
-    : null;
-
   return {
     patient: {
       id: patient?.id || patientId,
@@ -906,7 +935,7 @@ export async function checkInReceptionPatient(
     appointment: {
       id: appointment?.id || "",
       type: "Consultation",
-      doctorName: doctor?.fullName || "Pending doctor assignment",
+      doctorName: assignedDoctor.fullName || "Assigned doctor",
       scheduledAt: appointment?.scheduledAt?.toISOString() || null,
     },
     checkInTime: new Date().toISOString(),
@@ -942,7 +971,7 @@ export async function getReceptionQueue(tenantId: string) {
       id: row.id,
       patientId: row.patientId,
       patientName: patient ? toFullPatientName(patient) : "Unknown patient",
-      age: patient?.dob ? Math.max(0, new Date().getFullYear() - patient.dob.getFullYear()) : 0,
+      age: patient?.dob instanceof Date ? Math.max(0, new Date().getFullYear() - patient.dob.getFullYear()) : 0, // Modified line
       priority: (row.priority || "normal") as "low" | "normal" | "high" | "urgent",
       checkInTime: row.createdAt?.toISOString() || null,
       estimatedWaitTime: formatMinutes(Math.max(waitMinutes, ((row.position || 1) - 1) * 8)),
@@ -983,6 +1012,12 @@ export async function updateReceptionQueueStatus(tenantId: string, queueId: stri
       updatedAt: new Date(),
     } as any)
     .where(and(eq(queues.tenantId, tenantId), eq(queues.id, queueId)));
+
+  if (status === "with-doctor") {
+    // Invalidate the doctor's queue page to trigger a refetch
+    const { revalidatePath } = await import("next/cache");
+    revalidatePath('/[slug]/doctor/queue', 'page');
+  }
 
   if (["with-doctor", "completed", "cancelled", "no-show", "in-progress"].includes(status)) {
     await resolveQueueAnnouncements(
@@ -1250,5 +1285,3 @@ export async function getReceptionAlerts(tenantId: string) {
 
   return alerts.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 }
-
-

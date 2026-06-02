@@ -1,50 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { inventoryItems, notifications, patients, prescriptionItems, prescriptions, roles, userRoles, users, visits } from "@/lib/db/schema";
+import { inventoryItems, patients, prescriptionItems, prescriptions, visits } from "@/lib/db/schema";
 import { resolveDoctorContext } from "@/lib/doctor/server";
+import { syncPatientCareInvoice } from "@/lib/billing/patient-ledger";
+import {
+  createMedicationAdministrationRecords,
+  isNurseAdministrationRoute,
+  isTakeHomeRoute,
+  notifyMedicationRoleUsers,
+} from "@/lib/medication-workflow";
 
 function parseStock(value: string | null | undefined) {
   const amount = Number(value || "0");
   return Number.isFinite(amount) ? amount : 0;
-}
-
-async function notifyPharmacyUsers(tenantId: string, message: string, metadata: Record<string, unknown>) {
-  const activeUsers = await db
-    .select({
-      id: users.id,
-      baseRole: users.role,
-      linkedRole: roles.name,
-    })
-    .from(users)
-    .leftJoin(userRoles, eq(userRoles.userId, users.id))
-    .leftJoin(roles, eq(roles.id, userRoles.roleId))
-    .where(and(eq(users.tenantId, tenantId), eq(users.isActive, true), isNull(users.deletedAt)));
-
-  const recipients = Array.from(
-    new Set(
-      activeUsers
-        .filter((user) => {
-          const roleNames = [user.baseRole, user.linkedRole].filter(Boolean).map((value) => String(value).toLowerCase());
-          return roleNames.includes("pharmacist") || roleNames.includes("pharmacy");
-        })
-        .map((user) => user.id)
-    )
-  );
-
-  if (recipients.length === 0) return;
-
-  await db.insert(notifications).values(
-    recipients.map((userId) => ({
-      tenantId,
-      userId,
-      type: "prescription_created",
-      title: "New prescription",
-      message,
-      metadata,
-      read: false,
-    }))
-  );
 }
 
 export async function GET(request: NextRequest) {
@@ -241,7 +210,7 @@ export async function POST(request: NextRequest) {
       })
       .returning();
 
-    await db.insert(prescriptionItems).values(
+    const insertedItems = await db.insert(prescriptionItems).values(
       items.map((item: any) => ({
         prescriptionId: prescription.id,
         medicationId: item.medicationId ? String(item.medicationId) : null,
@@ -257,14 +226,47 @@ export async function POST(request: NextRequest) {
         isPrn: Boolean(item.isPrn),
         route: String(item.route || "").trim() || null,
       }))
-    );
+    ).returning({
+      id: prescriptionItems.id,
+      drugName: prescriptionItems.drugName,
+      quantity: prescriptionItems.quantity,
+      frequency: prescriptionItems.frequency,
+      route: prescriptionItems.route,
+    });
 
-    const patientName = `${patient.firstName || ""} ${patient.lastName || ""}`.trim() || "A patient";
-    await notifyPharmacyUsers(doctor.tenantId, `${prescription.medication || "Medication"} was prescribed for ${patientName}.`, {
+    const nurseDoseCount = await createMedicationAdministrationRecords({
+      tenantId: doctor.tenantId,
       prescriptionId: prescription.id,
       patientId,
-      visitId: visit.id,
-      orderedBy: doctor.id,
+      items: insertedItems,
+    });
+
+    const patientName = `${patient.firstName || ""} ${patient.lastName || ""}`.trim() || "A patient";
+    const takeHomeCount = insertedItems.filter((item) => isTakeHomeRoute(item.route)).length;
+    if (takeHomeCount) {
+      await notifyMedicationRoleUsers({
+        tenantId: doctor.tenantId,
+        roleNames: ["pharmacist", "pharmacy"],
+        type: "prescription_created",
+        title: "New take-home prescription",
+        message: `${prescription.medication || "Medication"} was prescribed for ${patientName}. ${takeHomeCount} item(s) require pharmacy dispensing.`,
+        metadata: { prescriptionId: prescription.id, patientId, visitId: visit.id, orderedBy: doctor.id },
+      });
+    }
+
+    if (nurseDoseCount || insertedItems.some((item) => isNurseAdministrationRoute(item.route))) {
+      await notifyMedicationRoleUsers({
+        tenantId: doctor.tenantId,
+        roleNames: ["nurse", "nursing"],
+        type: "medication_administration_created",
+        title: "New medication administration order",
+        message: `${prescription.medication || "Medication"} for ${patientName} has ${nurseDoseCount} administration dose(s) scheduled.`,
+        metadata: { prescriptionId: prescription.id, patientId, visitId: visit.id, orderedBy: doctor.id, doseCount: nurseDoseCount },
+      });
+    }
+
+    await syncPatientCareInvoice(doctor.tenantId, patientId).catch((error) => {
+      console.error("Failed to sync patient care invoice after prescription creation:", error);
     });
 
     return NextResponse.json({ prescription }, { status: 201 });

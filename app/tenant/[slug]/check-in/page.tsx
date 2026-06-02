@@ -31,12 +31,21 @@ type PatientProfile = SearchPatient & {
 type Appointment = {
   id: string;
   patientId: string;
+  doctorId: string | null;
   doctorName: string;
   department: string;
   scheduledAt: string | null;
   time: string;
   status: string;
   type: string;
+};
+
+type Provider = {
+  id: string;
+  name: string;
+  specialty?: string | null;
+  email?: string | null;
+  phone?: string | null;
 };
 
 type CheckInResult = {
@@ -75,6 +84,9 @@ export default function CheckInPage() {
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string>("walk-in");
   const [checkInResult, setCheckInResult] = useState<CheckInResult | null>(null);
   const [paymentWorkspace, setPaymentWorkspace] = useState<PaymentWorkspace | null>(null);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [selectedDoctorId, setSelectedDoctorId] = useState("");
+  const [checkInError, setCheckInError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [insuranceProvider, setInsuranceProvider] = useState("");
   const [insurancePolicyNumber, setInsurancePolicyNumber] = useState("");
@@ -85,22 +97,21 @@ export default function CheckInPage() {
     () => appointments.find((item) => item.id === selectedAppointmentId) || null,
     [appointments, selectedAppointmentId],
   );
+  const effectiveDoctorId = selectedDoctorId || selectedAppointment?.doctorId || "";
 
   const searchPatients = async (term: string) => {
-    if (!term || term.trim().length < 2) {
-      setResults([]);
-      return;
-    }
-
+    setLoading(true);
     try {
-      setLoading(true);
-      const response = await fetch(`/api/tenant/${tenantSlug}/receptionist/patients/search?q=${encodeURIComponent(term)}`, { cache: "no-store" });
+      // If term is empty, fetch all patients by not including the 'q' parameter
+      // Otherwise, include the 'q' parameter for searching
+      const queryParam = term.trim() ? `?q=${encodeURIComponent(term.trim())}` : '';
+      const response = await fetch(`/api/tenant/${tenantSlug}/receptionist/patients/search${queryParam}`, { cache: "no-store" });
       const payload = await response.json().catch(() => []);
       if (response.ok) {
         setResults(Array.isArray(payload) ? payload : []);
       }
     } catch (error) {
-      console.error("Failed to search patients:", error);
+      console.error("Failed to fetch patients:", error);
     } finally {
       setLoading(false);
     }
@@ -120,6 +131,8 @@ export default function CheckInPage() {
           ? payload.appointments.find((item: Appointment) => item.status === "scheduled")
           : null;
         setSelectedAppointmentId(nextAppointment?.id || "walk-in");
+        setSelectedDoctorId(nextAppointment?.doctorId || providers[0]?.id || "");
+        setCheckInError(null);
         const defaultPreference = payload.paymentWorkspace?.defaultPreference;
         setPaymentMethod(defaultPreference?.paymentMethod || payload.paymentWorkspace?.methods?.[0] || "cash");
         setInsuranceProvider(defaultPreference?.insuranceProvider || payload.paymentWorkspace?.insurancePolicies?.[0]?.provider || "");
@@ -141,21 +154,50 @@ export default function CheckInPage() {
     return () => clearTimeout(timer);
   }, [searchTerm, tenantSlug]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProviders() {
+      try {
+        const response = await fetch(`/api/tenant/${tenantSlug}/receptionist/appointments/options`, { cache: "no-store" });
+        const payload = await response.json().catch(() => null);
+        if (!cancelled && response.ok) {
+          const nextProviders = Array.isArray(payload?.providers) ? payload.providers : [];
+          setProviders(nextProviders);
+          setSelectedDoctorId((current) => current || nextProviders[0]?.id || "");
+        }
+      } catch (error) {
+        console.error("Failed to load doctors:", error);
+      }
+    }
+
+    if (tenantSlug) void loadProviders();
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantSlug]);
+
   const handleCheckIn = async () => {
     if (!selectedPatient) return;
     if (paymentMethod === "insurance" && (!insuranceProvider || !insurancePolicyNumber)) {
-      window.alert("Insurance provider and policy number are required for insurance check-out.");
+      setCheckInError("Insurance provider and policy number are required for insurance check-out.");
+      return;
+    }
+    if (!effectiveDoctorId) {
+      setCheckInError("Select a doctor before sending this patient to the doctor's queue.");
       return;
     }
 
     try {
       setCheckingIn(true);
+      setCheckInError(null);
       const response = await fetch(`/api/tenant/${tenantSlug}/receptionist/check-in`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           patientId: selectedPatient.id,
           appointmentId: selectedAppointmentId === "walk-in" ? null : selectedAppointmentId,
+          doctorId: effectiveDoctorId,
           paymentMethod,
           insuranceProvider: paymentMethod === "insurance" ? insuranceProvider : null,
           insurancePolicyNumber: paymentMethod === "insurance" ? insurancePolicyNumber : null,
@@ -166,9 +208,12 @@ export default function CheckInPage() {
       if (response.ok) {
         setCheckInResult(payload);
         loadPatientWorkspace(selectedPatient.id);
+      } else {
+        setCheckInError(payload?.error || "Failed to complete patient check-in.");
       }
     } catch (error) {
       console.error("Failed to complete patient check-in:", error);
+      setCheckInError(error instanceof Error ? error.message : "Failed to complete patient check-in.");
     } finally {
       setCheckingIn(false);
     }
@@ -182,6 +227,8 @@ export default function CheckInPage() {
     setSelectedAppointmentId("walk-in");
     setCheckInResult(null);
     setPaymentWorkspace(null);
+    setSelectedDoctorId(providers[0]?.id || "");
+    setCheckInError(null);
     setPaymentMethod("cash");
     setInsuranceProvider("");
     setInsurancePolicyNumber("");
@@ -226,42 +273,63 @@ export default function CheckInPage() {
             {loading ? (
               <div className="flex items-center gap-2 rounded-xl border border-border px-4 py-6 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Searching patients...
+                {searchTerm ? "Searching patients..." : "Loading all patients..."}
               </div>
             ) : results.length === 0 ? (
               <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                Enter at least two characters to search patients.
+                {searchTerm ? "No patients found matching your search." : "No patients registered yet."}
               </div>
             ) : (
-              results.map((patient) => (
-                <button
-                  key={patient.id}
-                  onClick={() => {
-                    setSelectedPatient({
-                      ...patient,
-                      allergies: [],
-                      conditions: [],
-                      insurancePolicies: [],
-                      recentVisits: [],
-                    });
-                    setAppointments([]);
-                    setCheckInResult(null);
-                    setPaymentWorkspace(null);
-                    setSelectedAppointmentId("walk-in");
-                    void loadPatientWorkspace(patient.id);
-                  }}
-                  className="flex w-full items-start justify-between rounded-xl border border-border bg-background/70 px-4 py-4 text-left transition-colors hover:bg-muted/40"
-                >
-                  <div>
-                    <p className="font-medium text-foreground">{patient.fullName}</p>
-                    <p className="text-xs text-muted-foreground">{patient.medicalRecordNumber || "No MRN"} {patient.phone ? `- ${patient.phone}` : ""}</p>
-                  </div>
-                  <div className="text-right text-xs text-muted-foreground">
-                    <p>{patient.visitCount} visit(s)</p>
-                    <p>{patient.lastVisit ? new Date(patient.lastVisit).toLocaleDateString() : "No prior visit"}</p>
-                  </div>
-                </button>
-              ))
+              <div className="overflow-x-auto rounded-xl border border-border">
+                <table className="min-w-full divide-y divide-border text-sm">
+                  <thead className="bg-muted/40 text-left text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Patient Name</th>
+                      <th className="px-4 py-3 font-medium">MRN</th>
+                      <th className="px-4 py-3 font-medium">Phone</th>
+                      <th className="px-4 py-3 font-medium">Last Visit</th>
+                      <th className="px-4 py-3 font-medium">Visits</th>
+                      <th className="px-4 py-3 font-medium">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border bg-card">
+                    {results.map((patient) => (
+                      <tr key={patient.id}>
+                        <td className="px-4 py-3 font-medium text-foreground">{patient.fullName}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{patient.medicalRecordNumber || "N/A"}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{patient.phone || "N/A"}</td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {patient.lastVisit ? new Date(patient.lastVisit).toLocaleDateString() : "Never"}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">{patient.visitCount}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => {
+                              setSelectedPatient({
+                                ...patient,
+                                allergies: [],
+                                conditions: [],
+                                insurancePolicies: [],
+                                recentVisits: [],
+                              });
+                              setAppointments([]);
+                              setCheckInResult(null);
+                              setPaymentWorkspace(null);
+                              setSelectedAppointmentId("walk-in");
+                              setSelectedDoctorId((current) => current || providers[0]?.id || "");
+                              setCheckInError(null);
+                              void loadPatientWorkspace(patient.id);
+                            }}
+                            className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                          >
+                            Select
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </section>
@@ -326,7 +394,14 @@ export default function CheckInPage() {
 
                 <div className="mt-4 space-y-2">
                   <label className="flex items-start gap-3 rounded-lg border border-border px-3 py-3">
-                    <input type="radio" checked={selectedAppointmentId === "walk-in"} onChange={() => setSelectedAppointmentId("walk-in")} />
+                    <input
+                      type="radio"
+                      checked={selectedAppointmentId === "walk-in"}
+                      onChange={() => {
+                        setSelectedAppointmentId("walk-in");
+                        setSelectedDoctorId((current) => current || providers[0]?.id || "");
+                      }}
+                    />
                     <div>
                       <p className="font-medium text-foreground">Walk-in Visit</p>
                       <p className="text-sm text-muted-foreground">Creates a same-day consultation entry and places the patient directly in queue.</p>
@@ -337,7 +412,10 @@ export default function CheckInPage() {
                       <input
                         type="radio"
                         checked={selectedAppointmentId === appointment.id}
-                        onChange={() => setSelectedAppointmentId(appointment.id)}
+                        onChange={() => {
+                          setSelectedAppointmentId(appointment.id);
+                          setSelectedDoctorId(appointment.doctorId || providers[0]?.id || "");
+                        }}
                       />
                       <div className="flex-1">
                         <div className="flex items-center justify-between gap-3">
@@ -348,6 +426,27 @@ export default function CheckInPage() {
                       </div>
                     </label>
                   ))}
+                </div>
+
+                <div className="mt-4 rounded-lg border border-border bg-background/70 p-3">
+                  <label className="block text-sm font-semibold text-foreground">
+                    Assign doctor
+                    <select
+                      value={effectiveDoctorId}
+                      onChange={(event) => setSelectedDoctorId(event.target.value)}
+                      className="mt-2 h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+                    >
+                      <option value="">Select doctor</option>
+                      {providers.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.name}{provider.specialty ? ` - ${provider.specialty}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Reception can assign or reassign the doctor before sending the patient into that doctor's live queue.
+                  </p>
                 </div>
               </div>
 
@@ -391,13 +490,18 @@ export default function CheckInPage() {
                 ) : null}
                 <button
                   onClick={handleCheckIn}
-                  disabled={checkingIn}
+                  disabled={checkingIn || !effectiveDoctorId}
                   className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
                 >
                   {checkingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
-                  Complete Check-in
+                  Send to Doctor
                 </button>
               </div>
+              {checkInError ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {checkInError}
+                </div>
+              ) : null}
             </div>
           )}
         </section>
