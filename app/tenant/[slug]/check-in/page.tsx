@@ -217,7 +217,7 @@ export default function CheckInPage() {
             <input
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Search by patient name, MRN, or phone number"
+              placeholder="Search by patient name, MRN, or registered phone number"
               className="h-11 w-full rounded-xl border border-border bg-background pl-10 pr-3 text-sm text-foreground"
             />
           </div>

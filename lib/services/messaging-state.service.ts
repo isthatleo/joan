@@ -2,7 +2,7 @@ import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { messagePresence, messageTypingStates } from "@/lib/db/schema";
 
-const ONLINE_WINDOW_MS = 20_000;
+const ONLINE_WINDOW_MS = 90_000;
 const TYPING_WINDOW_MS = 5_000;
 
 export class MessagingStateService {
@@ -44,6 +44,18 @@ export class MessagingStateService {
       .select({ userId: messagePresence.userId })
       .from(messagePresence)
       .where(and(...conditions));
+
+    return rows.map((row) => row.userId);
+  }
+
+  async getOnlineUserIdsForUsers(userIds: string[]) {
+    if (userIds.length === 0) return [];
+
+    const cutoff = new Date(Date.now() - ONLINE_WINDOW_MS);
+    const rows = await db
+      .select({ userId: messagePresence.userId })
+      .from(messagePresence)
+      .where(and(inArray(messagePresence.userId, Array.from(new Set(userIds))), gt(messagePresence.lastSeenAt, cutoff)));
 
     return rows.map((row) => row.userId);
   }

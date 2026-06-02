@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { departments, roles, tenantSettings, tenants, userRoles, users, userSettings } from "@/lib/db/schema";
 import * as authSchema from "@/lib/auth-schema";
 import { mergeUserSettings } from "@/lib/user-settings";
+import { buildTenantLoginUrl as buildTenantDomainLoginUrl } from "@/lib/tenant-routing";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required");
@@ -156,21 +157,7 @@ async function resolveEmployeeId(tenantId: string, requested?: string | null) {
 }
 
 export function buildTenantLoginUrl(slug: string, role?: StaffRole) {
-  const origin = process.env.NEXT_PUBLIC_APP_URL || process.env.BETTER_AUTH_URL || "http://localhost:3000";
-  const base = new URL(origin);
-  const query = role ? `?role=${encodeURIComponent(role)}` : "";
-
-  if (base.hostname === "localhost") {
-    return `${base.protocol}//${slug}.localhost:${base.port || "3000"}/login${query}`;
-  }
-
-  if (base.hostname === "127.0.0.1") {
-    return `${base.protocol}//localhost:${base.port || "3000"}/tenant-login/${slug}${query}`;
-  }
-
-  const hostParts = base.hostname.split(".");
-  const bareHost = hostParts[0] === "www" ? hostParts.slice(1).join(".") : base.hostname;
-  return `${base.protocol}//${slug}.${bareHost}${base.port ? `:${base.port}` : ""}/login${query}`;
+  return buildTenantDomainLoginUrl(slug, { role });
 }
 
 export async function requireTenantAdmin(headers: Headers, tenantId: string) {
@@ -548,6 +535,7 @@ export async function createStaffMember(input: {
 
   return {
     staff: appUser,
+    employeeId,
     temporaryPassword,
     loginUrl: buildTenantLoginUrl(input.tenantSlug, input.role),
   };

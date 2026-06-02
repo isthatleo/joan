@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -27,10 +27,11 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth";
 import { formatDateTimeForUser } from "@/lib/time-format";
+import { resolveTenantSlug, withTenantPrefix } from "@/lib/tenant-routing";
 
 interface Notification {
   id: string;
-  type: "message" | "appointment" | "system" | "alert" | "broadcast";
+  type: "message" | "appointment" | "system" | "alert" | "broadcast" | "platform_invoice" | "platform_invoice_dispute";
   title: string;
   message: string;
   read: boolean;
@@ -40,6 +41,9 @@ interface Notification {
     senderName?: string;
     appointmentId?: string;
     patientId?: string;
+    invoiceId?: string;
+    tenantSlug?: string;
+    actionUrl?: string;
   };
 }
 
@@ -59,6 +63,7 @@ export function NotificationDialog({
   showViewAllButton = false,
 }: NotificationDialogProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user } = useAuthStore();
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(notification);
 
@@ -155,6 +160,30 @@ export function NotificationDialog({
     // Mark as read when viewing details
     if (onMarkAsRead && !notification.read) {
       onMarkAsRead(notification.id);
+    }
+    const metadata = notification.metadata || {};
+    const hostname = typeof window !== "undefined" ? window.location.hostname : null;
+    const tenantSlug = resolveTenantSlug(pathname, hostname, metadata.tenantSlug);
+    const pushNotificationTarget = (target: string) => {
+      if (/^https?:\/\//i.test(target)) {
+        window.location.href = target;
+        return;
+      }
+      if (target.startsWith("/super-admin") || target.startsWith("/tenants")) {
+        router.push(target);
+        return;
+      }
+      router.push(withTenantPrefix(target, tenantSlug, hostname));
+    };
+    if (metadata.actionUrl) {
+      pushNotificationTarget(metadata.actionUrl);
+      return;
+    }
+    if ((notification.type === "platform_invoice" || notification.type === "platform_invoice_dispute") && metadata.invoiceId) {
+      pushNotificationTarget(notification.type === "platform_invoice_dispute" && user?.role === "super_admin"
+        ? `/super-admin/billing/invoices/${metadata.invoiceId}`
+        : `/billing/platform-invoices/${metadata.invoiceId}`);
+      return;
     }
     // Navigate to specific notification or related page based on type
     switch (notification.type) {

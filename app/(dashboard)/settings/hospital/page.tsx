@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { useAuthStore, type AppRole } from "@/stores/auth";
 import {
   Bell, Shield, Palette, Lock, Globe, Server, Key, FileCheck,
@@ -10,14 +11,24 @@ import {
   Settings, Zap, Sparkles, ShieldCheck, FileText, Database, Activity,
   MessageSquare, CreditCard, Languages, Clock, Sun, Moon, Monitor,
   Smartphone, Link2, Eye as EyeIcon, Copy, X, Check, AlertTriangle,
-  ExternalLink, Edit3, RotateCw,
+  ExternalLink, Edit3, RotateCw, UserCog,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "next-themes";
-import { IntegrationManager } from "@/components/integrations/integration-manager";
 import { CurrencySelect } from "@/components/forms/CurrencySelect";
 import { PhoneNumberInput } from "@/components/forms/PhoneNumberInput";
 import { AddressFields } from "@/components/forms/AddressFields";
+
+const IntegrationManager = dynamic(
+  () => import("@/components/integrations/integration-manager").then((mod) => mod.IntegrationManager),
+  {
+    loading: () => (
+      <div className="rounded-xl border border-border bg-background p-6 text-sm text-muted-foreground">
+        Loading integration manager...
+      </div>
+    ),
+  }
+);
 
 /* ============ Types ============ */
 type SectionId =
@@ -52,6 +63,18 @@ interface TenantSettings {
     faviconUrl: string;
     accentColor: string;
     lightLogoUrl: string;
+    employeeIds: {
+      enabled: boolean;
+      prefix: string;
+      separator: string;
+      includeYear: boolean;
+      padding: number;
+      nextNumber: number;
+      codeType: "qr" | "barcode";
+      cardTheme: "clinical" | "minimal" | "executive";
+      customPatternEnabled: boolean;
+      customPattern: string;
+    };
   };
   contact: {
     email: string;
@@ -202,6 +225,48 @@ const SECTIONS: SectionDef[] = [
   { id: "danger-zone", label: "Danger Zone", icon: AlertTriangle, description: "Advanced destructive operations", group: "System" },
 ];
 
+const DEFAULT_EMPLOYEE_ID_SETTINGS: TenantSettings["branding"]["employeeIds"] = {
+  enabled: true,
+  prefix: "EMP",
+  separator: "-",
+  includeYear: true,
+  padding: 4,
+  nextNumber: 1,
+  codeType: "qr",
+  cardTheme: "clinical",
+  customPatternEnabled: false,
+  customPattern: "EMP-{YYYY}-{SEQ}",
+};
+
+function normalizeEmployeeIdSettings(value?: Partial<TenantSettings["branding"]["employeeIds"]>): TenantSettings["branding"]["employeeIds"] {
+  const raw = value || {};
+  return {
+    ...DEFAULT_EMPLOYEE_ID_SETTINGS,
+    ...raw,
+    prefix: String(raw.prefix || DEFAULT_EMPLOYEE_ID_SETTINGS.prefix).toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 16).replace(/^-+|-+$/g, "") || DEFAULT_EMPLOYEE_ID_SETTINGS.prefix,
+    separator: ["-", "/", "."].includes(String(raw.separator)) ? String(raw.separator) : DEFAULT_EMPLOYEE_ID_SETTINGS.separator,
+    padding: Math.min(8, Math.max(2, Number(raw.padding || DEFAULT_EMPLOYEE_ID_SETTINGS.padding))),
+    nextNumber: Math.max(1, Number(raw.nextNumber || DEFAULT_EMPLOYEE_ID_SETTINGS.nextNumber)),
+    codeType: raw.codeType === "barcode" ? "barcode" : "qr",
+    cardTheme: ["clinical", "minimal", "executive"].includes(String(raw.cardTheme)) ? raw.cardTheme as "clinical" | "minimal" | "executive" : "clinical",
+    customPattern: String(raw.customPattern || DEFAULT_EMPLOYEE_ID_SETTINGS.customPattern).toUpperCase().replace(/[^A-Z0-9{}:_-]/g, "").slice(0, 80) || DEFAULT_EMPLOYEE_ID_SETTINGS.customPattern,
+  };
+}
+
+function previewEmployeeId(settings: TenantSettings["branding"]["employeeIds"]) {
+  const sequence = String(settings.nextNumber).padStart(settings.padding, "0");
+  if (settings.customPatternEnabled && settings.customPattern) {
+    return settings.customPattern
+      .replace(/\{YYYY\}/g, String(new Date().getFullYear()))
+      .replace(/\{YY\}/g, String(new Date().getFullYear()).slice(-2))
+      .replace(/\{SEQ\}/g, sequence)
+      .replace(/\{RAND(\d+)\}/g, (_, size) => "9".repeat(Math.min(12, Math.max(1, Number(size || 4)))))
+      .replace(/\{ALPHA(\d+)\}/g, (_, size) => "A".repeat(Math.min(12, Math.max(1, Number(size || 2)))))
+      .replace(/\{PREFIX\}/g, settings.prefix);
+  }
+  return [settings.prefix, settings.includeYear ? new Date().getFullYear() : null, sequence].filter(Boolean).join(settings.separator);
+}
+
 /* ============ Main Page ============ */
 export default function HospitalSettingsPage() {
   const { user } = useAuthStore();
@@ -241,7 +306,13 @@ export default function HospitalSettingsPage() {
         );
         if (res.ok) {
           const data = await res.json();
-          setSettings(data);
+          setSettings({
+            ...data,
+            branding: {
+              ...data.branding,
+              employeeIds: normalizeEmployeeIdSettings(data.branding?.employeeIds),
+            },
+          });
         } else {
           toast.error("Failed to load hospital settings");
         }
@@ -897,6 +968,20 @@ function BrandingSection({
 
   return (
     <>
+      <style>{`
+        @keyframes hospital-settings-spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        .hospital-settings-spin {
+          animation: hospital-settings-spin 0.8s linear infinite;
+          transform-origin: center;
+        }
+      `}</style>
       <Card
         title="Hospital Logo"
         description="Upload SVG, PNG, JPG, WEBP, or ICO assets from your device"
@@ -973,6 +1058,208 @@ function BrandingSection({
               placeholder="https://..."
             />
           </Field>
+        </div>
+      </Card>
+
+      <Card
+        title="Employee ID Automation"
+        description="Configure how staff employee IDs are generated during staff registration and printed on staff ID cards."
+      >
+        <div className="space-y-5">
+          <Row
+            icon={UserCog}
+            title="Auto-generate staff IDs"
+            hint="When enabled, staff registration can leave Employee ID blank and the system assigns the next unique ID."
+          >
+            <Toggle
+              checked={settings.branding.employeeIds.enabled}
+              onChange={(value) =>
+                onSettingsChange({
+                  branding: {
+                    ...settings.branding,
+                    employeeIds: normalizeEmployeeIdSettings({ ...settings.branding.employeeIds, enabled: value }),
+                  },
+                })
+              }
+            />
+          </Row>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <Field label="Prefix" hint="Letters, numbers, and dashes only">
+              <TextInput
+                value={settings.branding.employeeIds.prefix}
+                onChange={(event) =>
+                  onSettingsChange({
+                    branding: {
+                      ...settings.branding,
+                      employeeIds: normalizeEmployeeIdSettings({ ...settings.branding.employeeIds, prefix: event.target.value }),
+                    },
+                  })
+                }
+                placeholder="EMP or AS"
+              />
+            </Field>
+            <Field label="Separator">
+              <SelectInput
+                value={settings.branding.employeeIds.separator}
+                onChange={(event) =>
+                  onSettingsChange({
+                    branding: {
+                      ...settings.branding,
+                      employeeIds: normalizeEmployeeIdSettings({ ...settings.branding.employeeIds, separator: event.target.value }),
+                    },
+                  })
+                }
+              >
+                <option value="-">Dash (-)</option>
+                <option value="/">Slash (/)</option>
+                <option value=".">Dot (.)</option>
+              </SelectInput>
+            </Field>
+            <Field label="Next number" hint="Automatically increments after each generated staff ID">
+              <TextInput
+                type="number"
+                min={1}
+                value={settings.branding.employeeIds.nextNumber}
+                onChange={(event) =>
+                  onSettingsChange({
+                    branding: {
+                      ...settings.branding,
+                      employeeIds: normalizeEmployeeIdSettings({ ...settings.branding.employeeIds, nextNumber: Number(event.target.value || 1) }),
+                    },
+                  })
+                }
+              />
+            </Field>
+            <Field label="Number padding">
+              <SelectInput
+                value={settings.branding.employeeIds.padding}
+                onChange={(event) =>
+                  onSettingsChange({
+                    branding: {
+                      ...settings.branding,
+                      employeeIds: normalizeEmployeeIdSettings({ ...settings.branding.employeeIds, padding: Number(event.target.value) }),
+                    },
+                  })
+                }
+              >
+                {[2, 3, 4, 5, 6, 7, 8].map((value) => <option key={value} value={value}>{value} digits</option>)}
+              </SelectInput>
+            </Field>
+            <Field label="ID card code">
+              <SelectInput
+                value={settings.branding.employeeIds.codeType}
+                onChange={(event) =>
+                  onSettingsChange({
+                    branding: {
+                      ...settings.branding,
+                      employeeIds: normalizeEmployeeIdSettings({ ...settings.branding.employeeIds, codeType: event.target.value as "qr" | "barcode" }),
+                    },
+                  })
+                }
+              >
+                <option value="qr">QR code</option>
+                <option value="barcode">Barcode</option>
+              </SelectInput>
+            </Field>
+            <Field label="ID card theme">
+              <SelectInput
+                value={settings.branding.employeeIds.cardTheme}
+                onChange={(event) =>
+                  onSettingsChange({
+                    branding: {
+                      ...settings.branding,
+                      employeeIds: normalizeEmployeeIdSettings({ ...settings.branding.employeeIds, cardTheme: event.target.value as "clinical" | "minimal" | "executive" }),
+                    },
+                  })
+                }
+              >
+                <option value="clinical">Clinical</option>
+                <option value="minimal">Minimal</option>
+                <option value="executive">Executive</option>
+              </SelectInput>
+            </Field>
+          </div>
+
+          <div className="rounded-xl border border-border bg-muted/30 p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Next preview</span>
+              <span className="rounded-lg bg-background px-3 py-2 font-mono text-sm font-bold text-foreground shadow-sm">
+                {settings.branding.employeeIds.enabled ? previewEmployeeId(settings.branding.employeeIds) : "Manual entry only"}
+              </span>
+              <label className="ml-auto inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={settings.branding.employeeIds.includeYear}
+                  onChange={(event) =>
+                    onSettingsChange({
+                      branding: {
+                        ...settings.branding,
+                        employeeIds: normalizeEmployeeIdSettings({ ...settings.branding.employeeIds, includeYear: event.target.checked }),
+                      },
+                    })
+                  }
+                  className="accent-orange-500"
+                />
+                Include year
+              </label>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-background p-4">
+            <label className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+              <input
+                type="checkbox"
+                checked={settings.branding.employeeIds.customPatternEnabled}
+                onChange={(event) =>
+                  onSettingsChange({
+                    branding: {
+                      ...settings.branding,
+                      employeeIds: normalizeEmployeeIdSettings({ ...settings.branding.employeeIds, customPatternEnabled: event.target.checked }),
+                    },
+                  })
+                }
+                className="accent-orange-500"
+              />
+              Use custom mixed employee ID pattern
+            </label>
+            <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+              <TextInput
+                value={settings.branding.employeeIds.customPattern}
+                onChange={(event) =>
+                  onSettingsChange({
+                    branding: {
+                      ...settings.branding,
+                      employeeIds: normalizeEmployeeIdSettings({ ...settings.branding.employeeIds, customPattern: event.target.value }),
+                    },
+                  })
+                }
+                className="font-mono"
+                placeholder="AS-{RAND5}{ALPHA2}{RAND1}"
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  onSettingsChange({
+                    branding: {
+                      ...settings.branding,
+                      employeeIds: normalizeEmployeeIdSettings({
+                        ...settings.branding.employeeIds,
+                        customPatternEnabled: true,
+                        customPattern: "AS-{RAND5}{ALPHA2}{RAND1}",
+                      }),
+                    },
+                  })
+                }
+                className="rounded-lg border border-border px-3 text-sm font-semibold hover:bg-muted"
+              >
+                Example AS-10987FG0
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Supported tokens: {"{PREFIX}"}, {"{YYYY}"}, {"{YY}"}, {"{SEQ}"}, {"{RAND5}"}, {"{ALPHA2}"}. Letters, numbers, and dashes are allowed.
+            </p>
+          </div>
         </div>
       </Card>
 
@@ -1669,8 +1956,11 @@ function CommunicationChannelsSection({
       <Card title="Communication Actions" description="Cross-check and export the current tenant communication setup">
         <div className="flex flex-wrap gap-2">
           <button onClick={() => runCommunicationAction("test-all")} disabled={runningAction !== null} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-50">
-            <CheckCircle2 className="size-4" />
-            Test All Integrations
+            <RotateCw
+              className="size-4"
+              style={runningAction === "test-all" ? { animation: "hospital-settings-spin 0.8s linear infinite", transformOrigin: "center" } : undefined}
+            />
+            {runningAction === "test-all" ? "Testing Integrations..." : "Test All Integrations"}
           </button>
           <button onClick={() => runCommunicationAction("export-configuration")} disabled={runningAction !== null} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-50">
             <Download className="size-4" />
@@ -1911,7 +2201,7 @@ function IntegrationsSection({ tenantSlug }: { tenantSlug?: string }) {
       <Card title="Integration Actions" description="Operational actions for all tenant integrations">
         <div className="flex flex-wrap gap-2">
           <button onClick={handleTestAll} disabled={runningAction !== null} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-50">
-            <CheckCircle2 className="size-4" />
+            <RotateCw className={`size-4 ${runningAction === "test-all" ? "animate-spin" : ""}`} />
             Test All Integrations
           </button>
           <button onClick={handleExportConfig} disabled={runningAction !== null} className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold hover:bg-muted disabled:opacity-50">
@@ -2641,6 +2931,9 @@ function DangerZoneSection({ tenantId }: { tenantId?: string }) {
   const router = useRouter();
   const [confirmText, setConfirmText] = useState("");
   const [archiving, setArchiving] = useState(false);
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
+  const [exportingTenantData, setExportingTenantData] = useState(false);
+  const [archiveBackupDownloaded, setArchiveBackupDownloaded] = useState(false);
   const [dangerZoneInfo, setDangerZoneInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -2692,7 +2985,7 @@ function DangerZoneSection({ tenantId }: { tenantId?: string }) {
       if (res.ok) {
         const data = await res.json();
         toast.success(
-          `Hospital archived successfully. Data will be preserved for 30 days.`
+          `Hospital archived successfully. Data will be preserved for ${dangerZoneInfo.archiveGraceDays || 60} days.`
         );
 
         // Redirect to tenant management page after a delay
@@ -2708,6 +3001,43 @@ function DangerZoneSection({ tenantId }: { tenantId?: string }) {
       toast.error("Failed to archive hospital");
     } finally {
       setArchiving(false);
+    }
+  };
+
+  const handleDownloadTenantExport = async () => {
+    if (!dangerZoneInfo?.tenantSlug) {
+      toast.error("Tenant slug is unavailable for export");
+      return;
+    }
+
+    setExportingTenantData(true);
+    try {
+      const response = await fetch(`/api/tenant/${dangerZoneInfo.tenantSlug}/export`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.error || "Failed to export tenant data");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const filename = match?.[1] || `tenant-export-${dangerZoneInfo.tenantSlug}.zip`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setArchiveBackupDownloaded(true);
+      toast.success("Tenant data export downloaded");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to export tenant data");
+    } finally {
+      setExportingTenantData(false);
     }
   };
 
@@ -2751,7 +3081,7 @@ function DangerZoneSection({ tenantId }: { tenantId?: string }) {
               <p className="text-sm text-muted-foreground mb-3">
                 This soft-deletes the hospital: it becomes inactive, hidden from
                 default views, and inaccessible to its users. Data is preserved
-                for <strong>30 days</strong>, after which a super-admin may
+                for <strong>{dangerZoneInfo.archiveGraceDays || 60} days</strong>, after which a super-admin may
                 permanently purge it. This action is reversible during the grace
                 period.
               </p>
@@ -2789,10 +3119,10 @@ function DangerZoneSection({ tenantId }: { tenantId?: string }) {
                 <li>All users for this hospital will lose access immediately</li>
                 <li>
                   All data (patients, appointments, billing, etc.) is preserved
-                  for 30 days
+                  for {dangerZoneInfo.archiveGraceDays || 60} days
                 </li>
                 <li>
-                  After 30 days, hard purge becomes available and is irreversible
+                  After {dangerZoneInfo.archiveGraceDays || 60} days, hard purge becomes available and is irreversible
                 </li>
               </ul>
 
@@ -2812,7 +3142,7 @@ function DangerZoneSection({ tenantId }: { tenantId?: string }) {
                     className="flex-1 max-w-sm"
                   />
                   <button
-                    onClick={handleArchiveTenant}
+                    onClick={() => setArchiveDialogOpen(true)}
                     disabled={
                       archiving ||
                       confirmText !== dangerZoneInfo.tenantName
@@ -2844,12 +3174,79 @@ function DangerZoneSection({ tenantId }: { tenantId?: string }) {
       >
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
           <p className="text-sm text-muted-foreground">
-            After the 30-day grace period, a super-admin can permanently purge
+            After the {dangerZoneInfo.archiveGraceDays || 60}-day grace period, a super-admin can permanently purge
             all data associated with this hospital. This action is{" "}
             <strong>irreversible</strong>.
           </p>
         </div>
       </Card>
+
+      {archiveDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-red-100 p-2 text-red-700 dark:bg-red-500/15 dark:text-red-300">
+                <AlertTriangle className="size-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-lg font-bold text-foreground">Archive hospital?</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Before archiving, you can download a ZIP export containing CSV files grouped by tenant table. This is recommended for compliance and recovery, but archive can continue without it.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setArchiveDialogOpen(false)}
+                className="rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="Close archive confirmation"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <div className="mt-5 rounded-xl border border-border bg-muted/40 p-4 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-foreground">{dangerZoneInfo.tenantName}</p>
+                  <p className="text-muted-foreground">Export includes tenant settings, users, patients, staff, billing, clinical, messaging, audit, and other tenant-scoped tables.</p>
+                </div>
+                {archiveBackupDownloaded && <CheckCircle2 className="size-5 shrink-0 text-emerald-600" />}
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setArchiveDialogOpen(false)}
+                className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadTenantExport}
+                disabled={exportingTenantData}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground hover:bg-muted disabled:opacity-50"
+              >
+                {exportingTenantData ? <RotateCw className="size-4 animate-spin" /> : <Download className="size-4" />}
+                Download Data ZIP
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setArchiveDialogOpen(false);
+                  void handleArchiveTenant();
+                }}
+                disabled={archiving}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {archiving ? <RotateCw className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                {archiveBackupDownloaded ? "Archive Now" : "Archive Without Backup"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

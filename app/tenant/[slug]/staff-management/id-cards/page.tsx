@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { ArrowLeft, Badge, Download, Eye, Loader2, Printer, RefreshCw, Search, ShieldCheck, Sparkles } from "lucide-react";
 import { toPng } from "html-to-image";
 import { useTenantPath } from "@/hooks/useTenantPath";
+import { buildTenantUrl } from "@/lib/tenant-routing";
 
 type StaffMember = {
   id: string;
@@ -155,7 +156,7 @@ export default function StaffIdCardsPage() {
   const selected = staff.find((member) => member.id === selectedId) || filteredStaff[0] || null;
   const cardNumber = selected ? `CARD-${selected.id.slice(0, 8).toUpperCase()}` : "";
   const verificationUrl = selected && typeof window !== "undefined"
-    ? `${process.env.NEXT_PUBLIC_APP_URL || window.location.origin}/tenant/${slug}/staff-id/${selected.id}?card=${encodeURIComponent(cardNumber)}`
+    ? buildTenantUrl(String(slug), `/staff-id/${selected.id}?card=${encodeURIComponent(cardNumber)}`)
     : "";
   const codeData = encodeURIComponent(verificationUrl);
   const density = densityClasses(design.density);

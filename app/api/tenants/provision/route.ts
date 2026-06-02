@@ -16,6 +16,7 @@ import bcrypt from "bcryptjs";
 import { createTenantSubscriptionInvoice, resolvePlan } from "@/lib/platform-billing";
 import { upsertCredentialAuthUser, upsertForcePasswordSettings } from "@/lib/tenant-staff";
 import { inferCountryFromCity } from "@/lib/address-city-inference";
+import { buildTenantUrl } from "@/lib/tenant-routing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -185,7 +186,8 @@ export async function POST(request: NextRequest) {
         await db.update(provisioningRuns).set({ stage: "slug" }).where(eq(provisioningRuns.id, provisioningRun.id));
         const baseSlug = slugify(data.name);
         const slug = await uniqueSlug(baseSlug);
-        stage("slug", "done", { slug, baseSlug });
+        const tenantUrl = buildTenantUrl(slug);
+        stage("slug", "done", { slug, baseSlug, tenantUrl });
 
         // ---- hospital ----
         currentStage = "hospital";
@@ -209,7 +211,7 @@ export async function POST(request: NextRequest) {
             metadata: { modules: data.modules, planId: selectedPlan.id, planCode: selectedPlan.code },
           })
           .returning();
-        stage("hospital", "done", { tenantId: tenant.id, slug });
+        stage("hospital", "done", { tenantId: tenant.id, slug, tenantUrl });
 
         // Update run with tenant ID
         await db.update(provisioningRuns).set({ tenantId: tenant.id }).where(eq(provisioningRuns.id, provisioningRun.id));
@@ -360,6 +362,7 @@ export async function POST(request: NextRequest) {
             result: {
               tenantId: tenant.id,
               slug,
+              tenantUrl,
               adminId: adminUser.id,
               invoiceId: subscriptionInvoice.id,
               invoiceNumber: subscriptionInvoice.invoiceNumber,
@@ -371,7 +374,7 @@ export async function POST(request: NextRequest) {
 
         send("done", {
           ok: true,
-          tenant: { ...tenant, slug, adminUserId: adminUser.id },
+          tenant: { ...tenant, slug, tenantUrl, adminUserId: adminUser.id },
           admin: {
             id: adminUser.id,
             email: adminUser.email,

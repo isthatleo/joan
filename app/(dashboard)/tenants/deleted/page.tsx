@@ -294,13 +294,13 @@ export default function DeletedTenantsPage() {
 async function restoreOne(tenant: DeletedTenant) {
   const response = await fetch(`/api/tenants/${tenant.slug}/restore`, { method: "POST" });
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(data?.error || `Failed to restore ${tenant.name}`);
+  if (!response.ok) throw new Error(data?.details || data?.error || `Failed to restore ${tenant.name}`);
 }
 
 async function purgeOne(tenant: DeletedTenant) {
   const response = await fetch(`/api/tenants/${tenant.slug}?purge=true&force=true`, { method: "DELETE" });
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(data?.error || `Failed to permanently delete ${tenant.name}`);
+  if (!response.ok) throw new Error(data?.details || data?.error || `Failed to permanently delete ${tenant.name}`);
 }
 
 function Stat({ label, value }: { label: string; value: number }) {

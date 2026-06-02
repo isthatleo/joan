@@ -25,7 +25,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const idsParam = searchParams.get("userIds");
     const userIds = idsParam ? idsParam.split(",").map((id) => id.trim()).filter(Boolean) : undefined;
 
-    const onlineUserIds = await stateService.getOnlineUserIds(currentUser.tenantId, userIds);
+    const onlineUserIds = userIds?.length
+      ? await stateService.getOnlineUserIdsForUsers(userIds)
+      : await stateService.getOnlineUserIds(currentUser.tenantId);
     return NextResponse.json(
       { onlineUserIds, currentUserId: currentUser.id },
       { headers: { "Cache-Control": "no-store, max-age=0" } }

@@ -11,6 +11,14 @@ export type UserSettingsShape = {
     billingAlerts: boolean;
     securityAlerts: boolean;
     scheduleFailures: boolean;
+    notificationSound: "classic" | "pulse" | "chime" | "digital" | "soft" | "urgent" | "bell" | "pop" | "spark" | "tone" | "custom" | "silent";
+    notificationVolume: number;
+    ringtone: "classic" | "pulse" | "chime" | "digital" | "soft" | "urgent" | "bell" | "pop" | "spark" | "tone" | "custom" | "silent";
+    ringtoneVolume: number;
+    customNotificationSoundName: string;
+    customNotificationSoundDataUrl: string;
+    customRingtoneName: string;
+    customRingtoneDataUrl: string;
   };
   privacy: {
     profileVisibility: "private" | "team" | "organization";
@@ -49,6 +57,8 @@ export type UserSettingsShape = {
       autoReply: string;
       signature: string;
       defaultChannel: "inbox" | "email" | "push";
+      ringtone: "classic" | "pulse" | "chime" | "digital" | "soft" | "urgent" | "bell" | "pop" | "spark" | "tone" | "custom" | "silent";
+      ringtoneVolume: number;
       workingHours: {
         enabled: boolean;
         start: string;
@@ -82,6 +92,14 @@ export const defaultUserSettings: UserSettingsShape = {
     billingAlerts: true,
     securityAlerts: true,
     scheduleFailures: true,
+    notificationSound: "chime",
+    notificationVolume: 0.65,
+    ringtone: "classic",
+    ringtoneVolume: 0.75,
+    customNotificationSoundName: "",
+    customNotificationSoundDataUrl: "",
+    customRingtoneName: "",
+    customRingtoneDataUrl: "",
   },
   privacy: {
     profileVisibility: "private",
@@ -120,6 +138,8 @@ export const defaultUserSettings: UserSettingsShape = {
       autoReply: "",
       signature: "",
       defaultChannel: "inbox",
+      ringtone: "classic",
+      ringtoneVolume: 0.75,
       workingHours: {
         enabled: false,
         start: "09:00",
@@ -151,6 +171,7 @@ const allowedProfileVisibility = new Set(["private", "team", "organization"]);
 const allowedDigestFrequencies = new Set(["daily", "weekly", "monthly"]);
 const allowedMessageOrigins = new Set(["care-team", "department", "organization"]);
 const allowedMessageChannels = new Set(["inbox", "email", "push"]);
+const allowedRingtones = new Set(["classic", "pulse", "chime", "digital", "soft", "urgent", "bell", "pop", "spark", "tone", "custom", "silent"]);
 const allowedExportFormats = new Set(["pdf", "csv", "html"]);
 const allowedLandingPages = new Set([
   "dashboard",
@@ -207,6 +228,20 @@ export function mergeUserSettings(settings: unknown): UserSettingsShape {
       billingAlerts: asBoolean(notifications.billingAlerts, defaultUserSettings.notifications.billingAlerts),
       securityAlerts: asBoolean(notifications.securityAlerts, defaultUserSettings.notifications.securityAlerts),
       scheduleFailures: asBoolean(notifications.scheduleFailures, defaultUserSettings.notifications.scheduleFailures),
+      notificationSound: asAllowedString(notifications.notificationSound, allowedRingtones, defaultUserSettings.notifications.notificationSound),
+      notificationVolume:
+        typeof notifications.notificationVolume === "number"
+          ? Math.min(1, Math.max(0, notifications.notificationVolume))
+          : defaultUserSettings.notifications.notificationVolume,
+      ringtone: asAllowedString(notifications.ringtone, allowedRingtones, defaultUserSettings.notifications.ringtone),
+      ringtoneVolume:
+        typeof notifications.ringtoneVolume === "number"
+          ? Math.min(1, Math.max(0, notifications.ringtoneVolume))
+          : defaultUserSettings.notifications.ringtoneVolume,
+      customNotificationSoundName: asString(notifications.customNotificationSoundName, defaultUserSettings.notifications.customNotificationSoundName),
+      customNotificationSoundDataUrl: asString(notifications.customNotificationSoundDataUrl, defaultUserSettings.notifications.customNotificationSoundDataUrl),
+      customRingtoneName: asString(notifications.customRingtoneName, defaultUserSettings.notifications.customRingtoneName),
+      customRingtoneDataUrl: asString(notifications.customRingtoneDataUrl, defaultUserSettings.notifications.customRingtoneDataUrl),
     },
     privacy: {
       profileVisibility: asAllowedString(privacy.profileVisibility, allowedProfileVisibility, defaultUserSettings.privacy.profileVisibility),
@@ -245,6 +280,13 @@ export function mergeUserSettings(settings: unknown): UserSettingsShape {
         autoReply: asString(messageSettings.autoReply, defaultUserSettings.communication.messageSettings.autoReply),
         signature: asString(messageSettings.signature, defaultUserSettings.communication.messageSettings.signature),
         defaultChannel: asAllowedString(messageSettings.defaultChannel, allowedMessageChannels, defaultUserSettings.communication.messageSettings.defaultChannel),
+        ringtone: asAllowedString(messageSettings.ringtone ?? notifications.ringtone, allowedRingtones, defaultUserSettings.communication.messageSettings.ringtone),
+        ringtoneVolume:
+          typeof messageSettings.ringtoneVolume === "number"
+            ? Math.min(1, Math.max(0, messageSettings.ringtoneVolume))
+            : typeof notifications.ringtoneVolume === "number"
+              ? Math.min(1, Math.max(0, notifications.ringtoneVolume))
+            : defaultUserSettings.communication.messageSettings.ringtoneVolume,
         workingHours: {
           enabled: asBoolean(workingHours.enabled, defaultUserSettings.communication.messageSettings.workingHours.enabled),
           start: asString(workingHours.start, defaultUserSettings.communication.messageSettings.workingHours.start),

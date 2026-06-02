@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, ilike, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { MessagingStateService } from "@/lib/services/messaging-state.service";
+import { MessagingService } from "@/lib/services/messaging.service";
 import { resolveTenantMessagingUser } from "@/lib/tenant-messaging-auth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const stateService = new MessagingStateService();
+const messagingService = new MessagingService();
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
@@ -57,12 +59,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const receiver = await db.query.users.findFirst({
-      where: and(eq(users.id, receiverId), eq(users.tenantId, currentUser.tenantId), eq(users.isActive, true), isNull(users.deletedAt)),
+      where: and(eq(users.id, receiverId), eq(users.isActive, true), isNull(users.deletedAt)),
       columns: { id: true },
     });
 
     if (!receiver) {
       return NextResponse.json({ error: "Receiver not found" }, { status: 404 });
+    }
+
+    const canMessage = await messagingService.canMessage(currentUser.id, receiverId, currentUser.tenantId);
+    if (!canMessage) {
+      return NextResponse.json({ error: "Insufficient permissions to update typing state" }, { status: 403 });
     }
 
     await stateService.setTyping(currentUser.id, receiverId, currentUser.tenantId, isTyping);

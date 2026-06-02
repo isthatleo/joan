@@ -2,40 +2,191 @@ import { db } from "@/lib/db";
 import {
   tenants,
   users,
-  appointments,
-  visits,
-  patients,
-  branches,
-  departments,
-  userSettings,
-  roles,
-  rolePermissions,
-  userRoles,
-  userOverrides,
-  patientAllergies,
-  patientConditions,
-  queues,
-  diagnoses,
-  vitals,
-  prescriptions,
-  prescriptionItems,
-  inventoryItems,
-  labOrders,
-  labResults,
-  invoices,
-  invoiceItems,
-  payments,
-  insurancePolicies,
-  claims,
-  messages,
-  notifications,
-  auditLogs,
-  provisioningRuns,
-  otps,
-  passwordResets,
-  tenantSettings,
 } from "@/lib/db/schema";
-import { eq, desc, sql, and, inArray, isNotNull, isNull } from "drizzle-orm";
+import { eq, desc, sql, and, isNotNull, isNull, lte } from "drizzle-orm";
+
+function quoteIdentifier(identifier: string) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)) {
+    throw new Error(`Unsafe SQL identifier: ${identifier}`);
+  }
+  return `"${identifier.replace(/"/g, '""')}"`;
+}
+
+function uuidLiteral(value: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+    throw new Error(`Invalid UUID: ${value}`);
+  }
+  return `'${value.toLowerCase()}'`;
+}
+
+async function tableExists(tx: any, tableName: string) {
+  const result = await tx.execute(sql`
+    SELECT to_regclass(${`public.${tableName}`}) AS regclass
+  `) as any;
+  return Boolean(result.rows?.[0]?.regclass);
+}
+
+async function deleteTenantScopedTables(tx: any, tenantId: string, excludedTables = new Set<string>()) {
+  const excluded = Array.from(excludedTables).map((table) => `'${table.replace(/'/g, "''")}'`).join(",") || "''";
+  await tx.execute(sql.raw(`
+    DO $tenant_purge$
+    DECLARE
+      tenant_uuid uuid := ${uuidLiteral(tenantId)}::uuid;
+      target record;
+      pass int;
+    BEGIN
+      FOR pass IN 1..4 LOOP
+        FOR target IN
+          SELECT table_schema, table_name
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND column_name = 'tenant_id'
+            AND table_name <> 'tenants'
+            AND table_name <> ALL(ARRAY[${excluded}]::text[])
+          ORDER BY table_name
+        LOOP
+          BEGIN
+            EXECUTE format(
+              'DELETE FROM %I.%I WHERE tenant_id = $1',
+              target.table_schema,
+              target.table_name
+            ) USING tenant_uuid;
+          EXCEPTION WHEN OTHERS THEN
+            NULL;
+          END;
+        END LOOP;
+      END LOOP;
+    END $tenant_purge$;
+  `));
+}
+
+async function deleteRowsReferencingTenantScopedParents(tx: any, tenantId: string) {
+  await tx.execute(sql.raw(`
+    DO $tenant_fk_purge$
+    DECLARE
+      tenant_uuid uuid := ${uuidLiteral(tenantId)}::uuid;
+      target record;
+      pass int;
+    BEGIN
+      FOR pass IN 1..4 LOOP
+        FOR target IN
+          SELECT
+            tc.table_schema AS child_schema,
+            tc.table_name AS child_table,
+            kcu.column_name AS child_column,
+            ccu.table_schema AS parent_schema,
+            ccu.table_name AS parent_table,
+            ccu.column_name AS parent_column
+          FROM information_schema.table_constraints AS tc
+          JOIN information_schema.key_column_usage AS kcu
+            ON tc.constraint_name = kcu.constraint_name
+            AND tc.table_schema = kcu.table_schema
+          JOIN information_schema.constraint_column_usage AS ccu
+            ON ccu.constraint_name = tc.constraint_name
+            AND ccu.table_schema = tc.table_schema
+          JOIN information_schema.columns parent_tenant
+            ON parent_tenant.table_schema = ccu.table_schema
+            AND parent_tenant.table_name = ccu.table_name
+            AND parent_tenant.column_name = 'tenant_id'
+          WHERE tc.constraint_type = 'FOREIGN KEY'
+            AND tc.table_schema = 'public'
+            AND ccu.table_schema = 'public'
+            AND tc.table_name <> ccu.table_name
+            AND tc.table_name <> 'tenants'
+          ORDER BY tc.table_name
+        LOOP
+          BEGIN
+            EXECUTE format(
+              'DELETE FROM %I.%I AS child_row USING %I.%I AS parent_row WHERE child_row.%I = parent_row.%I AND parent_row.tenant_id = $1',
+              target.child_schema,
+              target.child_table,
+              target.parent_schema,
+              target.parent_table,
+              target.child_column,
+              target.parent_column
+            ) USING tenant_uuid;
+          EXCEPTION WHEN OTHERS THEN
+            NULL;
+          END;
+        END LOOP;
+      END LOOP;
+    END $tenant_fk_purge$;
+  `));
+}
+
+async function deleteRowsForUsers(tx: any, userIds: string[], excludedTables = new Set<string>()) {
+  if (!userIds.length) return;
+  const result = await tx.execute(sql`
+    SELECT
+      tc.table_schema,
+      tc.table_name,
+      kcu.column_name
+    FROM information_schema.table_constraints AS tc
+    JOIN information_schema.key_column_usage AS kcu
+      ON tc.constraint_name = kcu.constraint_name
+      AND tc.table_schema = kcu.table_schema
+    JOIN information_schema.constraint_column_usage AS ccu
+      ON ccu.constraint_name = tc.constraint_name
+      AND ccu.table_schema = tc.table_schema
+    WHERE tc.constraint_type = 'FOREIGN KEY'
+      AND tc.table_schema = 'public'
+      AND ccu.table_name = 'users'
+      AND tc.table_name <> 'users'
+    ORDER BY tc.table_name, kcu.column_name
+  `) as any;
+
+  const references = (result.rows || []) as Array<{ table_schema: string; table_name: string; column_name: string }>;
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (const reference of references) {
+      if (excludedTables.has(reference.table_name)) continue;
+      const qualifiedName = `${quoteIdentifier(reference.table_schema)}.${quoteIdentifier(reference.table_name)}`;
+      const columnName = quoteIdentifier(reference.column_name);
+      await tx.execute(
+        sql`DELETE FROM ${sql.raw(qualifiedName)} WHERE ${sql.raw(columnName)} = ANY(${userIds}::uuid[])`,
+      ).catch(() => null);
+    }
+  }
+}
+
+async function deleteAuthRowsForTenantUsers(tx: any, tenantId: string, userIds: string[], emails: string[]) {
+  const hasAuthUserTable = await tableExists(tx, "user");
+  const hasAuthSessionTable = await tableExists(tx, "session");
+  const hasAuthAccountTable = await tableExists(tx, "account");
+  if (!hasAuthUserTable) return;
+
+  if (hasAuthSessionTable) {
+    await tx.execute(sql`
+      DELETE FROM "session"
+      WHERE "userId" IN (
+        SELECT au.id
+        FROM "user" au
+        WHERE au.id = ANY(${userIds}::text[])
+           OR lower(au.email) = ANY(${emails.map((email) => email.toLowerCase())}::text[])
+           OR lower(au.email) IN (SELECT lower(app_user.email) FROM users app_user WHERE app_user.tenant_id = ${tenantId})
+      )
+    `).catch(() => null);
+  }
+
+  if (hasAuthAccountTable) {
+    await tx.execute(sql`
+      DELETE FROM "account"
+      WHERE "userId" IN (
+        SELECT au.id
+        FROM "user" au
+        WHERE au.id = ANY(${userIds}::text[])
+           OR lower(au.email) = ANY(${emails.map((email) => email.toLowerCase())}::text[])
+           OR lower(au.email) IN (SELECT lower(app_user.email) FROM users app_user WHERE app_user.tenant_id = ${tenantId})
+      )
+    `).catch(() => null);
+  }
+
+  await tx.execute(sql`
+    DELETE FROM "user"
+    WHERE id = ANY(${userIds}::text[])
+       OR lower(email) = ANY(${emails.map((email) => email.toLowerCase())}::text[])
+       OR lower(email) IN (SELECT lower(app_user.email) FROM users app_user WHERE app_user.tenant_id = ${tenantId})
+  `).catch(() => null);
+}
 
 export class TenantService {
   async createTenant(data: {
@@ -176,270 +327,74 @@ export class TenantService {
   async deleteTenant(id: string) {
     console.log(`Starting tenant deletion for tenant ID: ${id}`);
 
-    // Perform cascade delete in correct order to avoid foreign key constraints
-    await db.transaction(async (tx) => {
-      await tx.execute(sql`DELETE FROM message_call_sessions WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM message_presence WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM message_typing_states WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM messaging_settings WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM platform_invoices WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM feedbacks WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM activity_logs WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM security_events WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM ai_logs WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM user_sessions WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM device_fingerprints WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM integrations WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM system_metrics WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM system_alerts WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM system_configurations WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM email_send_log WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM accountant_reports WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM scheduled_accountant_reports WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM accountant_report_templates WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM tax_records WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM journal_entries WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM budgets WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM accounts_payable WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM expenses WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM care_plan_tasks WHERE care_plan_id IN (SELECT id FROM care_plans WHERE tenant_id = ${id})`);
-      await tx.execute(sql`DELETE FROM care_plans WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM bed_assignments WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM medication_administrations WHERE tenant_id = ${id}`);
-      await tx.execute(sql`DELETE FROM guardian_patients WHERE guardian_id IN (SELECT id FROM guardians WHERE tenant_id = ${id})`);
-      await tx.execute(sql`DELETE FROM guardian_patients WHERE patient_id IN (SELECT id FROM patients WHERE tenant_id = ${id})`);
-      await tx.execute(sql`DELETE FROM guardians WHERE tenant_id = ${id}`);
+    const tx = db;
 
-      console.log(`Getting user IDs for tenant ${id}`);
-      // Get all user IDs for this tenant first
-      const userIds = await tx.select({ id: users.id }).from(users).where(eq(users.tenantId, id));
-      const userIdList = userIds.map(u => u.id);
-      console.log(`Found ${userIdList.length} users for tenant ${id}`);
+    console.log(`Getting user IDs for tenant ${id}`);
+    const userRows = await tx
+      .select({ id: users.id, email: users.email })
+      .from(users)
+      .where(eq(users.tenantId, id));
+    const userIdList = userRows.map((user) => user.id);
+    const userEmails = userRows.map((user) => user.email).filter(Boolean);
+    console.log(`Found ${userIdList.length} users for tenant ${id}`);
 
-      console.log(`Deleting OTPs and password resets for tenant ${id}`);
-      // Delete OTPs and password resets
-      await tx.delete(otps).where(eq(otps.tenantId, id));
-      await tx.delete(passwordResets).where(eq(passwordResets.tenantId, id));
+    await deleteAuthRowsForTenantUsers(tx, id, userIdList, userEmails);
+    await deleteRowsForUsers(tx, userIdList, new Set(["users"]));
 
-      // Delete audit logs for this tenant's users
-      if (userIdList.length > 0) {
-        console.log(`Deleting audit logs for ${userIdList.length} users`);
-        await tx.delete(auditLogs).where(inArray(auditLogs.userId, userIdList));
-      }
+    for (let pass = 0; pass < 2; pass += 1) {
+      await deleteRowsReferencingTenantScopedParents(tx, id);
+      await deleteTenantScopedTables(tx, id, new Set(["users"]));
+    }
 
-      // Delete messages involving this tenant's users
-      if (userIdList.length > 0) {
-        console.log(`Deleting messages for ${userIdList.length} users`);
-        await tx.delete(messages).where(inArray(messages.senderId, userIdList));
-        await tx.delete(messages).where(inArray(messages.receiverId, userIdList));
-      }
+    await tx.delete(users).where(eq(users.tenantId, id));
+    await deleteTenantScopedTables(tx, id);
 
-      console.log(`Deleting claims, insurance policies, and payments for tenant ${id}`);
-      // Delete claims
-      await tx.delete(claims).where(eq(claims.tenantId, id));
-
-      // Delete insurance policies
-      await tx.delete(insurancePolicies).where(eq(insurancePolicies.tenantId, id));
-
-      // Delete payments
-      await tx.delete(payments).where(eq(payments.tenantId, id));
-
-      console.log(`Deleting invoices and invoice items for tenant ${id}`);
-      // Delete invoice items and invoices
-      const invoiceIds = await tx.select({ id: invoices.id }).from(invoices).where(eq(invoices.tenantId, id));
-      console.log(`Found ${invoiceIds.length} invoices to delete`);
-      for (const invoice of invoiceIds) {
-        await tx.delete(invoiceItems).where(eq(invoiceItems.invoiceId, invoice.id));
-      }
-      await tx.delete(invoices).where(eq(invoices.tenantId, id));
-
-      console.log(`Deleting lab orders and results for tenant ${id}`);
-      // Delete lab results and lab orders
-      const labOrderIds = await tx.select({ id: labOrders.id }).from(labOrders).where(eq(labOrders.tenantId, id));
-      console.log(`Found ${labOrderIds.length} lab orders to delete`);
-      for (const labOrder of labOrderIds) {
-        await tx.delete(labResults).where(eq(labResults.labOrderId, labOrder.id));
-      }
-      await tx.delete(labOrders).where(eq(labOrders.tenantId, id));
-
-      console.log(`Deleting inventory, prescriptions, and related data for tenant ${id}`);
-      // Delete inventory items
-      await tx.delete(inventoryItems).where(eq(inventoryItems.tenantId, id));
-
-      // Delete prescription items and prescriptions
-      const prescriptionIds = await tx.select({ id: prescriptions.id }).from(prescriptions).where(eq(prescriptions.tenantId, id));
-      console.log(`Found ${prescriptionIds.length} prescriptions to delete`);
-      for (const prescription of prescriptionIds) {
-        await tx.delete(prescriptionItems).where(eq(prescriptionItems.prescriptionId, prescription.id));
-      }
-      await tx.delete(prescriptions).where(eq(prescriptions.tenantId, id));
-
-      console.log(`Deleting visits, diagnoses, and vitals for tenant ${id}`);
-      // Delete diagnoses and vitals
-      const visitIds = await tx.select({ id: visits.id }).from(visits).where(eq(visits.tenantId, id));
-      console.log(`Found ${visitIds.length} visits to delete`);
-      for (const visit of visitIds) {
-        await tx.delete(diagnoses).where(eq(diagnoses.visitId, visit.id));
-        await tx.delete(vitals).where(eq(vitals.visitId, visit.id));
-      }
-
-      // Delete visits
-      await tx.delete(visits).where(eq(visits.tenantId, id));
-
-      // Delete queues
-      await tx.delete(queues).where(eq(queues.tenantId, id));
-
-      // Delete appointments
-      await tx.delete(appointments).where(eq(appointments.tenantId, id));
-
-      console.log(`Deleting patients and related data for tenant ${id}`);
-      // Delete patient allergies and conditions
-      const patientIds = await tx.select({ id: patients.id }).from(patients).where(eq(patients.tenantId, id));
-      console.log(`Found ${patientIds.length} patients to delete`);
-      const patientIdList = patientIds.map(p => p.id);
-
-      // Delete messages that reference these patients
-      if (patientIdList.length > 0) {
-        console.log(`Deleting messages for ${patientIdList.length} patients`);
-        await tx.delete(messages).where(inArray(messages.patientId, patientIdList));
-      }
-
-      for (const patient of patientIds) {
-        await tx.delete(patientAllergies).where(eq(patientAllergies.patientId, patient.id));
-        await tx.delete(patientConditions).where(eq(patientConditions.patientId, patient.id));
-      }
-
-      // Delete patients
-      await tx.delete(patients).where(eq(patients.tenantId, id));
-
-      console.log(`Deleting user-related data for ${userIds.length} users`);
-      // Delete user overrides, user roles, and user settings
-      for (const user of userIds) {
-        await tx.delete(userOverrides).where(eq(userOverrides.userId, user.id));
-        await tx.delete(userSettings).where(eq(userSettings.userId, user.id));
-        await tx.delete(userRoles).where(eq(userRoles.userId, user.id));
-      }
-
-      // Delete notifications
-      await tx.delete(notifications).where(eq(notifications.tenantId, id));
-
-      console.log(`Deleting tenant settings for tenant ${id}`);
-      // Delete tenant settings
-      await tx.delete(tenantSettings).where(eq(tenantSettings.tenantId, id));
-
-      console.log(`Deleting roles and permissions for tenant ${id}`);
-      // Delete role permissions and roles
-      const roleIds = await tx.select({ id: roles.id }).from(roles).where(eq(roles.tenantId, id));
-      console.log(`Found ${roleIds.length} roles to delete`);
-      for (const role of roleIds) {
-        await tx.delete(rolePermissions).where(eq(rolePermissions.roleId, role.id));
-      }
-      await tx.delete(roles).where(eq(roles.tenantId, id));
-
-      // Delete departments
-      await tx.delete(departments).where(eq(departments.tenantId, id));
-
-      // Delete branches
-      await tx.delete(branches).where(eq(branches.tenantId, id));
-
-      await tx.execute(sql`
-        DO $$
-        DECLARE
-          tenant_uuid uuid := ${id}::uuid;
-        BEGIN
-          BEGIN
-            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'session') THEN
-              EXECUTE '
-                DELETE FROM "session"
-                WHERE "userId" IN (SELECT id::text FROM users WHERE tenant_id = $1)
-                   OR "userId" IN (
-                     SELECT au.id
-                     FROM "user" au
-                     INNER JOIN users app_user ON lower(app_user.email) = lower(au.email)
-                     WHERE app_user.tenant_id = $1
-                   )
-              ' USING tenant_uuid;
-            END IF;
-          EXCEPTION WHEN OTHERS THEN
-            NULL;
-          END;
-
-          BEGIN
-            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'account') THEN
-              EXECUTE '
-                DELETE FROM "account"
-                WHERE "userId" IN (SELECT id::text FROM users WHERE tenant_id = $1)
-                   OR "userId" IN (
-                     SELECT au.id
-                     FROM "user" au
-                     INNER JOIN users app_user ON lower(app_user.email) = lower(au.email)
-                     WHERE app_user.tenant_id = $1
-                   )
-              ' USING tenant_uuid;
-            END IF;
-          EXCEPTION WHEN OTHERS THEN
-            NULL;
-          END;
-
-          BEGIN
-            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user') THEN
-              EXECUTE '
-                DELETE FROM "user"
-                WHERE id IN (SELECT id::text FROM users WHERE tenant_id = $1)
-                   OR lower(email) IN (SELECT lower(email) FROM users WHERE tenant_id = $1)
-              ' USING tenant_uuid;
-            END IF;
-          EXCEPTION WHEN OTHERS THEN
-            NULL;
-          END;
-        END $$;
-      `);
-
-      // Delete users
-      await tx.delete(users).where(eq(users.tenantId, id));
-
-      // Delete provisioning runs
-      await tx.delete(provisioningRuns).where(eq(provisioningRuns.tenantId, id));
-
-      // Delete tenant-scoped audit logs that reference the tenant directly.
-      await tx.delete(auditLogs).where(eq(auditLogs.tenantId, id));
-
-      await tx.execute(sql`
-        DO $$
-        DECLARE
-          tenant_uuid uuid := ${id}::uuid;
-          record_to_delete record;
-          pass int;
-        BEGIN
-          FOR pass IN 1..8 LOOP
-            FOR record_to_delete IN
-              SELECT table_schema, table_name
-              FROM information_schema.columns
-              WHERE table_schema = 'public'
-                AND column_name = 'tenant_id'
-                AND table_name <> 'tenants'
-            LOOP
-              BEGIN
-                EXECUTE format(
-                  'DELETE FROM %I.%I WHERE tenant_id = $1',
-                  record_to_delete.table_schema,
-                  record_to_delete.table_name
-                ) USING tenant_uuid;
-              EXCEPTION WHEN OTHERS THEN
-                NULL;
-              END;
-            END LOOP;
-          END LOOP;
-        END $$;
-      `);
-
-      console.log(`Finally deleting tenant record ${id}`);
-      // Finally delete the tenant
-      await tx.delete(tenants).where(eq(tenants.id, id));
-    });
+    console.log(`Finally deleting tenant record ${id}`);
+    await tx.delete(tenants).where(eq(tenants.id, id));
 
     console.log(`Tenant deletion completed successfully for tenant ID: ${id}`);
     return { success: true };
+  }
+
+  async purgeDueTenants(limit = 10) {
+    const now = new Date();
+    const candidates = await db
+      .select({
+        id: tenants.id,
+        slug: tenants.slug,
+      })
+      .from(tenants)
+      .where(
+        and(
+          eq(tenants.provisioningStatus, "archived"),
+          isNotNull(tenants.scheduledPurgeAt),
+          lte(tenants.scheduledPurgeAt, now),
+        ),
+      )
+      .limit(limit);
+
+    const purged: { id: string; slug: string }[] = [];
+    const failed: { id: string; slug: string; error: string }[] = [];
+
+    for (const tenant of candidates) {
+      try {
+        await this.deleteTenant(tenant.id);
+        purged.push(tenant);
+      } catch (error: any) {
+        failed.push({
+          id: tenant.id,
+          slug: tenant.slug,
+          error: error?.message || "unknown",
+        });
+      }
+    }
+
+    return {
+      ranAt: now.toISOString(),
+      candidates: candidates.length,
+      purged,
+      failed,
+    };
   }
 
   async getTenantStats() {

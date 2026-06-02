@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { guardians, patients, roles, tenantSettings, tenants, userRoles, users, userSettings } from "@/lib/db/schema";
 import * as authSchema from "@/lib/auth-schema";
 import { mergeUserSettings } from "@/lib/user-settings";
+import { buildTenantLoginUrl } from "@/lib/tenant-routing";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required");
@@ -39,24 +40,10 @@ function buildAliasEmail(patientId: string, tenantSlug: string) {
 }
 
 function buildTenantRoleLoginUrl(tenantSlug: string, role: "patient" | "guardian") {
-  const origin = process.env.NEXT_PUBLIC_APP_URL || process.env.BETTER_AUTH_URL || "http://localhost:3000";
-  const base = new URL(origin);
-  const accessParams = new URLSearchParams({
+  return buildTenantLoginUrl(tenantSlug, {
     audience: `${role}-access`,
     role,
   });
-
-  if (base.hostname === "localhost") {
-    return `${base.protocol}//${tenantSlug}.localhost:${base.port || "3000"}/login?${accessParams.toString()}`;
-  }
-
-  if (base.hostname === "127.0.0.1") {
-    return `${base.protocol}//localhost:${base.port || "3000"}/tenant-login/${tenantSlug}?${accessParams.toString()}`;
-  }
-
-  const hostParts = base.hostname.split(".");
-  const bareHost = hostParts[0] === "www" ? hostParts.slice(1).join(".") : base.hostname;
-  return `${base.protocol}//${tenantSlug}.${bareHost}${base.port ? `:${base.port}` : ""}/login?${accessParams.toString()}`;
 }
 
 function buildTenantPatientLoginUrl(tenantSlug: string) {

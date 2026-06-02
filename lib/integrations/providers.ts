@@ -46,6 +46,14 @@ async function jsonFetch(url: string, init: RequestInit) {
   }
 }
 
+function providerError(provider: string, status: number, body: any) {
+  const details =
+    typeof body === "string"
+      ? body
+      : body?.error_description || body?.reason || body?.message || body?.error || body?.code || "";
+  return `${provider} error: ${status}${details ? ` - ${String(details).slice(0, 240)}` : ""}`;
+}
+
 export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   {
     id: "sendgrid",
@@ -628,20 +636,23 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     description: "Video meeting scheduling and conferencing.",
     docsUrl: "https://developers.zoom.us/docs/api/",
     fields: [
-      { key: "clientId", label: "Client ID", type: "password", required: true },
-      { key: "clientSecret", label: "Client Secret", type: "password", required: true },
-      { key: "accountId", label: "Account ID", type: "text" },
+      { key: "clientId", label: "Client ID", type: "password", required: true, help: "Use a Zoom Server-to-Server OAuth app Client ID." },
+      { key: "clientSecret", label: "Client Secret", type: "password", required: true, help: "Use the Client Secret from the same Zoom Server-to-Server OAuth app." },
+      { key: "accountId", label: "Account ID", type: "text", required: true, help: "Required for Zoom Server-to-Server OAuth. Copy it from the app credentials page." },
     ],
     verify: async (c) => {
+      if (!c.clientId || !c.clientSecret || !c.accountId) {
+        return { ok: false, error: "Zoom requires Account ID, Client ID, and Client Secret from a Server-to-Server OAuth app." };
+      }
       const r = await jsonFetch("https://zoom.us/oauth/token", {
         method: "POST",
         headers: {
           Authorization: "Basic " + Buffer.from(`${c.clientId}:${c.clientSecret}`).toString("base64"),
           "Content-Type": "application/x-www-form-urlencoded",
         },
-        body: new URLSearchParams({ grant_type: "account_credentials", account_id: c.accountId || "" }),
+        body: new URLSearchParams({ grant_type: "account_credentials", account_id: c.accountId.trim() }).toString(),
       });
-      return r.ok ? { ok: true, account: c.accountId } : { ok: false, error: `Zoom error: ${r.status}` };
+      return r.ok ? { ok: true, account: c.accountId } : { ok: false, error: providerError("Zoom", r.status, r.body) };
     },
   },
 ];
