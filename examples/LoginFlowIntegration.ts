@@ -158,7 +158,7 @@ async function verifyPassword(password: string, hash: string): Promise<boolean> 
 }
 
 async function createDeviceFingerprint(data: any) {
-  const response = await fetch("http://localhost:3000/api/fingerprinting", {
+  const response = await fetch("https://joan-healthcare-system.vercel.app//api/fingerprinting", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -167,7 +167,7 @@ async function createDeviceFingerprint(data: any) {
 }
 
 async function createUserSession(data: any) {
-  const response = await fetch("http://localhost:3000/api/sessions", {
+  const response = await fetch("https://joan-healthcare-system.vercel.app//api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -180,7 +180,7 @@ async function createUserSession(data: any) {
 }
 
 async function logActivity(data: any) {
-  await fetch("http://localhost:3000/api/activity-logging", {
+  await fetch("https://joan-healthcare-system.vercel.app//api/activity-logging", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -188,7 +188,7 @@ async function logActivity(data: any) {
 }
 
 async function logSecurityEvent(data: any) {
-  await fetch("http://localhost:3000/api/security-events", {
+  await fetch("https://joan-healthcare-system.vercel.app//api/security-events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -207,7 +207,7 @@ export async function handleLogoutWithTracking(
 
   try {
     // 1. Close the session
-    await fetch(`http://localhost:3000/api/sessions?sessionId=${sessionId}&action=logout`, {
+    await fetch(`https://joan-healthcare-system.vercel.app//api/sessions?sessionId=${sessionId}&action=logout`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
     });

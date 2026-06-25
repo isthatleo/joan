@@ -44,7 +44,7 @@ export function AdminSettingsPage() {
 
 ### Log an Activity
 ```bash
-curl -X POST http://localhost:3000/api/activity-logging \
+curl -X POST https://joan-healthcare-system.vercel.app//api/activity-logging \
   -H "Content-Type: application/json" \
   -d '{
     "userId": "user-123",
@@ -59,22 +59,22 @@ curl -X POST http://localhost:3000/api/activity-logging \
 
 ### Get Activity Logs
 ```bash
-curl "http://localhost:3000/api/activity-logging?tenantId=tenant-456&hoursBack=24&limit=100"
+curl "https://joan-healthcare-system.vercel.app//api/activity-logging?tenantId=tenant-456&hoursBack=24&limit=100"
 ```
 
 ### Get User Devices
 ```bash
-curl "http://localhost:3000/api/fingerprinting?userId=user-123&tenantId=tenant-456"
+curl "https://joan-healthcare-system.vercel.app//api/fingerprinting?userId=user-123&tenantId=tenant-456"
 ```
 
 ### Get Active Sessions
 ```bash
-curl "http://localhost:3000/api/sessions?tenantId=tenant-456&action=active"
+curl "https://joan-healthcare-system.vercel.app//api/sessions?tenantId=tenant-456&action=active"
 ```
 
 ### Log Security Event
 ```bash
-curl -X POST http://localhost:3000/api/security-events \
+curl -X POST https://joan-healthcare-system.vercel.app//api/security-events \
   -H "Content-Type: application/json" \
   -d '{
     "tenantId": "tenant-456",
@@ -178,22 +178,22 @@ import { UserDevicesMonitor } from "@/components/admin/UserDevicesMonitor";
 
 ### Get failed logins in last 6 hours
 ```bash
-curl "http://localhost:3000/api/activity-logging?tenantId=tenant-456&action=login&hoursBack=6&status=failure"
+curl "https://joan-healthcare-system.vercel.app//api/activity-logging?tenantId=tenant-456&action=login&hoursBack=6&status=failure"
 ```
 
 ### Get patient data access
 ```bash
-curl "http://localhost:3000/api/activity-logging?tenantId=tenant-456&resource=patient&limit=50"
+curl "https://joan-healthcare-system.vercel.app//api/activity-logging?tenantId=tenant-456&resource=patient&limit=50"
 ```
 
 ### Get critical security events
 ```bash
-curl "http://localhost:3000/api/security-events?tenantId=tenant-456&severity=critical&resolved=false"
+curl "https://joan-healthcare-system.vercel.app//api/security-events?tenantId=tenant-456&severity=critical&resolved=false"
 ```
 
 ### Get active sessions by user
 ```bash
-curl "http://localhost:3000/api/sessions?tenantId=tenant-456&userId=user-123&action=active"
+curl "https://joan-healthcare-system.vercel.app//api/sessions?tenantId=tenant-456&userId=user-123&action=active"
 ```
 
 ## Data Flow Diagram

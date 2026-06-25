@@ -63,7 +63,7 @@ Updated Files:
 ## How to Access
 
 ### Step 1: Go to Tenant Registry
-Navigate to: **http://localhost:3000/tenants**
+Navigate to: **https://joan-healthcare-system.vercel.app//tenants**
 
 ### Step 2: Click Config Button
 Find any hospital in the table and click the "Config" button in the Actions column

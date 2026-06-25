@@ -255,7 +255,7 @@ npm run db:push      # Apply to database
 ### 4. Run Development Server
 ```bash
 npm run dev
-# Open http://localhost:3000
+# Open https://joan-healthcare-system.vercel.app/
 ```
 
 ### 5. Build for Production

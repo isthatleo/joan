@@ -144,7 +144,7 @@ Should show the `/avatars/{filename}` path if upload succeeded
 ### Direct API Test
 Use curl or Postman to test manually:
 ```bash
-curl -X POST "http://localhost:3000/api/users/avatar?userId={uuid}" \
+curl -X POST "https://joan-healthcare-system.vercel.app//api/users/avatar?userId={uuid}" \
   -F "avatar=@/path/to/image.jpg"
 ```
 

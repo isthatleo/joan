@@ -75,7 +75,7 @@ npm run seed:super-admin
 # 5. Start server:
 npm run dev
 
-# 6. Login at http://localhost:3000/master
+# 6. Login at https://joan-healthcare-system.vercel.app//master
 # Email: leonardlomude@icloud.com
 # Password: Myname@78
 ```
@@ -143,7 +143,7 @@ npm run seed:super-admin
 ### Step 3: Verify Everything Works
 ```powershell
 npm run dev
-# Visit http://localhost:3000/master
+# Visit https://joan-healthcare-system.vercel.app//master
 # Login with credentials above
 # Should take: 2 minutes
 ```
@@ -170,19 +170,19 @@ npm run dev
 
 ### Frontend Entry Points:
 ```
-http://localhost:3000/          - Main dashboard (redirects to /master for non-logged-in)
-http://localhost:3000/master    - Super admin panel
-http://localhost:3000/login     - Role-based login
-http://localhost:3000/admin     - Hospital admin
+https://joan-healthcare-system.vercel.app//          - Main dashboard (redirects to /master for non-logged-in)
+https://joan-healthcare-system.vercel.app//master    - Super admin panel
+https://joan-healthcare-system.vercel.app//login     - Role-based login
+https://joan-healthcare-system.vercel.app//admin     - Hospital admin
 ```
 
 ### API Base URLs:
 ```
-http://localhost:3000/api/health                 - System status
-http://localhost:3000/api/super-admin            - Super admin data
-http://localhost:3000/api/analytics/{role}       - Role analytics
-http://localhost:3000/api/tenants                - Tenant management
-http://localhost:3000/api/compliance/data        - Compliance
+https://joan-healthcare-system.vercel.app//api/health                 - System status
+https://joan-healthcare-system.vercel.app//api/super-admin            - Super admin data
+https://joan-healthcare-system.vercel.app//api/analytics/{role}       - Role analytics
+https://joan-healthcare-system.vercel.app//api/tenants                - Tenant management
+https://joan-healthcare-system.vercel.app//api/compliance/data        - Compliance
 ```
 
 ### Key Credentials (After Seed):
@@ -337,7 +337,7 @@ You're **one database connection** away from a fully functional system!
 2. Follow solution appropriate for your setup
 3. Come back when DB is connected
 4. Run commands provided
-5. Test at http://localhost:3000/master
+5. Test at https://joan-healthcare-system.vercel.app//master
 6. **Celebrate! 🎉**
 
 ---

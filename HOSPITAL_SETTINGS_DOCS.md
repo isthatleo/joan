@@ -497,18 +497,18 @@ stores/
 ### API Testing
 ```bash
 # Get settings
-curl -X GET "http://localhost:3000/api/hospital/settings?tenantId=..."
+curl -X GET "https://joan-healthcare-system.vercel.app//api/hospital/settings?tenantId=..."
 
 # Update settings
-curl -X PUT "http://localhost:3000/api/hospital/settings?tenantId=..." \
+curl -X PUT "https://joan-healthcare-system.vercel.app//api/hospital/settings?tenantId=..." \
   -H "Content-Type: application/json" \
   -d '{"hospital":{"name":"New Name"}}'
 
 # List integrations
-curl -X GET "http://localhost:3000/api/hospital/integrations?tenantId=..."
+curl -X GET "https://joan-healthcare-system.vercel.app//api/hospital/integrations?tenantId=..."
 
 # Add integration
-curl -X POST "http://localhost:3000/api/hospital/integrations?tenantId=..." \
+curl -X POST "https://joan-healthcare-system.vercel.app//api/hospital/integrations?tenantId=..." \
   -H "Content-Type: application/json" \
   -d '{"provider":"twilio","apiKey":"..."}'
 ```

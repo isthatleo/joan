@@ -74,7 +74,7 @@ Should see all tests passing ✅
 
 ### **THEN LOGIN** (2 minutes)
 ```
-URL: http://localhost:3000/master
+URL: https://joan-healthcare-system.vercel.app//master
 Email: leonardlomude@icloud.com
 Password: Myname@78
 ```
@@ -139,7 +139,7 @@ npm run dev
 ```
 
 ### Priority 3 (Test):
-Open http://localhost:3000/master and login
+Open https://joan-healthcare-system.vercel.app//master and login
 
 ---
 

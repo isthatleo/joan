@@ -30,7 +30,7 @@ choco install postgresql
 Replace the `.env` file with:
 ```env
 BETTER_AUTH_SECRET="2pLrXk2TvS7zcrusZcabzjO7OrEw0THf"
-BETTER_AUTH_URL="http://localhost:3000"
+BETTER_AUTH_URL="https://joan-healthcare-system.vercel.app/"
 DATABASE_URL="postgresql://postgres:password@localhost:5432/joan"
 ```
 
@@ -168,7 +168,7 @@ npx tsx seed-super-admin.ts
 npm run dev
 
 # 8. Access the app
-# Open: http://localhost:3000
+# Open: https://joan-healthcare-system.vercel.app/
 # Login as super admin:
 #   Email: leonardlomude@icloud.com
 #   Password: Myname@78
@@ -183,7 +183,7 @@ npm run dev
 - [ ] Migrations have been applied (`npm run db:push`)
 - [ ] Seed data has been populated
 - [ ] Development server starts without database errors
-- [ ] Can access `http://localhost:3000/api/health`
+- [ ] Can access `https://joan-healthcare-system.vercel.app//api/health`
 - [ ] Can login with super admin credentials
 
 ---
@@ -226,13 +226,13 @@ Get-Service postgresql-x64-* | Select-Object Status
 
 ```bash
 # 1. Test API health
-curl http://localhost:3000/api/health
+curl https://joan-healthcare-system.vercel.app//api/health
 
 # 2. Test database connection
-curl http://localhost:3000/api/auth/first-user
+curl https://joan-healthcare-system.vercel.app//api/auth/first-user
 
 # 3. Test super admin dashboard
-# Navigate to http://localhost:3000
+# Navigate to https://joan-healthcare-system.vercel.app/
 # Click "Super Admin Access"
 ```
 
