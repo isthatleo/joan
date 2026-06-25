@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
+    "@better-auth/infra": "^0.3.2",
     "@esbuild-kit/esm-loader": "^2.6.5",
     "@hookform/resolvers": "^3.3.4",
     "@neondatabase/serverless": "^1.1.0",

@@ -1,6 +1,8 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
+import { dash } from "@better-auth/infra";
+
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import bcrypt from "bcryptjs";
@@ -126,7 +128,8 @@ export const auth = betterAuth({
     fallback: process.env.BETTER_AUTH_URL || "https://joanhealth.tech/",
   },
   secret: process.env.BETTER_AUTH_SECRET,
-  plugins: [nextCookies()],
+  plugins: [nextCookies(), dash()],
+
   emailAndPassword: {
     enabled: true,
     password: {
