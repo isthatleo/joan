@@ -21,9 +21,7 @@ const db = drizzle(sql, { schema });
 const LOCAL_AUTH_PORTS = ["3000", "3100", "8080"];
 const TRUSTED_HOST_SUFFIXES = [
   ".localhost",
-  ".lovableproject.com",
-  ".lovable.app",
-  ".lovable.dev",
+  ".joanhealth.tech",
 ];
 
 function splitEnvList(value?: string) {
@@ -100,9 +98,7 @@ const localTrustedOrigins = LOCAL_AUTH_PORTS.flatMap((port) => [
 const baseTrustedOrigins = Array.from(
   new Set([
     ...localTrustedOrigins,
-    "https://*.lovableproject.com",
-    "https://*.lovable.app",
-    "https://*.lovable.dev",
+    "https://*.joanhealth.tech",
     ...configuredOrigins,
   ]),
 );
@@ -114,9 +110,7 @@ const allowedHosts = Array.from(
       `127.0.0.1:${port}`,
       `*.localhost:${port}`,
     ]),
-    "*.lovableproject.com",
-    "*.lovable.app",
-    "*.lovable.dev",
+    "*.joanhealth.tech",
     ...configuredHosts,
   ]),
 );
@@ -137,14 +131,18 @@ export const auth = betterAuth({
       verify: ({ hash, password }) => bcrypt.compare(password, hash),
     },
   },
-  // Keep CSRF origin checks enabled while allowing configured app URLs and safe local tenant subdomains.
+  // Keep CSRF origin checks enabled.
+  // Additionally trust configured BETTER_AUTH_URL / NEXT_PUBLIC_APP_URL to avoid
+  // "invalid origin" when logging in from your custom domain (e.g. apex vs www).
   trustedOrigins: (request) => {
     const requestOrigins = [
       normalizeOrigin(request?.headers.get("origin")),
       normalizeOrigin(request?.headers.get("referer")),
-    ].filter((origin): origin is string => origin !== null && isSafeDynamicOrigin(origin));
+    ].filter((origin): origin is string =>
+      origin !== null && (isSafeDynamicOrigin(origin) || configuredOrigins.includes(origin)),
+    );
 
-    return Array.from(new Set([...baseTrustedOrigins, ...requestOrigins]));
+    return Array.from(new Set([...baseTrustedOrigins, ...configuredOrigins, ...requestOrigins]));
   },
   experimental: {
     joins: true,
