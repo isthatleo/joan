@@ -156,7 +156,7 @@ Real-time data available via WebSocket at:
 List all tenants:
 ```bash
 curl -H "Authorization: Bearer <token>" \
-  https://joan-healthcare-system.vercel.app//api/tenants
+  https://joanhealth.tech//api/tenants
 ```
 
 Create new tenant:
@@ -164,12 +164,12 @@ Create new tenant:
 curl -X POST -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"name":"New Hospital","slug":"new-hosp","plan":"Premium"}' \
-  https://joan-healthcare-system.vercel.app//api/tenants
+  https://joanhealth.tech//api/tenants
 ```
 
 Get system health:
 ```bash
-curl https://joan-healthcare-system.vercel.app//api/health
+curl https://joanhealth.tech//api/health
 ```
 
 ## Deprecation Notices

@@ -47,7 +47,7 @@ bunx drizzle-kit migrate
 
 ### 3. Access Hospital Settings Page
 
-Navigate to: `https://joan-healthcare-system.vercel.app//settings/hospital` (for hospital admins)
+Navigate to: `https://joanhealth.tech//settings/hospital` (for hospital admins)
 
 ## File Structure Overview
 

@@ -158,7 +158,7 @@ npm install --legacy-peer-deps
 ### Run Development Server
 ```bash
 npm run dev
-# Visit https://joan-healthcare-system.vercel.app/
+# Visit https://joanhealth.tech/
 ```
 
 ### Build for Production
@@ -338,7 +338,7 @@ Joan Healthcare OS Documentation
 1. Read READY_TO_BUILD.md
 2. Run npm install
 3. Run npm run dev
-4. Visit https://joan-healthcare-system.vercel.app/
+4. Visit https://joanhealth.tech/
 
 ### Day 3: Development
 1. Check QUICK_REFERENCE.md for patterns

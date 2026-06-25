@@ -13,7 +13,7 @@ OPENAI_API_KEY=your_openai_key
 TWILIO_ACCOUNT_SID=your_twilio_sid
 TWILIO_AUTH_TOKEN=your_twilio_token
 TWILIO_PHONE_NUMBER=your_twilio_number
-BETTER_AUTH_URL=https://joan-healthcare-system.vercel.app/
+BETTER_AUTH_URL=https://joanhealth.tech/
 BETTER_AUTH_SECRET=generate_a_secret
 ```
 
@@ -39,10 +39,10 @@ npm run dev
 
 ## Access Points
 
-- **Web App**: https://joan-healthcare-system.vercel.app/
-- **API**: https://joan-healthcare-system.vercel.app//api
+- **Web App**: https://joanhealth.tech/
+- **API**: https://joanhealth.tech//api
 - **WebSocket**: ws://localhost:4000
-- **Docs**: https://joan-healthcare-system.vercel.app//docs
+- **Docs**: https://joanhealth.tech//docs
 
 ## Default Roles
 
@@ -100,22 +100,22 @@ npm run dev
 
 ```bash
 # Create patient
-curl -X POST https://joan-healthcare-system.vercel.app//api/patients \
+curl -X POST https://joanhealth.tech//api/patients \
   -H "Content-Type: application/json" \
   -d '{"firstName":"John","lastName":"Doe","tenantId":"..."}'
 
 # Create appointment
-curl -X POST https://joan-healthcare-system.vercel.app//api/appointments \
+curl -X POST https://joanhealth.tech//api/appointments \
   -H "Content-Type: application/json" \
   -d '{"patientId":"...","doctorId":"...","scheduledAt":"2026-04-20T10:00:00Z"}'
 
 # Add to queue
-curl -X POST https://joan-healthcare-system.vercel.app//api/queue/add \
+curl -X POST https://joanhealth.tech//api/queue/add \
   -H "Content-Type: application/json" \
   -d '{"tenantId":"...","patientId":"...","departmentId":"...","priority":"normal"}'
 
 # Get AI summary
-curl https://joan-healthcare-system.vercel.app//api/ai/summary/[patientId]
+curl https://joanhealth.tech//api/ai/summary/[patientId]
 ```
 
 ## Project Structure
@@ -183,7 +183,7 @@ npm start
 
 ## Support & Documentation
 
-- Full docs: https://joan-healthcare-system.vercel.app//docs
+- Full docs: https://joanhealth.tech//docs
 - GitHub: (Add your repo)
 - Issues: (Add issue tracker)
 

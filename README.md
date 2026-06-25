@@ -128,7 +128,7 @@ Replace the placeholder values with your actual Appwrite credentials. You can ob
 npm run dev
 ```
 
-Open [https://joan-healthcare-system.vercel.app/](https://joan-healthcare-system.vercel.app/) in your browser to view the project.
+Open [https://joanhealth.tech/](https://joanhealth.tech/) in your browser to view the project.
 
 ## <a name="snippets">🕸️ Snippets</a>
 

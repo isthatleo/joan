@@ -341,7 +341,7 @@ To test the implementation:
 npm run dev
 
 # Navigate to any lab page
-https://joan-healthcare-system.vercel.app//tenant/[slug]/lab
+https://joanhealth.tech//tenant/[slug]/lab
 
 # Test creating orders
 # Test uploading results

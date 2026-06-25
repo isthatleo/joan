@@ -3,7 +3,7 @@
 
 set -e
 
-BASE_URL="https://joan-healthcare-system.vercel.app/"
+BASE_URL="https://joanhealth.tech/"
 TEMP_TOKEN=""
 
 echo "========================================="

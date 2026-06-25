@@ -22,7 +22,7 @@ function getProductionTenantDomains() {
 }
 
 function getAppOrigin() {
-  return process.env.NEXT_PUBLIC_APP_URL || process.env.BETTER_AUTH_URL || "https://joan-healthcare-system.vercel.app/";
+  return process.env.NEXT_PUBLIC_APP_URL || process.env.BETTER_AUTH_URL || "https://joanhealth.tech/";
 }
 
 function getTenantRootDomain(base: URL) {

@@ -4190,7 +4190,7 @@ export default function TenantSettingsPage() {
                        provider="mailgun"
                        configFields={[
                          { key: "apiKey", label: "API Key", type: "password", placeholder: "key-..." },
-                         { key: "domain", label: "Domain", type: "text", placeholder: "mg.https://joan-healthcare-system.vercel.app/" }
+                         { key: "domain", label: "Domain", type: "text", placeholder: "mg.https://joanhealth.tech/" }
                        ]}
                        testAction="Test Email"
                      />
