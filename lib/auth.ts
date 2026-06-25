@@ -146,14 +146,27 @@ export const auth = betterAuth({
 
     return Array.from(new Set([...baseTrustedOrigins, ...requestOrigins]));
   },
+  experimental: {
+    joins: true,
+  },
   advanced: {
-    useSecureCookies: false,
+    // In production (Vercel HTTPS + custom domain), Secure cookies are required.
+    // For local dev over http://, this will remain false.
+    useSecureCookies:
+      process.env.NODE_ENV === "production" ||
+      (process.env.BETTER_AUTH_URL?.startsWith("https://") ?? false),
     defaultCookieAttributes: {
       sameSite: "lax",
-      secure: false,
+      secure:
+        process.env.NODE_ENV === "production" ||
+        (process.env.BETTER_AUTH_URL?.startsWith("https://") ?? false),
     },
     csrfProtection: {
       enabled: true,
+    },
+    ipAddress: {
+      // Vercel
+      ipAddressHeaders: ["x-vercel-forwarded-for", "x-forwarded-for"],
     },
   },
 });
