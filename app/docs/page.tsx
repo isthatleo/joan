@@ -110,7 +110,7 @@ export default function DocumentationPage() {
             <p>1. npm install</p>
             <p>2. npm run db:push (migrate database)</p>
             <p>3. npm run dev (start development server)</p>
-            <p>4. Open http://localhost:3000</p>
+            <p>4. Open https://joan-healthcare-system.vercel.app/</p>
           </div>
         </section>
       </div>

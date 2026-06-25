@@ -3,7 +3,7 @@
 
 set -e
 
-BASE_URL="http://localhost:3000"
+BASE_URL="https://joan-healthcare-system.vercel.app/"
 TEMP_TOKEN=""
 
 echo "========================================="

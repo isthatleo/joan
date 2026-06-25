@@ -221,7 +221,7 @@ Role: Super Admin
 Email: leonardlomude@icloud.com
 Password: Myname@78
 
-Access: http://localhost:3000/master
+Access: https://joan-healthcare-system.vercel.app//master
 ```
 
 ---
@@ -517,7 +517,7 @@ npm run seed:super-admin
 npm run dev
 
 # Then visit:
-# http://localhost:3000/master
+# https://joan-healthcare-system.vercel.app//master
 ```
 
 ---

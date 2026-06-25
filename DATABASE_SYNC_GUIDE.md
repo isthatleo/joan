@@ -174,7 +174,7 @@ npm run dev
 
 ### 2. Test health check
 ```bash
-curl http://localhost:3000/api/health
+curl https://joan-healthcare-system.vercel.app//api/health
 ```
 
 ### 3. Check database
@@ -184,7 +184,7 @@ node verify-db.js
 
 ### 4. Test login (once DB is connected)
 ```bash
-# Go to http://localhost:3000/login
+# Go to https://joan-healthcare-system.vercel.app//login
 # Try: Super Admin Access > /master
 ```
 
@@ -209,7 +209,7 @@ npm run test:apis
 ```env
 ✓ DATABASE_URL=postgresql://...
 ✓ BETTER_AUTH_SECRET=<long-random-string>
-✓ BETTER_AUTH_URL=http://localhost:3000
+✓ BETTER_AUTH_URL=https://joan-healthcare-system.vercel.app/
 ✓ NODE_ENV=development
 ```
 

@@ -135,7 +135,7 @@ npm run dev
 
 # Output should show:
 # ✓ Ready in X seconds
-# ▲ Local: http://localhost:3000
+# ▲ Local: https://joan-healthcare-system.vercel.app/
 # No database errors should appear!
 ```
 
@@ -164,9 +164,9 @@ npm run test:apis
 
 ### Step 6: Login to System
 
-1. Open http://localhost:3000/login
+1. Open https://joan-healthcare-system.vercel.app//login
 2. Select role: "Super Admin" (or use "Super Admin Access" link)
-3. Or navigate to: http://localhost:3000/master
+3. Or navigate to: https://joan-healthcare-system.vercel.app//master
 4. Email: `leonardlomude@icloud.com`
 5. Password: `Myname@78`
 6. Expected: Redirected to `/` (Dashboard)
@@ -334,7 +334,7 @@ Test all endpoints:
 # Or test specific endpoints:
 function Test-API {
     param([string]$Endpoint)
-    Invoke-WebRequest -Uri "http://localhost:3000$Endpoint" | ConvertTo-Json | Out-Host
+    Invoke-WebRequest -Uri "https://joan-healthcare-system.vercel.app/$Endpoint" | ConvertTo-Json | Out-Host
 }
 
 # Examples:
@@ -358,7 +358,7 @@ DATABASE_URL=postgresql://user:password@host:port/dbname
 BETTER_AUTH_SECRET=<generate with: openssl rand -base64 32>
 
 # OPTIONAL (defaults shown)
-BETTER_AUTH_URL=http://localhost:3000
+BETTER_AUTH_URL=https://joan-healthcare-system.vercel.app/
 NODE_ENV=development
 
 # OPTIONAL - Sentry

@@ -51,7 +51,7 @@ npm start
 # Or for development: npm run dev
 ```
 
-**Access at:** http://localhost:3000
+**Access at:** https://joan-healthcare-system.vercel.app/
 
 ---
 
@@ -337,7 +337,7 @@ After installation and build:
 - [ ] npm install completes without errors
 - [ ] npm run build completes successfully
 - [ ] npm run dev starts without errors
-- [ ] http://localhost:3000 loads
+- [ ] https://joan-healthcare-system.vercel.app/ loads
 - [ ] Sidebar displays all navigation items
 - [ ] Dashboard shows KPI cards
 - [ ] Dark mode toggle works
@@ -377,7 +377,7 @@ npm run build
 npm start
 ```
 
-Then visit: **http://localhost:3000**
+Then visit: **https://joan-healthcare-system.vercel.app/**
 
 ---
 

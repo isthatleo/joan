@@ -1,7 +1,7 @@
 # Comprehensive API Test Suite for Joan Healthcare OS
 # PowerShell Version for Windows
 
-$BaseURL = "http://localhost:3000"
+$BaseURL = "https://joan-healthcare-system.vercel.app/"
 $TestResults = @()
 
 Write-Host "🧪 Joan Healthcare OS - API Test Suite" -ForegroundColor Cyan
@@ -133,5 +133,5 @@ Write-Host ""
 Write-Host "Next Steps:" -ForegroundColor Cyan
 Write-Host "1. Ensure database is connected"
 Write-Host "2. Seed initial data: npm run seed:super-admin"
-Write-Host "3. Test login at http://localhost:3000/login"
+Write-Host "3. Test login at https://joan-healthcare-system.vercel.app//login"
 

@@ -123,7 +123,7 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
   baseURL: {
     allowedHosts,
-    fallback: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+    fallback: process.env.BETTER_AUTH_URL || "https://joan-healthcare-system.vercel.app/",
   },
   secret: process.env.BETTER_AUTH_SECRET,
   plugins: [nextCookies()],

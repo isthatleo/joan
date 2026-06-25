@@ -3,7 +3,7 @@
 # Comprehensive API Test Suite for Joan Healthcare OS
 # Tests all 30+ API endpoints
 
-BASE_URL="http://localhost:3000"
+BASE_URL="https://joan-healthcare-system.vercel.app/"
 
 echo "🧪 Joan Healthcare OS - API Test Suite"
 echo "========================================"

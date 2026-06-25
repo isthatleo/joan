@@ -327,7 +327,7 @@ Cause: Network unable to reach Neon endpoints
 1. Establish database connection (see DATABASE_SYNC_GUIDE.md)
 2. Run `npm run db:push` for schema migration
 3. Run `npm run seed:super-admin` to create super admin
-4. Test login at http://localhost:3000/login
+4. Test login at https://joan-healthcare-system.vercel.app//login
 
 ---
 

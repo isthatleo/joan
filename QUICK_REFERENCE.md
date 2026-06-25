@@ -364,7 +364,7 @@ const permissions = usePermissionStore((s) => s.permissions);
 3. **Test Pages**
    ```bash
    npm run dev
-   # Visit http://localhost:3000
+   # Visit https://joan-healthcare-system.vercel.app/
    ```
 
 4. **Deploy**
