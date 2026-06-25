@@ -37,7 +37,7 @@ createdb joanhealthcare_dev
 3. Update `.env` to use local connection:
 ```
 DATABASE_URL="postgresql://localhost/joanhealthcare_dev"
-BETTER_AUTH_URL="https://joan-healthcare-system.vercel.app/"
+BETTER_AUTH_URL="https://joanhealth.tech/"
 BETTER_AUTH_SECRET="your-secret-key"
 ```
 
@@ -123,10 +123,10 @@ npm run db:push
 
 2. Try to access the API:
 ```bash
-curl https://joan-healthcare-system.vercel.app//api/health
+curl https://joanhealth.tech//api/health
 ```
 
-3. Check browser console at `https://joan-healthcare-system.vercel.app/`
+3. Check browser console at `https://joanhealth.tech/`
 
 ## Database Schema Setup
 
@@ -168,7 +168,7 @@ Once database is connected:
 npm run seed:super-admin
 ```
 
-2. Visit https://joan-healthcare-system.vercel.app//login
+2. Visit https://joanhealth.tech//login
 3. Login with:
    - Email: `leonardlomude@icloud.com`
    - Password: `Myname@78`

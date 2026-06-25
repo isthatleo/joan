@@ -256,7 +256,7 @@ npm run seed:super-admin
 # 4. Start development
 npm run dev
 
-# 5. Visit https://joan-healthcare-system.vercel.app/
+# 5. Visit https://joanhealth.tech/
 ```
 
 Login with:

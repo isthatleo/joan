@@ -2,7 +2,7 @@ import { io } from "socket.io-client";
 
 const socketUrl =
   process.env.NEXT_PUBLIC_SOCKET_URL ||
-  (typeof window === "undefined" ? "https://joan-healthcare-system.vercel.app/" : `${window.location.protocol}//${window.location.hostname}:4000`);
+  (typeof window === "undefined" ? "https://joanhealth.tech/" : `${window.location.protocol}//${window.location.hostname}:4000`);
 
 let realtimeUnavailableUntil = 0;
 let realtimeProbe: Promise<boolean> | null = null;

@@ -186,7 +186,7 @@ async function sendScheduledReportEmails(args: {
   const templateConfig = (metadata.templateConfig || {}) as Record<string, any>;
   const branding = await getReportBranding(args.tenant.id);
   const format = normalizeScheduledFormat(args.schedule.format);
-  const reportUrl = `${process.env.NEXT_PUBLIC_APP_URL || "https://joan-healthcare-system.vercel.app/"}/tenant/${args.tenant.slug}/accountant/reports/${args.report.id}`;
+  const reportUrl = `${process.env.NEXT_PUBLIC_APP_URL || "https://joanhealth.tech/"}/tenant/${args.tenant.slug}/accountant/reports/${args.report.id}`;
 
   const htmlContent = renderReportHtml({
     branding,

@@ -104,7 +104,7 @@ npm list --depth=0
 ### Step 4: Start Development
 ```bash
 npm run dev
-# Visit https://joan-healthcare-system.vercel.app/
+# Visit https://joanhealth.tech/
 ```
 
 ---
@@ -232,7 +232,7 @@ copy .env.example .env.local
 npm run dev
 
 # 4. Open browser
-open https://joan-healthcare-system.vercel.app/
+open https://joanhealth.tech/
 ```
 
 ### Database Setup

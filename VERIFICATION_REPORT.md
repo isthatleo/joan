@@ -384,7 +384,7 @@ Test Scripts: 1
 npm run dev
 
 # Test API health
-curl https://joan-healthcare-system.vercel.app//api/health
+curl https://joanhealth.tech//api/health
 
 # Test database
 npm run db:push
@@ -433,7 +433,7 @@ bash test-apis.sh
 2. Run migrations
 3. Seed demo data
 4. Start development server
-5. Verify at https://joan-healthcare-system.vercel.app/
+5. Verify at https://joanhealth.tech/
 
 ---
 

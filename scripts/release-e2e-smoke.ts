@@ -15,7 +15,7 @@ type RequestSpec = {
   expectedStatuses?: number[];
 };
 
-const BASE_URL = (process.env.E2E_BASE_URL || "https://joan-healthcare-system.vercel.app/").replace(/\/$/, "");
+const BASE_URL = (process.env.E2E_BASE_URL || "https://joanhealth.tech/").replace(/\/$/, "");
 const TENANT_SLUG = process.env.E2E_TENANT_SLUG || "test-general";
 const AUTH_COOKIE = process.env.E2E_AUTH_COOKIE || "";
 const HOSPITAL_ADMIN_COOKIE = process.env.E2E_HOSPITAL_ADMIN_COOKIE || AUTH_COOKIE;

@@ -291,7 +291,7 @@ Email: leonardlomude@icloud.com
 Password: Myname@78
 ```
 
-Access at: `https://joan-healthcare-system.vercel.app//master`
+Access at: `https://joanhealth.tech//master`
 
 ---
 

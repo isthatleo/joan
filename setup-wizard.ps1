@@ -199,7 +199,7 @@ Write-Host "   2. In another terminal, test APIs:"
 Write-Host "      .\test-apis.ps1" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "   3. Open in browser:"
-Write-Host "      https://joan-healthcare-system.vercel.app//master" -ForegroundColor Yellow
+Write-Host "      https://joanhealth.tech//master" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "   4. Login with credentials above"
 Write-Host ""
