@@ -26,11 +26,15 @@ export class AdminService {
   }
 
   async getStaffList(tenantId: string) {
-    return db.query.users.findMany();
+    return db.query.users.findMany({
+      where: (users, { eq }) => eq(users.tenantId, tenantId),
+    });
   }
 
   async getDepartmentList(tenantId: string) {
-    return db.query.departments.findMany();
+    return db.query.departments.findMany({
+      where: (departments, { eq }) => eq(departments.tenantId, tenantId),
+    });
   }
 
   async getAttendanceLogs(staffId: string) {

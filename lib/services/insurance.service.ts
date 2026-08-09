@@ -18,7 +18,9 @@ export class InsuranceService {
   }
 
   async getPatientPolicies(patientId: string) {
-    return db.query.insurancePolicies.findMany();
+    return db.query.insurancePolicies.findMany({
+      where: (insurancePolicies, { eq }) => eq(insurancePolicies.patientId, patientId),
+    });
   }
 
   async trackClaimStatus(claimId: string) {

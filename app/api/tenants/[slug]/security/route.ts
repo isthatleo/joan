@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { getTenantSecuritySettings } from "@/lib/tenant-security";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
 async function getTenantBySlug(slug: string) {
   return db.query.tenants.findFirst({ where: eq(tenants.slug, slug) });
@@ -22,6 +23,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
     const security = await getTenantSecuritySettings(tenant.id);
     return NextResponse.json(security);
   } catch (e) {
@@ -78,6 +81,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const body = updateSchema.parse(await request.json());
 
