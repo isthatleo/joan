@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTenantBySlug, updateEmergencyAlert } from "@/lib/receptionist/data";
+import { getTenantBySlug, updateEmergencyAlert, requireReceptionistAccess } from "@/lib/receptionist/data";
 
 export async function PATCH(
   request: NextRequest,
@@ -10,6 +10,10 @@ export async function PATCH(
     const tenant = await getTenantBySlug(slug);
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+    const access = await requireReceptionistAccess(request, tenant.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
     const patch = await request.json();
     const alert = await updateEmergencyAlert(tenant.id, alertId, patch);

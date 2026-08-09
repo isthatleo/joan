@@ -16,6 +16,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Visit ID required" }, { status: 400 });
     }
 
+    const visit = await db.query.visits.findFirst({
+      where: eq(visits.id, visitId),
+      columns: { id: true, tenantId: true },
+    });
+    if (!visit || (access.user.role !== "super_admin" && visit.tenantId !== access.user.tenantId)) {
+      return NextResponse.json({ error: "Visit not found" }, { status: 404 });
+    }
+
     const vitalsList = await db.query.vitals.findMany({
       where: eq(vitals.visitId, visitId),
     });

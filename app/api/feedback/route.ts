@@ -183,11 +183,21 @@ export async function GET(request: NextRequest) {
     const userId = searchParams.get("userId");
     const patientFeedbackOnly = searchParams.get("patientFeedbackOnly") === "true";
 
+    const currentUser = await resolveCurrentAppUser(request, tenantId);
+    if (!currentUser) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (currentUser.role !== "super_admin" && tenantId && tenantId !== currentUser.tenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    // Non-super-admins may only ever see their own tenant's feedback.
+    const effectiveTenantId = currentUser.role === "super_admin" ? tenantId : currentUser.tenantId;
+
     let feedback;
 
     // If patientFeedbackOnly flag is set, use the special method for patient feedback
-    if (patientFeedbackOnly && tenantId) {
-      feedback = await service.getPatientFeedbacksByTenant(tenantId, {
+    if (patientFeedbackOnly && effectiveTenantId) {
+      feedback = await service.getPatientFeedbacksByTenant(effectiveTenantId, {
         status: status || undefined,
         type: type || undefined,
       });
@@ -198,7 +208,7 @@ export async function GET(request: NextRequest) {
         type: type || undefined,
         scope: scope || undefined,
         assignedTo: assignedTo || undefined,
-        tenantId: tenantId || undefined,
+        tenantId: effectiveTenantId || undefined,
         userId: userId || undefined,
       });
     }

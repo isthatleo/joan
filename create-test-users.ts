@@ -1,7 +1,9 @@
 import { config } from "dotenv";
 config();
 
-process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://neondb_owner:npg_EMTKlq59JYQs@ep-spring-dust-anfktbmz-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL environment variable is not set");
+}
 
 import { db } from "./lib/db";
 import { tenants, roles, users, userRoles } from "./lib/db/schema";
@@ -73,9 +75,14 @@ async function createTestUsers(tenantSlug: string) {
       console.log(`Created ${insertedRoles.length} roles`);
     }
 
-    // Hash passwords for both schemas
-    const passwordHash = await hashPassword("Myname@78");
-    const bcryptPasswordHash = await bcrypt.hash("Myname@78", 12);
+    // Hash passwords for both schemas. Never hardcode a real password here —
+    // require the operator to supply one explicitly for this seed run.
+    const seedPassword = process.env.SEED_TEST_USER_PASSWORD;
+    if (!seedPassword || seedPassword.length < 8) {
+      throw new Error("Set SEED_TEST_USER_PASSWORD (8+ chars) before running this script.");
+    }
+    const passwordHash = await hashPassword(seedPassword);
+    const bcryptPasswordHash = await bcrypt.hash(seedPassword, 12);
     console.log("Passwords hashed");
 
     // Create test users
@@ -183,10 +190,9 @@ async function createTestUsers(tenantSlug: string) {
     }
 
     console.log("\nTest users created successfully!");
-    console.log("All users have password: Myname@78");
-    console.log("\nUser credentials:");
+    console.log("\nUser emails (password is the SEED_TEST_USER_PASSWORD you provided):");
     TEST_USERS.forEach(user => {
-      console.log(`  ${user.name}: ${user.email} / Myname@78`);
+      console.log(`  ${user.name}: ${user.email}`);
     });
 
   } catch (error) {

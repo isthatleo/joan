@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { expenses } from "@/lib/db/schema";
-import { getTenantIdBySlug } from "@/lib/accountant/server";
+import {getTenantIdBySlug, verifyTenantMembership } from "@/lib/accountant/server";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { expenseCreateSchema, parseJsonBody, validateFinancePayload } from "@/lib/accountant/finance-api";
 
@@ -15,6 +15,10 @@ export async function GET(
   const { slug } = await params;
   const tenantId = await getTenantIdBySlug(slug);
   if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const membership = await verifyTenantMembership(session, tenantId);
+    if (!membership.ok) {
+      return NextResponse.json({ error: membership.status === 401 ? "Unauthorized" : "Forbidden" }, { status: membership.status });
+    }
 
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
@@ -56,6 +60,10 @@ export async function POST(
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+    const membership = await verifyTenantMembership(session, tenantId);
+    if (!membership.ok) {
+      return NextResponse.json({ error: membership.status === 401 ? "Unauthorized" : "Forbidden" }, { status: membership.status });
     }
 
     const jsonResult = await parseJsonBody(request);

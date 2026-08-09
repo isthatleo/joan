@@ -179,6 +179,9 @@ export async function PATCH(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const access = await requireSuperAdmin(request);
+    if (!access.ok) return access.response;
+
     const { slug } = await params;
     const { action } = await request.json();
 

@@ -4,6 +4,7 @@ import { tenantSettings, auditLogs, tenants } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import crypto from "crypto";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
 const apiKeySchema = z.object({
   name: z.string().optional(),
@@ -27,6 +28,9 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     // Check if tenant exists
     const tenant = await db.query.tenants.findFirst({
@@ -56,7 +60,8 @@ export async function GET(request: NextRequest) {
     const keys = (setting[0].value as any[]) || [];
 
     if (action === "webhooks") {
-      return NextResponse.json(keys);
+      const safeWebhooks = keys.map((w) => ({ ...w, secret: w.secret ? `${String(w.secret).slice(0, 6)}…` : null }));
+      return NextResponse.json(safeWebhooks);
     }
 
     // Don't return full secrets
@@ -94,6 +99,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const tenant = await db.query.tenants.findFirst({
       where: eq(tenants.id, tenantId),
@@ -259,6 +267,9 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
+
     const setting = await db
       .select()
       .from(tenantSettings)
@@ -337,6 +348,9 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const settingKey = type === "webhook" ? "webhooks" : "apiKeys";
 

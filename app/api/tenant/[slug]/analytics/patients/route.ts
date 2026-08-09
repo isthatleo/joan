@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
-import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { getTenantIdBySlug, verifyTenantMembership } from "@/lib/accountant/server";
 import { db } from "@/lib/db";
 import {
   appointments,
@@ -115,6 +115,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     if (!tenantId) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+    const membership = await verifyTenantMembership(session, tenantId);
+    if (!membership.ok) {
+      return NextResponse.json({ error: membership.status === 401 ? "Unauthorized" : "Forbidden" }, { status: membership.status });
     }
 
     const now = new Date();

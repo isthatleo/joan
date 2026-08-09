@@ -36,7 +36,9 @@ export class VisitService {
     });
   }
 
-  async getPatientVisits(patientId: string) {
-    return db.query.visits.findMany();
+  async getPatientVisits(patientId: string, tenantId: string) {
+    return db.query.visits.findMany({
+      where: (visits, { eq, and }) => and(eq(visits.patientId, patientId), eq(visits.tenantId, tenantId)),
+    });
   }
 }

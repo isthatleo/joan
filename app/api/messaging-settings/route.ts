@@ -1,33 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { messagingSettings, users } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, ilike, isNull } from "drizzle-orm";
 import { z } from "zod";
+import { auth } from "@/lib/auth";
+
+async function resolveHospitalAdmin(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers }).catch(() => null as any);
+  if (!session?.user?.email) return null;
+  const user = await db.query.users.findFirst({
+    where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
+  });
+  if (!user || user.role !== "hospital_admin" || !user.tenantId) return null;
+  return user;
+}
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get("userId");
-
-    if (!userId) {
-      return NextResponse.json({ error: "User ID required" }, { status: 400 });
-    }
-
-    // Verify user is hospital admin
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, userId),
-    });
-
-    if (user?.role !== "hospital_admin") {
+    const user = await resolveHospitalAdmin(request);
+    if (!user) {
       return NextResponse.json({ error: "Only hospital admins can access messaging settings" }, { status: 403 });
-    }
-    if (!user.tenantId) {
-      return NextResponse.json({ error: "User is not assigned to a tenant" }, { status: 400 });
     }
 
     // Get or create settings
     const settings = await db.query.messagingSettings.findFirst({
-      where: eq(messagingSettings.tenantId, user.tenantId)
+      where: eq(messagingSettings.tenantId, user.tenantId!)
     });
 
     return NextResponse.json({
@@ -46,28 +43,20 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId, allowAllStaffMessaging, allowPatientMessaging, allowGuardianMessaging } = z.object({
-      userId: z.string().uuid(),
+    const user = await resolveHospitalAdmin(request);
+    if (!user) {
+      return NextResponse.json({ error: "Only hospital admins can update messaging settings" }, { status: 403 });
+    }
+
+    const { allowAllStaffMessaging, allowPatientMessaging, allowGuardianMessaging } = z.object({
       allowAllStaffMessaging: z.boolean().optional(),
       allowPatientMessaging: z.boolean().optional(),
       allowGuardianMessaging: z.boolean().optional(),
     }).parse(await request.json());
 
-    // Verify user is hospital admin
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, userId),
-    });
-
-    if (user?.role !== "hospital_admin") {
-      return NextResponse.json({ error: "Only hospital admins can update messaging settings" }, { status: 403 });
-    }
-    if (!user.tenantId) {
-      return NextResponse.json({ error: "User is not assigned to a tenant" }, { status: 400 });
-    }
-
     // Upsert settings
     const existingSettings = await db.query.messagingSettings.findFirst({
-      where: eq(messagingSettings.tenantId, user.tenantId)
+      where: eq(messagingSettings.tenantId, user.tenantId!)
     });
 
     if (existingSettings) {
@@ -77,12 +66,12 @@ export async function POST(request: NextRequest) {
           allowPatientMessaging: allowPatientMessaging ?? existingSettings.allowPatientMessaging,
           allowGuardianMessaging: allowGuardianMessaging ?? existingSettings.allowGuardianMessaging,
         })
-        .where(eq(messagingSettings.tenantId, user.tenantId))
+        .where(eq(messagingSettings.tenantId, user.tenantId!))
         .returning();
       return NextResponse.json({ settings: updated[0] });
     } else {
       const created = await db.insert(messagingSettings).values({
-        tenantId: user.tenantId,
+        tenantId: user.tenantId!,
         allowAllStaffMessaging: allowAllStaffMessaging ?? false,
         allowPatientMessaging: allowPatientMessaging ?? false,
         allowGuardianMessaging: allowGuardianMessaging ?? false,
@@ -100,4 +89,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to update settings" }, { status: 500 });
   }
 }
-

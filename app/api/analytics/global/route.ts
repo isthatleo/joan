@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { activityLogs, users, roles, userRoles } from "@/lib/db/schema";
 import { eq, gte, sql } from "drizzle-orm";
+import { requireSuperAdmin } from "@/lib/platform-billing";
 
 export async function GET(request: NextRequest) {
   try {
+    const access = await requireSuperAdmin(request);
+    if (!access.ok) return access.response;
+
     // Get total users by role
     const usersByRole = await db
       .select({

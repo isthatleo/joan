@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { UserService } from "@/lib/services/user.service";
-import { verifyAuth } from "@/lib/api/auth-middleware";
+import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users as usersTable } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, ilike, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 const service = new UserService();
@@ -23,46 +23,44 @@ const updateUserSchema = z.object({
   tenantId: z.string().optional(),
 });
 
+async function resolveCurrentUser(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers }).catch(() => null as any);
+  if (!session?.user?.email) return null;
+  return db.query.users.findFirst({
+    where: and(ilike(usersTable.email, session.user.email), isNull(usersTable.deletedAt)),
+    with: { userRoles: { with: { role: true } } },
+  });
+}
+
+function roleOf(currentUser: any) {
+  return currentUser?.userRoles?.[0]?.role?.name || currentUser?.role || "";
+}
+
 export async function GET(request: NextRequest) {
   try {
+    const currentUser = await resolveCurrentUser(request);
+    if (!currentUser?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
-    const email = searchParams.get("email");
     const search = searchParams.get("search") || undefined;
     const isActive = searchParams.get("isActive") ? searchParams.get("isActive") === "true" : undefined;
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : 50;
     const offset = searchParams.get("offset") ? parseInt(searchParams.get("offset")!) : 0;
     const roles = searchParams.get("roles") ? searchParams.get("roles")!.split(",") : undefined;
 
-    // Get the authenticated user to scope results by their tenant
-    const auth = await verifyAuth(request);
-    let userTenantId: string | undefined;
-    let currentUser: any;
-
-    if (auth.authenticated && auth.user?.sub) {
-      try {
-        currentUser = await db.query.users.findFirst({
-          where: eq(usersTable.id, auth.user.sub as string),
-          with: {
-            userRoles: {
-              with: { role: true }
-            }
-          }
-        });
-        userTenantId = currentUser?.tenantId?.toString();
-      } catch {
-        userTenantId = undefined;
-      }
-    }
+    const userRole = roleOf(currentUser);
+    const isSuperAdmin = userRole === "super_admin";
+    const userTenantId = currentUser.tenantId?.toString();
 
     // Handle messaging filters if requested
     let targetRoles = roles;
     let targetTenantId = userTenantId;
 
     const messagingFilter = searchParams.get("messagingFilter") === "true";
-    if (messagingFilter && currentUser) {
-      const userRole = currentUser.userRoles?.[0]?.role?.name || "patient";
-      
+    if (messagingFilter) {
       switch (userRole) {
         case "super_admin":
           targetRoles = ["hospital_admin"];
@@ -85,6 +83,9 @@ export async function GET(request: NextRequest) {
         default:
           targetRoles = [];
       }
+    } else if (!isSuperAdmin) {
+      // Non-super-admins never see another tenant's user list, messaging filter or not.
+      targetTenantId = userTenantId;
     }
 
     // Get single user by ID
@@ -94,21 +95,20 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: "User not found" }, { status: 404 });
       }
       // Verify the user belongs to the current tenant (unless super admin)
-      const userRole = currentUser?.userRoles?.[0]?.role?.name;
-      if (userRole !== "super_admin" && userTenantId && user.tenantId?.toString() !== userTenantId) {
+      if (!isSuperAdmin && user.tenantId?.toString() !== userTenantId) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
       }
       return NextResponse.json(user);
     }
 
     // Get all users - scoped to current user's tenant (or filtered for messaging)
-    const users = await service.getAllUsers({ 
-      search, 
-      tenantId: targetTenantId, 
-      isActive, 
-      limit, 
+    const users = await service.getAllUsers({
+      search,
+      tenantId: targetTenantId,
+      isActive,
+      limit,
       offset,
-      roles: targetRoles
+      roles: targetRoles,
     });
     return NextResponse.json(users);
   } catch (error) {
@@ -119,8 +119,29 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const currentUser = await resolveCurrentUser(request);
+    if (!currentUser?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const userRole = roleOf(currentUser);
+    const isSuperAdmin = userRole === "super_admin";
+    const isHospitalAdmin = userRole === "hospital_admin";
+    if (!isSuperAdmin && !isHospitalAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const data = await request.json();
     const validatedData = createUserSchema.parse(data);
+
+    // Hospital admins may only create users inside their own tenant.
+    if (isHospitalAdmin) {
+      const ownTenantId = currentUser.tenantId?.toString();
+      if (!ownTenantId || (validatedData.tenantId && validatedData.tenantId !== ownTenantId)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      validatedData.tenantId = ownTenantId;
+    }
+
     const user = await service.createUser(validatedData);
     return NextResponse.json(user[0], { status: 201 });
   } catch (error) {
@@ -134,6 +155,17 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const currentUser = await resolveCurrentUser(request);
+    if (!currentUser?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const userRole = roleOf(currentUser);
+    const isSuperAdmin = userRole === "super_admin";
+    const isHospitalAdmin = userRole === "hospital_admin";
+    if (!isSuperAdmin && !isHospitalAdmin && currentUser.id !== new URL(request.url).searchParams.get("id")) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -141,8 +173,31 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "User ID required" }, { status: 400 });
     }
 
+    const target = await service.getUser(id);
+    if (!target) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+    if (!isSuperAdmin) {
+      const isSelf = currentUser.id === id;
+      const isOwnTenantAdmin = isHospitalAdmin && target.tenantId?.toString() === currentUser.tenantId?.toString();
+      if (!isSelf && !isOwnTenantAdmin) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+    }
+
     const data = await request.json();
     const validatedData = updateUserSchema.parse(data);
+
+    // Only a super admin may reassign a user to a different tenant, and non-admins
+    // may not change their own active status or password hash directly here.
+    if (!isSuperAdmin) {
+      delete validatedData.tenantId;
+      if (currentUser.id === id && !isHospitalAdmin) {
+        delete validatedData.isActive;
+        delete validatedData.passwordHash;
+      }
+    }
+
     const user = await service.updateUser(id, validatedData);
 
     if (user.length === 0) {
@@ -161,11 +216,29 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const currentUser = await resolveCurrentUser(request);
+    if (!currentUser?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const userRole = roleOf(currentUser);
+    const isSuperAdmin = userRole === "super_admin";
+    const isHospitalAdmin = userRole === "hospital_admin";
+    if (!isSuperAdmin && !isHospitalAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
     if (!id) {
       return NextResponse.json({ error: "User ID required" }, { status: 400 });
+    }
+
+    if (!isSuperAdmin) {
+      const target = await service.getUser(id);
+      if (!target || target.tenantId?.toString() !== currentUser.tenantId?.toString()) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
     }
 
     await service.deleteUser(id);
@@ -175,4 +248,3 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Failed to delete user" }, { status: 500 });
   }
 }
-

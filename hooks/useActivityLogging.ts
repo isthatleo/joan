@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useSession } from "next-auth/react";
+import { authClient } from "@/lib/auth-client";
 
 export interface ActivityLogOptions {
   action: string;
@@ -14,7 +14,7 @@ export interface ActivityLogOptions {
 }
 
 export function useActivityLogging() {
-  const { data: session } = useSession();
+  const { data: session } = authClient.useSession();
   const fingerprintIdRef = useRef<string>("");
   const sessionIdRef = useRef<string>("");
 

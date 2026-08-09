@@ -2,9 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { activityLogs, roles, userRoles, users } from "@/lib/db/schema";
+import { requireSuperAdmin } from "@/lib/platform-billing";
 
 export async function GET(request: NextRequest) {
   try {
+    const access = await requireSuperAdmin(request);
+    if (!access.ok) return access.response;
+
     const { searchParams } = new URL(request.url);
     const roleId = searchParams.get("roleId");
     const now = new Date();

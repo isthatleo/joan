@@ -76,19 +76,34 @@ export async function POST(request: NextRequest) {
 // Get active sessions
 export async function GET(request: NextRequest) {
   try {
+    const appUser = await resolveCurrentUser(request);
+    if (!appUser?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const isSuperAdmin = String(appUser.role || "").toLowerCase() === "super_admin";
+
     const { searchParams } = new URL(request.url);
-    const tenantId = searchParams.get("tenantId");
+    const requestedTenantId = searchParams.get("tenantId");
     const userId = searchParams.get("userId");
     const action = searchParams.get("action"); // "active", "all"
 
+    if (!isSuperAdmin && requestedTenantId && requestedTenantId !== appUser.tenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    // Non-admins may only ever list their own sessions.
+    if (!isSuperAdmin && userId && userId !== appUser.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const tenantId = isSuperAdmin ? requestedTenantId : appUser.tenantId;
     if (!tenantId) {
       return NextResponse.json({ error: "Missing tenantId" }, { status: 400 });
     }
 
     const conditions = [eq(userSessions.tenantId, tenantId)];
 
-    if (userId) {
-      conditions.push(eq(userSessions.userId, userId));
+    const scopedUserId = isSuperAdmin ? userId : appUser.id;
+    if (scopedUserId) {
+      conditions.push(eq(userSessions.userId, scopedUserId));
     }
 
     if (action !== "all") {
@@ -97,8 +112,21 @@ export async function GET(request: NextRequest) {
       conditions.push(gt(userSessions.expiresAt, new Date()));
     }
 
+    // Never return the raw session token in a listing response.
     const sessions = await db
-      .select()
+      .select({
+        id: userSessions.id,
+        tenantId: userSessions.tenantId,
+        userId: userSessions.userId,
+        deviceFingerprintId: userSessions.deviceFingerprintId,
+        ipAddress: userSessions.ipAddress,
+        userAgent: userSessions.userAgent,
+        isActive: userSessions.isActive,
+        lastActivityAt: userSessions.lastActivityAt,
+        expiresAt: userSessions.expiresAt,
+        logoutAt: userSessions.logoutAt,
+        createdAt: userSessions.createdAt,
+      })
       .from(userSessions)
       .where(and(...conditions))
       .orderBy(desc(userSessions.lastActivityAt));
@@ -117,6 +145,12 @@ export async function GET(request: NextRequest) {
 // PUT: Update session activity or logout
 export async function PUT(request: NextRequest) {
   try {
+    const appUser = await resolveCurrentUser(request);
+    if (!appUser?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const isSuperAdmin = String(appUser.role || "").toLowerCase() === "super_admin";
+
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get("sessionId");
     const action = searchParams.get("action"); // "update_activity", "logout"
@@ -125,8 +159,16 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Missing sessionId" }, { status: 400 });
     }
 
+    const target = await db.query.userSessions.findFirst({ where: eq(userSessions.id, sessionId) });
+    if (!target) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+    if (!isSuperAdmin && target.userId !== appUser.id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     if (action === "logout") {
-      const session = await db
+      await db
         .update(userSessions)
         .set({
           isActive: false,
@@ -140,7 +182,7 @@ export async function PUT(request: NextRequest) {
       });
     } else {
       // Update last activity
-      const session = await db
+      await db
         .update(userSessions)
         .set({
           lastActivityAt: new Date(),

@@ -144,6 +144,11 @@ export async function PATCH(request: NextRequest) {
   const { nurse } = context;
 
   if (body.action === "complete-task") {
+    const task = await db.query.carePlanTasks.findFirst({ where: eq(carePlanTasks.id, body.taskId) });
+    const plan = task?.carePlanId ? await db.query.carePlans.findFirst({ where: eq(carePlans.id, task.carePlanId) }) : null;
+    if (!task || !plan || plan.tenantId !== nurse.tenantId) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
     await db.update(carePlanTasks).set({ status: "completed", completedAt: new Date(), updatedAt: new Date() }).where(eq(carePlanTasks.id, body.taskId));
     return NextResponse.json({ success: true });
   }

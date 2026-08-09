@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq, isNull } from "drizzle-orm";
-import { getTenantBrandingSettings, getTenantIdBySlug } from "@/lib/accountant/server";
+import { getTenantBrandingSettings, getTenantIdBySlug, verifyTenantMembership } from "@/lib/accountant/server";
 import { db } from "@/lib/db";
 import { invoices, patients, payments } from "@/lib/db/schema";
+import { auth } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -271,12 +272,21 @@ function renderInvoiceHtml(invoice: NonNullable<Awaited<ReturnType<typeof getInv
 </html>`;
 }
 
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ slug: string; id: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string; id: string }> }) {
   try {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { slug, id } = await params;
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+    const membership = await verifyTenantMembership(session, tenantId);
+    if (!membership.ok) {
+      return NextResponse.json({ error: membership.status === 401 ? "Unauthorized" : "Forbidden" }, { status: membership.status });
     }
 
     const invoice = await getInvoiceForDownload(tenantId, id);

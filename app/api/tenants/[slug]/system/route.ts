@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 import { db } from "@/lib/db";
 import { tenants, users, auditLogs, notifications, prescriptions, appointments, patients } from "@/lib/db/schema";
 import { eq, gte, sql } from "drizzle-orm";
@@ -12,6 +13,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     // Get current date and date 30 days ago
     const now = new Date();

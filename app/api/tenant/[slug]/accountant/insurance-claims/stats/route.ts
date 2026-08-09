@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
-import { getTenantIdBySlug } from "@/lib/accountant/server";
+import {getTenantIdBySlug, verifyTenantMembership } from "@/lib/accountant/server";
 import { db } from "@/lib/db";
 
 export async function GET(
@@ -15,6 +15,10 @@ export async function GET(
     const { slug } = await params;
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const membership = await verifyTenantMembership(session, tenantId);
+    if (!membership.ok) {
+      return NextResponse.json({ error: membership.status === 401 ? "Unauthorized" : "Forbidden" }, { status: membership.status });
+    }
 
     const result = await db.execute(sql`
       SELECT

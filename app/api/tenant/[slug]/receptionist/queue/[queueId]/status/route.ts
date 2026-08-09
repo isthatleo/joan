@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTenantBySlug, updateReceptionQueueStatus } from "@/lib/receptionist/data";
+import { getTenantBySlug, updateReceptionQueueStatus, requireReceptionistAccess } from "@/lib/receptionist/data";
 import { revalidatePath } from "next/cache"; // Import revalidatePath
 
 export async function PATCH(
@@ -11,6 +11,10 @@ export async function PATCH(
     const tenant = await getTenantBySlug(slug);
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+    const access = await requireReceptionistAccess(request, tenant.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     const { status } = await request.json();

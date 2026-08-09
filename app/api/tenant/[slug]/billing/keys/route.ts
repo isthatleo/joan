@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBillingSettings } from "@/lib/billing-settings";
 import { getIntegrationCredentials } from "@/lib/integrations/server";
+import { getTenantAccess, tenantAccessResponse } from "@/lib/api/tenant-access";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
@@ -9,6 +10,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (!slug) {
       return NextResponse.json({ error: "Tenant slug required" }, { status: 400 });
     }
+
+    const access = await getTenantAccess(request, slug);
+    if (!access.ok || !access.tenant) return tenantAccessResponse(access);
 
     const [settings, stripeCreds, paypalCreds, squareCreds, authorizeCreds] = await Promise.all([
       getBillingSettings(slug),

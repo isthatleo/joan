@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { notifications, messages, appointments, labOrders } from "@/lib/db/schema";
 import { eq, and, gte, lt } from "drizzle-orm";
+import { requireAppUser } from "@/lib/api/route-guards";
 
 // Store active connections
 const activeConnections = new Map<string, ReadableStreamDefaultController>();
@@ -44,9 +45,15 @@ export function broadcastToTenant(tenantId: string, event: RealtimeEvent, exclud
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const userId = searchParams.get("userId");
-  const tenantId = searchParams.get("tenantId");
+  const access = await requireAppUser(request);
+  if (!access.ok) return access.response;
+
+  // The connection can only ever be registered as the caller's own verified
+  // identity — a client-supplied userId/tenantId would let anyone subscribe to
+  // (and immediately receive) any other user's messages/notifications/lab
+  // results, which is exactly what this stream pushes.
+  const userId = access.user.id;
+  const tenantId = access.user.tenantId;
 
   if (!userId || !tenantId) {
     return NextResponse.json({ error: "User ID and Tenant ID required" }, { status: 400 });

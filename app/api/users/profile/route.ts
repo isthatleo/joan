@@ -146,17 +146,38 @@ export async function GET(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const { session, appUser } = await resolveCurrentAppUser(request);
-    if (!session?.user?.id) {
+    if (!session?.user?.id || !appUser?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);
-    const userId = searchParams.get("userId") || appUser?.id || (session.user.id as string);
+    const userId = searchParams.get("userId") || appUser.id;
 
     if (!userId) {
       return NextResponse.json({ error: "User ID required" }, { status: 400 });
     }
-    if (!(await canAccessUser(session.user.email, userId))) {
+
+    // Changing a user's role/permissions is an admin action, never self-service —
+    // canAccessUser (self-or-nothing) is deliberately NOT sufficient here, since
+    // that would let any user grant themselves an arbitrary role.
+    const roleRows = await db
+      .select({ roleName: roles.name })
+      .from(userRoles)
+      .innerJoin(roles, eq(roles.id, userRoles.roleId))
+      .where(eq(userRoles.userId, appUser.id))
+      .catch(() => []);
+    const assigned = new Set([appUser.role, ...roleRows.map((r) => r.roleName)].map((r) => String(r || "").toLowerCase()));
+    const isSuperAdmin = assigned.has("super_admin");
+    const isHospitalAdmin = assigned.has("hospital_admin");
+    if (!isSuperAdmin && !isHospitalAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const target = await db.query.users.findFirst({ where: eq(users.id, userId) });
+    if (!target) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+    if (!isSuperAdmin && target.tenantId !== appUser.tenantId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -165,6 +186,14 @@ export async function PUT(request: NextRequest) {
 
     // Update user role if provided
     if (roleId) {
+      if (!isSuperAdmin) {
+        const targetRole = await db.query.roles.findFirst({ where: eq(roles.id, roleId) });
+        const isSuperAdminRole = String(targetRole?.name || "").toLowerCase() === "super_admin";
+        if (!targetRole || isSuperAdminRole || targetRole.tenantId !== appUser.tenantId) {
+          return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+      }
+
       // Remove existing roles
       await db.delete(userRoles).where(eq(userRoles.userId, userId));
 

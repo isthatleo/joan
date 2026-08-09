@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { roles, rolePermissions, permissions } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
+import { requireAppUser } from "@/lib/api/route-guards";
 
 const createRoleSchema = z.object({
   name: z.string().min(1),
@@ -11,13 +12,24 @@ const createRoleSchema = z.object({
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const tenantId = searchParams.get("tenantId");
-    const withPermissions = searchParams.get("withPermissions") === "true";
+    const access = await requireAppUser(request);
+    if (!access.ok) return access.response;
 
-    const result = tenantId
-      ? await db.select().from(roles).where(eq(roles.tenantId, tenantId))
-      : await db.select().from(roles);
+    const { searchParams } = new URL(request.url);
+    const requestedTenantId = searchParams.get("tenantId");
+    const withPermissions = searchParams.get("withPermissions") === "true";
+    const isSuperAdmin = access.user.role === "super_admin";
+
+    if (!isSuperAdmin && requestedTenantId && requestedTenantId !== access.user.tenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    // Non-super-admins can never list roles platform-wide.
+    const tenantId = isSuperAdmin ? requestedTenantId : access.user.tenantId;
+    if (!tenantId) {
+      return NextResponse.json({ error: "Tenant ID required" }, { status: 400 });
+    }
+
+    const result = await db.select().from(roles).where(eq(roles.tenantId, tenantId));
 
     if (withPermissions) {
       const rolesWithPerms = await Promise.all(
@@ -55,8 +67,19 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const access = await requireAppUser(request, ["super_admin", "hospital_admin"]);
+    if (!access.ok) return access.response;
+    const isSuperAdmin = access.user.role === "super_admin";
+
     const body = await request.json();
     const validated = createRoleSchema.parse(body);
+
+    if (!isSuperAdmin) {
+      if (!access.user.tenantId || (validated.tenantId && validated.tenantId !== access.user.tenantId)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      validated.tenantId = access.user.tenantId;
+    }
 
     const created = await db
       .insert(roles)
@@ -82,4 +105,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

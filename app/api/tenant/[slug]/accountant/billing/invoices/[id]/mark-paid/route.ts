@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { payments } from "@/lib/db/schema";
-import { getTenantIdBySlug } from "@/lib/accountant/server";
+import {getTenantIdBySlug, verifyTenantMembership } from "@/lib/accountant/server";
 import { markInvoicePaidSchema } from "@/lib/accountant/route-schemas";
 import { validateFinancePayload } from "@/lib/accountant/finance-api";
 import { validatePaymentMethod } from "@/lib/billing-settings";
@@ -18,6 +18,10 @@ export async function POST(
     const { slug, id } = await params;
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const membership = await verifyTenantMembership(session, tenantId);
+    if (!membership.ok) {
+      return NextResponse.json({ error: membership.status === 401 ? "Unauthorized" : "Forbidden" }, { status: membership.status });
+    }
 
     let payload: unknown = {};
     try {

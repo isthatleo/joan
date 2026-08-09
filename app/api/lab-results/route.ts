@@ -16,6 +16,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Lab order ID required" }, { status: 400 });
     }
 
+    const order = await db.query.labOrders.findFirst({
+      where: eq(labOrders.id, labOrderId),
+      columns: { id: true, tenantId: true },
+    });
+    if (!order || (access.user.role !== "super_admin" && order.tenantId !== access.user.tenantId)) {
+      return NextResponse.json({ error: "Lab order not found" }, { status: 404 });
+    }
+
     const results = await db.query.labResults.findMany({
       where: eq(labResults.labOrderId, labOrderId),
     });

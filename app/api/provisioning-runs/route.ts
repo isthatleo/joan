@@ -1,42 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { provisioningRuns, roles, tenants, userRoles, users } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
-import { verifyAuth } from "@/lib/api/auth-middleware";
+import { and, eq, ilike, isNull, desc } from "drizzle-orm";
+import { auth } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const limit = Math.min(parseInt(searchParams.get("limit") || "5"), 20);
 
-    // Get the authenticated user to scope results by their tenant
-    const auth = await verifyAuth(request);
-    let userTenantId: string | undefined;
-    let isSuperAdmin = false;
+    const session = await auth.api.getSession({ headers: request.headers }).catch(() => null as any);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    if (auth.authenticated && auth.user?.sub) {
-      try {
-        const user = await db.query.users.findFirst({
-          where: eq(users.id, auth.user.sub as string),
-        });
-        userTenantId = user?.tenantId?.toString();
-        if (user) {
-          const assignedRoles = await db
-            .select({ name: roles.name })
-            .from(userRoles)
-            .innerJoin(roles, eq(roles.id, userRoles.roleId))
-            .where(eq(userRoles.userId, user.id));
-          const roleNames = new Set([user.role, ...assignedRoles.map((role) => role.name)].map((role) => String(role || "").toLowerCase()));
-          isSuperAdmin = roleNames.has("super_admin");
-        }
-      } catch {
-        userTenantId = undefined;
-      }
+    const appUser = await db.query.users.findFirst({
+      where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
+    });
+    if (!appUser?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const assignedRoles = await db
+      .select({ name: roles.name })
+      .from(userRoles)
+      .innerJoin(roles, eq(roles.id, userRoles.roleId))
+      .where(eq(userRoles.userId, appUser.id))
+      .catch(() => []);
+    const roleNames = new Set([appUser.role, ...assignedRoles.map((role) => role.name)].map((role) => String(role || "").toLowerCase()));
+    const isSuperAdmin = roleNames.has("super_admin");
+    const userTenantId = appUser.tenantId?.toString();
+
+    if (!isSuperAdmin && !userTenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     let whereClause: any = undefined;
-    if (userTenantId && !isSuperAdmin) {
-      whereClause = eq(provisioningRuns.tenantId, userTenantId);
+    if (!isSuperAdmin) {
+      whereClause = eq(provisioningRuns.tenantId, userTenantId!);
     }
 
     let query: any = db

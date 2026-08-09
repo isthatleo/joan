@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { queues } from "@/lib/db/schema";
 import { eq, and, asc, type SQL } from "drizzle-orm";
+import { requireAppUser } from "@/lib/api/route-guards";
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,6 +13,12 @@ export async function GET(request: NextRequest) {
 
     if (!tenantId) {
       return NextResponse.json({ error: "Tenant ID required" }, { status: 400 });
+    }
+
+    const access = await requireAppUser(request);
+    if (!access.ok) return access.response;
+    if (access.user.role !== "super_admin" && access.user.tenantId !== tenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const conditions: SQL[] = [eq(queues.tenantId, tenantId)];
@@ -43,6 +50,12 @@ export async function POST(request: NextRequest) {
 
     if (!tenantId || !patientId || !departmentId) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    const access = await requireAppUser(request);
+    if (!access.ok) return access.response;
+    if (access.user.role !== "super_admin" && access.user.tenantId !== tenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // Get next position
@@ -84,6 +97,17 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Queue ID required" }, { status: 400 });
     }
 
+    const access = await requireAppUser(request);
+    if (!access.ok) return access.response;
+
+    const existing = await db.query.queues.findFirst({ where: eq(queues.id, id) });
+    if (!existing) {
+      return NextResponse.json({ error: "Queue item not found" }, { status: 404 });
+    }
+    if (access.user.role !== "super_admin" && access.user.tenantId !== existing.tenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const data = await request.json();
     const { status, assignedTo } = data;
 
@@ -113,4 +137,3 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Failed to update queue" }, { status: 500 });
   }
 }
-

@@ -1,7 +1,9 @@
 import { config } from "dotenv";
 config();
 
-process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://neondb_owner:npg_EMTKlq59JYQs@ep-spring-dust-anfktbmz-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL environment variable is not set");
+}
 
 import { db } from "./lib/db";
 import { tenants, roles, permissions, rolePermissions, userRoles, users } from "./lib/db/schema";

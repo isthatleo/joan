@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 import { db } from "@/lib/db";
 import { tenants } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -15,6 +16,8 @@ export async function GET(
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     // Get alert configuration from tenant metadata or return defaults
     const alertConfig = (tenant as any).alertConfig || {
@@ -43,6 +46,8 @@ export async function PUT(
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const body = await request.json();
 
@@ -77,6 +82,8 @@ export async function POST(
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const { action } = await request.json();
 

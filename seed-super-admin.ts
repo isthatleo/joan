@@ -1,7 +1,9 @@
 const { config } = require("dotenv");
 config();
 
-process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://neondb_owner:npg_EMTKlq59JYQs@ep-spring-dust-anfktbmz-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL environment variable is not set");
+}
 
 const { db } = require("./lib/db/index");
 const { tenants, roles, permissions, rolePermissions, userRoles, users } = require("./lib/db/schema");
@@ -22,15 +24,22 @@ async function seedSuperAdmin() {
       console.log("Default tenant created");
     }
 
-    // Create super admin user if doesn't exist
-    let [user] = await db.select().from(users).where(eq(users.email, "leonardlomude@icloud.com")).limit(1);
+    // Create super admin user if doesn't exist. Email and password must be supplied
+    // by the operator — never hardcode real account credentials in a seed script.
+    const superAdminEmail = process.env.SEED_SUPER_ADMIN_EMAIL;
+    const superAdminPassword = process.env.SEED_SUPER_ADMIN_PASSWORD;
+    if (!superAdminEmail || !superAdminPassword || superAdminPassword.length < 8) {
+      throw new Error("Set SEED_SUPER_ADMIN_EMAIL and SEED_SUPER_ADMIN_PASSWORD (8+ chars) before running this script.");
+    }
+
+    let [user] = await db.select().from(users).where(eq(users.email, superAdminEmail)).limit(1);
     if (!user) {
-      const hashedPassword = await bcrypt.hash("Myname@78", 10);
+      const hashedPassword = await bcrypt.hash(superAdminPassword, 10);
       [user] = await db.insert(users).values({
         tenantId: tenant.id,
-        email: "leonardlomude@icloud.com",
+        email: superAdminEmail,
         passwordHash: hashedPassword,
-        fullName: "Leonard Lomude",
+        fullName: "Super Admin",
         isActive: true,
       }).returning();
       console.log("Super admin user created");

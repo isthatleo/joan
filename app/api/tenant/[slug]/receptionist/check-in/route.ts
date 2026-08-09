@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkInReceptionPatient, getTenantBySlug } from "@/lib/receptionist/data";
+import { checkInReceptionPatient, getTenantBySlug, requireReceptionistAccess } from "@/lib/receptionist/data";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
@@ -7,6 +7,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const tenant = await getTenantBySlug(slug);
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+    const access = await requireReceptionistAccess(request, tenant.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     const { patientId, appointmentId, doctorId, paymentMethod, insuranceProvider, insurancePolicyNumber, saveAsDefault, recordedBy } = await request.json();

@@ -307,6 +307,34 @@ export async function getTenantBySlug(slug: string): Promise<TenantRecord | null
   })) ?? null;
 }
 
+/**
+ * Confirms the caller has an active Better Auth session AND belongs to this tenant
+ * (or is a super admin) before any receptionist route touches patient/appointment
+ * data. `getTenantBySlug` alone is just a lookup, not an authorization check.
+ */
+export async function requireReceptionistAccess(request: { headers: Headers }, tenantId: string) {
+  const { auth } = await import("@/lib/auth");
+  const session = await auth.api.getSession({ headers: request.headers }).catch(() => null as any);
+  if (!session?.user?.email) {
+    return { ok: false as const, status: 401 as const, error: "Unauthorized" };
+  }
+
+  const appUser = await db.query.users.findFirst({
+    where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
+    columns: { id: true, tenantId: true, role: true, isActive: true },
+  });
+  if (!appUser || appUser.isActive === false) {
+    return { ok: false as const, status: 403 as const, error: "Forbidden" };
+  }
+
+  const isSuperAdmin = String(appUser.role || "").toLowerCase() === "super_admin";
+  if (!isSuperAdmin && appUser.tenantId !== tenantId) {
+    return { ok: false as const, status: 403 as const, error: "Forbidden" };
+  }
+
+  return { ok: true as const, user: appUser, session };
+}
+
 export async function getReceptionPatientRegistrationPolicy(tenantId: string) {
   const tenant = await db.query.tenants.findFirst({
     where: eq(tenants.id, tenantId),

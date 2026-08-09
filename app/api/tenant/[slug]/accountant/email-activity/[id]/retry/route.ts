@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
-import { getTenantIdBySlug } from "@/lib/accountant/server";
+import {getTenantIdBySlug, verifyTenantMembership } from "@/lib/accountant/server";
 import { db } from "@/lib/db";
 import { emailSendLog } from "@/lib/db/schema";
 import { sendEmail, sendEmailSchema } from "@/lib/email/send-email";
@@ -20,6 +20,10 @@ export async function POST(
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+    const membership = await verifyTenantMembership(session, tenantId);
+    if (!membership.ok) {
+      return NextResponse.json({ error: membership.status === 401 ? "Unauthorized" : "Forbidden" }, { status: membership.status });
     }
 
     const [logEntry] = await db

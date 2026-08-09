@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { tenants, auditLogs } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
 // PUT - Update tenant branding and sync to all dashboards
 export async function PUT(
@@ -11,6 +12,9 @@ export async function PUT(
 ) {
   try {
     const { tenantId } = await params;
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const tenant = await db.query.tenants.findFirst({
       where: eq(tenants.id, tenantId),
@@ -91,6 +95,9 @@ export async function GET(
 ) {
   try {
     const { tenantId } = await params;
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const tenant = await db.query.tenants.findFirst({
       where: eq(tenants.id, tenantId),

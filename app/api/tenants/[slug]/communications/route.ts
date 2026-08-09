@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 import { db } from "@/lib/db";
 import { tenantSettings, tenants, auditLogs } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
@@ -17,6 +18,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const rows = await db.select().from(tenantSettings)
       .where(and(eq(tenantSettings.tenantId, tenant.id), eq(tenantSettings.key, "communications")));
@@ -40,6 +43,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const body = updateSchema.parse(await request.json());
 

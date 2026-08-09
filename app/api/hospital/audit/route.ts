@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, count, desc, eq, ilike, isNull } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { auditLogs, tenants, users } from "@/lib/db/schema";
+import { auditLogs, roles, tenants, userRoles, users } from "@/lib/db/schema";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -22,7 +22,6 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const requestedTenantId = searchParams.get("tenantId");
-    const role = searchParams.get("role") || "hospital_admin";
     const limit = Math.min(1000, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)));
     const offset = Math.max(0, parseInt(searchParams.get("offset") || "0", 10));
 
@@ -40,11 +39,29 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Role is always derived from the caller's own record — a client-supplied
+    // `role` query param would otherwise let anyone claim super_admin and read
+    // every tenant's audit log.
+    const roleRows = await db
+      .select({ roleName: roles.name })
+      .from(userRoles)
+      .innerJoin(roles, eq(roles.id, userRoles.roleId))
+      .where(eq(userRoles.userId, currentUser.id))
+      .catch(() => []);
+    const isSuperAdmin =
+      String(currentUser.role || "").toLowerCase() === "super_admin" ||
+      roleRows.some((r) => String(r.roleName || "").toLowerCase() === "super_admin");
+
     let effectiveTenantId: string | null | undefined = requestedTenantId || currentUser.tenantId;
-    if (role === "super_admin") {
+    if (isSuperAdmin) {
       effectiveTenantId = requestedTenantId || undefined;
-    } else if (!effectiveTenantId) {
-      return NextResponse.json({ error: "tenantId is required for hospital_admin" }, { status: 400 });
+    } else {
+      if (requestedTenantId && requestedTenantId !== currentUser.tenantId) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      if (!effectiveTenantId) {
+        return NextResponse.json({ error: "tenantId is required for hospital_admin" }, { status: 400 });
+      }
     }
 
     const whereClauses = effectiveTenantId ? [eq(auditLogs.tenantId, effectiveTenantId)] : [];

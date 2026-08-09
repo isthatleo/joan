@@ -188,6 +188,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const rows = await db.select().from(tenantSettings).where(eq(tenantSettings.tenantId, tenant.id));
     const out: any = structuredClone(DEFAULTS);

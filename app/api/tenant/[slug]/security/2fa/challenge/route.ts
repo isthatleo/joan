@@ -18,7 +18,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
     columns: { id: true, email: true, fullName: true, phone: true, tenantId: true },
   });
-  if (!user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!user?.id || user.tenantId !== tenant.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const security = await getTenantSecuritySettings(tenant.id);
   if (!security.twoFactorRequired) {

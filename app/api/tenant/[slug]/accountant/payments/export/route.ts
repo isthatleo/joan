@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { fileResponse, getTenantIdBySlug, toCsv } from "@/lib/accountant/server";
+import {fileResponse, getTenantIdBySlug, toCsv, verifyTenantMembership } from "@/lib/accountant/server";
 
 export async function GET(
   request: NextRequest,
@@ -14,6 +14,10 @@ export async function GET(
     const { slug } = await params;
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const membership = await verifyTenantMembership(session, tenantId);
+    if (!membership.ok) {
+      return NextResponse.json({ error: membership.status === 401 ? "Unauthorized" : "Forbidden" }, { status: membership.status });
+    }
 
     const ids = new URL(request.url).searchParams.get("ids")?.split(",").filter(Boolean) ?? [];
     const rows = await db.$queryRaw`

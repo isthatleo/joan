@@ -4,10 +4,6 @@ import { users, userRoles, roles, tenants } from "@/lib/db/schema";
 import { and, count, eq, ilike, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 
-function isUuid(value?: string): value is string {
-  return !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(value);
-}
-
 function rolePriorityOrder() {
   return sql`
     case lower(${roles.name})
@@ -29,86 +25,71 @@ function rolePriorityOrder() {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({}));
+    // Identity always comes from the authenticated session — never from the
+    // request body. This endpoint resolves (and can bootstrap) the CALLER's
+    // own role; it must never be usable to query or grant roles for someone
+    // else's account.
     const session = await auth.api.getSession({ headers: request.headers }).catch(() => null as any);
-    const userId = body.userId as string | undefined;
-    const email = (body.email || session?.user?.email) as string | undefined;
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const email = session.user.email;
+
+    const body = await request.json().catch(() => ({}));
     const tenantSlug = typeof body.tenantSlug === "string" ? body.tenantSlug.trim().toLowerCase() : "";
     const requestedRole = normalizeRole(typeof body.requestedRole === "string" ? body.requestedRole : null);
 
-    if (!userId && !email) {
-      return NextResponse.json({ error: "userId or email required" }, { status: 400 });
-    }
+    const userResult = await db
+      .select({ id: users.id, tenantId: users.tenantId })
+      .from(users)
+      .where(ilike(users.email, email))
+      .limit(1);
 
-    // First, try to find by userId
-    if (isUuid(userId)) {
-      const result = await db
-        .select({ roleName: roles.name, appUserId: userRoles.userId })
-        .from(userRoles)
-        .innerJoin(roles, eq(userRoles.roleId, roles.id))
-        .where(eq(userRoles.userId, userId))
-        .orderBy(rolePriorityOrder())
-        .limit(1);
-
-      if (result[0]) {
-        return NextResponse.json({ role: normalizeRole(result[0].roleName), userId: result[0].appUserId });
+    let appUser = userResult[0];
+    if (appUser && tenantSlug) {
+      const tenant = (await db.query.tenants.findFirst({ where: eq(tenants.slug, tenantSlug) })) || null;
+      if (!tenant || tenant.isActive === false || tenant.deletedAt) {
+        return NextResponse.json({ error: "Tenant is archived or unavailable" }, { status: 403 });
+      }
+      if (appUser.tenantId !== tenant.id) {
+        return NextResponse.json({ error: "Account does not belong to this tenant" }, { status: 403 });
+      }
+      const isLegacyTenantAdmin =
+        requestedRole === "hospital_admin" &&
+        !tenant.adminUserId &&
+        (tenant.contactEmail?.toLowerCase() === email.toLowerCase() || !(await tenantHasHospitalAdmin(tenant.id)));
+      if (tenant.adminUserId === appUser.id || isLegacyTenantAdmin) {
+        if (isLegacyTenantAdmin) {
+          await db.update(tenants).set({ adminUserId: appUser.id, updatedAt: new Date() } as any).where(eq(tenants.id, tenant.id));
+        }
+        await ensureHospitalAdminRole(appUser.id, tenant.id);
+        return NextResponse.json({ role: "hospital_admin", userId: appUser.id });
       }
     }
+    if (!appUser) {
+      [appUser] = await db.insert(users).values({
+        email: session.user.email,
+        fullName: session.user.name || session.user.email,
+        isActive: true,
+      }).returning({ id: users.id, tenantId: users.tenantId });
+    }
 
-    // If not found, try to find by email
-    if (email) {
-      const userResult = await db
-        .select({ id: users.id, tenantId: users.tenantId })
-        .from(users)
-        .where(ilike(users.email, email))
-        .limit(1);
+    const role = await getUserRole(appUser.id);
+    if (role) return NextResponse.json({ role: normalizeRole(role), userId: appUser.id });
 
-      let appUser = userResult[0];
-      let tenant: typeof tenants.$inferSelect | null = null;
-      if (appUser && tenantSlug) {
-        tenant = (await db.query.tenants.findFirst({ where: eq(tenants.slug, tenantSlug) })) || null;
-        if (!tenant || tenant.isActive === false || tenant.deletedAt) {
-          return NextResponse.json({ error: "Tenant is archived or unavailable" }, { status: 403 });
-        }
-        if (appUser.tenantId !== tenant.id) {
-          return NextResponse.json({ error: "Account does not belong to this tenant" }, { status: 403 });
-        }
-        const isLegacyTenantAdmin =
-          requestedRole === "hospital_admin" &&
-          !tenant.adminUserId &&
-          (tenant.contactEmail?.toLowerCase() === email.toLowerCase() || !(await tenantHasHospitalAdmin(tenant.id)));
-        if (tenant.adminUserId === appUser.id || isLegacyTenantAdmin) {
-          if (isLegacyTenantAdmin) {
-            await db.update(tenants).set({ adminUserId: appUser.id, updatedAt: new Date() } as any).where(eq(tenants.id, tenant.id));
-          }
-          await ensureHospitalAdminRole(appUser.id, tenant.id);
-          return NextResponse.json({ role: "hospital_admin", userId: appUser.id });
-        }
-      }
-      if (!appUser && session?.user?.email && email.toLowerCase() === session.user.email.toLowerCase()) {
-        [appUser] = await db.insert(users).values({
-          email: session.user.email,
-          fullName: session.user.name || session.user.email,
-          isActive: true,
-        }).returning({ id: users.id, tenantId: users.tenantId });
-      }
-
-      if (appUser) {
-        const role = await getUserRole(appUser.id);
-        if (role) return NextResponse.json({ role: normalizeRole(role), userId: appUser.id });
-
-        const [{ value: superAdminCount }] = await db
-          .select({ value: count() })
-          .from(userRoles)
-          .innerJoin(roles, eq(userRoles.roleId, roles.id))
-          .where(eq(roles.name, "super_admin"));
-        if (superAdminCount === 0) {
-          let [superRole] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
-          if (!superRole) [superRole] = await db.insert(roles).values({ name: "super_admin" }).returning();
-          await db.insert(userRoles).values({ userId: appUser.id, roleId: superRole.id });
-          return NextResponse.json({ role: "super_admin", userId: appUser.id, bootstrapped: true });
-        }
-      }
+    // One-time bootstrap: only the very first account on a fresh install
+    // (zero super admins anywhere yet) can self-promote this way, and only
+    // for its own session-verified identity.
+    const [{ value: superAdminCount }] = await db
+      .select({ value: count() })
+      .from(userRoles)
+      .innerJoin(roles, eq(userRoles.roleId, roles.id))
+      .where(eq(roles.name, "super_admin"));
+    if (superAdminCount === 0) {
+      let [superRole] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
+      if (!superRole) [superRole] = await db.insert(roles).values({ name: "super_admin" }).returning();
+      await db.insert(userRoles).values({ userId: appUser.id, roleId: superRole.id });
+      return NextResponse.json({ role: "super_admin", userId: appUser.id, bootstrapped: true });
     }
 
     return NextResponse.json({ role: null });

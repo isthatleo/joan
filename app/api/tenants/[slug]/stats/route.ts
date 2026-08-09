@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tenants, users, patients, appointments, invoices } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
 export async function GET(
   request: NextRequest,
@@ -18,6 +19,9 @@ export async function GET(
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     // Get users count
     const usersResult = await db

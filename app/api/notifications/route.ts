@@ -22,7 +22,7 @@ async function resolveCurrentAppUser(sessionEmail: string | undefined) {
   if (!sessionEmail) return null;
   return db.query.users.findFirst({
     where: and(ilike(users.email, sessionEmail), isNull(users.deletedAt)),
-    columns: { id: true, tenantId: true },
+    columns: { id: true, tenantId: true, role: true },
   });
 }
 
@@ -141,6 +141,10 @@ export async function POST(request: NextRequest) {
         excludeUserId: z.string().uuid().optional(),
       }).parse(data);
 
+      if (appUser?.role !== "super_admin" && tenantId !== appUser?.tenantId) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
       // Find all active users for this tenant
       const adminUsers = await db.query.users.findMany({
         where: and(
@@ -186,6 +190,11 @@ export async function POST(request: NextRequest) {
       const { notificationId } = z.object({
         notificationId: z.string().uuid(),
       }).parse(data);
+
+      const target = await db.query.notifications.findFirst({ where: eq(notifications.id, notificationId) });
+      if (!target || (target.userId !== session.user.id && target.userId !== appUser?.id)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
 
       await db
         .update(notifications)

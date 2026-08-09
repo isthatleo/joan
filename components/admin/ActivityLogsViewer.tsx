@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
+import { authClient } from "@/lib/auth-client";
 import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +25,7 @@ interface ActivityLog {
 }
 
 export function ActivityLogsViewer({ tenantId }: { tenantId: string }) {
-  const { data: session } = useSession();
+  const { data: session } = authClient.useSession();
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<{ action?: string; hoursBack?: number }>({

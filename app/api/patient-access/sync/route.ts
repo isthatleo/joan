@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tenants } from "@/lib/db/schema";
@@ -9,10 +10,20 @@ export const dynamic = "force-dynamic";
 /**
  * Provisions deferred patient portal credentials once under-aged patients reach
  * the tenant-configured legal adult age. Trigger daily from production cron.
+ * Requires PATIENT_ACCESS_SYNC_SECRET to be set — fails closed (503) rather than
+ * silently running unauthenticated when it hasn't been configured.
  */
 export async function POST(request: NextRequest) {
   const secret = process.env.PATIENT_ACCESS_SYNC_SECRET;
-  if (secret && request.headers.get("x-patient-access-sync-secret") !== secret) {
+  if (!secret) {
+    console.error("[patient-access/sync] PATIENT_ACCESS_SYNC_SECRET is not set — refusing to run.");
+    return NextResponse.json({ error: "Patient access sync is not configured" }, { status: 503 });
+  }
+  const provided = request.headers.get("x-patient-access-sync-secret") || "";
+  const providedBuf = Buffer.from(provided);
+  const secretBuf = Buffer.from(secret);
+  const matches = providedBuf.length === secretBuf.length && crypto.timingSafeEqual(providedBuf, secretBuf);
+  if (!matches) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

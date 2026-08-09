@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getReceptionQueueStats, getTenantBySlug } from "@/lib/receptionist/data";
+import { getReceptionQueueStats, getTenantBySlug, requireReceptionistAccess } from "@/lib/receptionist/data";
 
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+    const access = await requireReceptionistAccess(request, tenant.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     const stats = await getReceptionQueueStats(tenant.id);

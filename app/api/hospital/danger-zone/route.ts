@@ -5,6 +5,7 @@ import { and, count, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import crypto from "crypto";
 import { revalidateTenantAccessCache } from "@/lib/tenant-cache";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
 const confirmSchema = z.object({
   action: z.enum(["purge-data", "delete-tenant", "reset-settings"]),
@@ -24,6 +25,9 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     // Check if tenant exists
     const tenant = await db.query.tenants.findFirst({
@@ -79,6 +83,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const tenant = await db.query.tenants.findFirst({
       where: eq(tenants.id, tenantId),
@@ -157,6 +164,9 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
+
     const tenant = await db.query.tenants.findFirst({
       where: eq(tenants.id, tenantId),
     });
@@ -166,6 +176,12 @@ export async function DELETE(request: NextRequest) {
     }
 
     const body = confirmSchema.partial({ confirmationCode: true }).parse(await request.json());
+
+    // Wiping tenant data or scheduling the tenant itself for deletion is a
+    // step above ordinary hospital-admin settings management.
+    if ((body.action === "purge-data" || body.action === "delete-tenant") && admin.user?.role !== "super_admin") {
+      return NextResponse.json({ error: "Only a platform super admin can perform this action" }, { status: 403 });
+    }
 
     // Verify confirmation code
     const codesSetting = await db

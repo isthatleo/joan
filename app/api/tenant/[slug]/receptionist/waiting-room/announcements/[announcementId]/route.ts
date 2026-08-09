@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  deleteWaitingRoomAnnouncement,
+import { deleteWaitingRoomAnnouncement,
   getTenantBySlug,
-  updateWaitingRoomAnnouncement,
-} from "@/lib/receptionist/data";
+  updateWaitingRoomAnnouncement, requireReceptionistAccess } from "@/lib/receptionist/data";
 
 export async function PATCH(
   request: NextRequest,
@@ -15,6 +13,10 @@ export async function PATCH(
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
+    const access = await requireReceptionistAccess(request, tenant.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
+    }
 
     const patch = await request.json().catch(() => ({}));
     const announcement = await updateWaitingRoomAnnouncement(tenant.id, announcementId, patch || {});
@@ -25,8 +27,7 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  _request: NextRequest,
+export async function DELETE(request: NextRequest,
   { params }: { params: Promise<{ slug: string; announcementId: string }> },
 ) {
   try {
@@ -34,6 +35,10 @@ export async function DELETE(
     const tenant = await getTenantBySlug(slug);
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+    const access = await requireReceptionistAccess(request, tenant.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     await deleteWaitingRoomAnnouncement(tenant.id, announcementId);

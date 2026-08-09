@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tenantSettings, tenants } from "@/lib/db/schema";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
 interface ErrorResponse {
   error: string;
@@ -71,6 +72,9 @@ export async function POST(request: NextRequest) {
     if (!tenant) {
       return createErrorResponse(404, "Tenant not found");
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return createErrorResponse(admin.status, admin.error);
 
     const extension = (file.name.split(".").pop() || (type === "favicon" ? "ico" : "png"))
       .toLowerCase()

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { payments } from "@/lib/db/schema";
+import { payments, invoices } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { requireTenantUser } from "@/lib/api/route-guards";
 
@@ -14,6 +14,14 @@ export async function GET(request: NextRequest) {
 
     if (!invoiceId) {
       return NextResponse.json({ error: "Invoice ID required" }, { status: 400 });
+    }
+
+    const invoice = await db.query.invoices.findFirst({
+      where: eq(invoices.id, invoiceId),
+      columns: { id: true, tenantId: true },
+    });
+    if (!invoice || (access.user.role !== "super_admin" && invoice.tenantId !== access.user.tenantId)) {
+      return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
     }
 
     const paymentList = await db.query.payments.findMany({

@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { activityLogs } from "@/lib/db/schema";
+import { activityLogs, users } from "@/lib/db/schema";
 import { getIpAddress } from "@/lib/fingerprinting";
-import { and, eq, desc, gte } from "drizzle-orm";
+import { auth } from "@/lib/auth";
+import { and, eq, desc, gte, ilike, isNull } from "drizzle-orm";
 
 export interface LogActivityRequest {
-  userId: string;
-  tenantId: string;
   deviceFingerprintId?: string;
   userSessionId?: string;
   action: string;
@@ -20,12 +19,24 @@ export interface LogActivityRequest {
   metadata?: Record<string, any>;
 }
 
+async function resolveCurrentUser(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers }).catch(() => null as any);
+  if (!session?.user?.email) return null;
+  return db.query.users.findFirst({
+    where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
+    columns: { id: true, tenantId: true, role: true },
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
+    const appUser = await resolveCurrentUser(request);
+    if (!appUser?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body: LogActivityRequest = await request.json();
     const {
-      userId,
-      tenantId,
       deviceFingerprintId,
       userSessionId,
       action,
@@ -39,12 +50,14 @@ export async function POST(request: NextRequest) {
       metadata,
     } = body;
 
-    if (!userId || !tenantId || !action) {
-      return NextResponse.json(
-        { error: "Missing required fields: userId, tenantId, action" },
-        { status: 400 }
-      );
+    if (!action) {
+      return NextResponse.json({ error: "Missing required field: action" }, { status: 400 });
     }
+
+    // Always attribute the log entry to the authenticated caller and their own
+    // tenant — never trust client-supplied userId/tenantId for who did what.
+    const userId = appUser.id;
+    const tenantId = appUser.tenantId;
 
     // Extract device info from request headers
     const userAgent = request.headers.get("user-agent") || "Unknown";
@@ -70,7 +83,7 @@ export async function POST(request: NextRequest) {
     else if (ua.includes("tablet") || ua.includes("ipad")) deviceType = "tablet";
 
     // Create activity log entry
-    const log = await db.insert(activityLogs).values({
+    await db.insert(activityLogs).values({
       tenantId,
       userId,
       deviceFingerprintId,
@@ -105,15 +118,26 @@ export async function POST(request: NextRequest) {
 // Get activity logs with optional filters
 export async function GET(request: NextRequest) {
   try {
+    const appUser = await resolveCurrentUser(request);
+    if (!appUser?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const isSuperAdmin = String(appUser.role || "").toLowerCase() === "super_admin";
+
     const { searchParams } = new URL(request.url);
-    const tenantId = searchParams.get("tenantId");
-    const userId = searchParams.get("userId");
-    const action = searchParams.get("action");
-    const resource = searchParams.get("resource");
+    const requestedTenantId = searchParams.get("tenantId");
+    const userId = searchParams.get("userId") || undefined;
+    const action = searchParams.get("action") || undefined;
+    const resource = searchParams.get("resource") || undefined;
     const limit = Math.min(parseInt(searchParams.get("limit") || "100"), 1000);
     const offset = parseInt(searchParams.get("offset") || "0");
     const hoursBack = parseInt(searchParams.get("hoursBack") || "24");
 
+    // Non-super-admins may only ever see their own tenant's activity log.
+    if (!isSuperAdmin && requestedTenantId && requestedTenantId !== appUser.tenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const tenantId = isSuperAdmin ? requestedTenantId : appUser.tenantId;
     if (!tenantId) {
       return NextResponse.json({ error: "Missing tenantId" }, { status: 400 });
     }
@@ -157,4 +181,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Failed to retrieve activity logs" }, { status: 500 });
   }
 }
-

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tenantSettings, auditLogs, tenants } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 import { z } from "zod";
 
 const preferencesSchema = z.object({
@@ -29,6 +30,9 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     // Check if tenant exists
     const tenant = await db.query.tenants.findFirst({
@@ -89,6 +93,9 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const tenant = await db.query.tenants.findFirst({
       where: eq(tenants.id, tenantId),
@@ -202,6 +209,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     if (action === "sync") {
       // Trigger a system-wide sync of preferences

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { integrations, auditLogs, tenants } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
 // Schemas
 const createIntegrationSchema = z.object({
@@ -34,6 +35,9 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const tenant = await db.query.tenants.findFirst({
       where: eq(tenants.id, tenantId),
@@ -198,6 +202,9 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
+
     const integration = await db.query.integrations.findFirst({
       where: and(
         eq(integrations.id, integrationId),
@@ -277,6 +284,9 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const integration = await db.query.integrations.findFirst({
       where: and(

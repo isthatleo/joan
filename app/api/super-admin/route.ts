@@ -3,12 +3,16 @@ import { db } from "@/lib/db/helpers";
 import { users, tenants, roles, userRoles } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { requireSuperAdmin } from "@/lib/platform-billing";
 
 /**
  * Super Admin Dashboard API
  * GET /api/super-admin/dashboard - Get dashboard metrics
  */
 export async function GET(req: NextRequest) {
+  const access = await requireSuperAdmin(req);
+  if (!access.ok) return access.response;
+
   try {
     const { searchParams } = new URL(req.url);
     const action = searchParams.get("action");
@@ -39,7 +43,17 @@ export async function GET(req: NextRequest) {
 
     if (action === "recent-users") {
       const recentUsers = await db
-        .select()
+        .select({
+          id: users.id,
+          tenantId: users.tenantId,
+          email: users.email,
+          fullName: users.fullName,
+          phone: users.phone,
+          role: users.role,
+          isActive: users.isActive,
+          createdAt: users.createdAt,
+          updatedAt: users.updatedAt,
+        })
         .from(users)
         .orderBy(desc(users.createdAt))
         .limit(10);
@@ -69,6 +83,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const access = await requireSuperAdmin(req);
+  if (!access.ok) return access.response;
+
   try {
     const body = await req.json();
     const { action, ...payload } = body;
@@ -98,7 +115,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Hash password
-      const hashedPassword = await bcrypt.hash(password, 10);
+      const hashedPassword = await bcrypt.hash(password, 12);
 
       // Get default tenant
       const [tenant] = await db
@@ -172,4 +189,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

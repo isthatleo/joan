@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getTenantIdBySlug } from "@/lib/accountant/server";
+import { getTenantIdBySlug, verifyTenantMembership } from "@/lib/accountant/server";
 import { getReceptionAppointments } from "@/lib/receptionist/data";
 
 function normalize(value?: string | null) {
@@ -47,6 +47,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+    const membership = await verifyTenantMembership(session, tenantId);
+    if (!membership.ok) {
+      return NextResponse.json({ error: membership.status === 401 ? "Unauthorized" : "Forbidden" }, { status: membership.status });
     }
 
     const status = normalize(request.nextUrl.searchParams.get("status") || "all");

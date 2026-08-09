@@ -4,6 +4,9 @@ import { db } from "@/lib/db";
 import { tenantSettings, tenants, userSettings, users } from "@/lib/db/schema";
 import { mergeUserSettings } from "@/lib/user-settings";
 import { getTenantSecuritySettings } from "@/lib/tenant-security";
+import { auth } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/api/utils";
+import { getIpAddress } from "@/lib/fingerprinting";
 
 async function getTenantBySlug(slug?: string | null) {
   if (!slug) return null;
@@ -139,6 +142,15 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "record-failure") {
+    // Bound how often any single IP can push a given account toward lockout —
+    // this endpoint is necessarily pre-auth (it runs right after a failed sign-in
+    // attempt), so it can't require a session, but it must not be a free,
+    // unauthenticated way to lock out an arbitrary victim account indefinitely.
+    const ip = getIpAddress(request) || "unknown";
+    if (!checkRateLimit(`login-guard:record-failure:${ip}:${email}`, 8, 15 * 60 * 1000)) {
+      return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+    }
+
     const currentAttempts = Number(effectiveSettings.security.failedLoginAttempts || 0) + 1;
     const maxAttempts = Number(tenantSecurity?.maxFailedLoginAttempts || 5);
     const loginLimitsEnabled = (tenantSecurity as any)?.loginAttemptLimitsEnabled === false ? false : true;
@@ -162,6 +174,15 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "record-success") {
+    // Only a genuinely authenticated Better Auth session for this exact email may
+    // clear the lockout counter — otherwise an attacker mid-brute-force could just
+    // call this endpoint themselves to reset their own attempt count and defeat
+    // the lockout entirely, without ever actually signing in.
+    const session = await auth.api.getSession({ headers: request.headers }).catch(() => null as any);
+    if (!session?.user?.email || session.user.email.toLowerCase() !== email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const nextSettings = mergeUserSettings({
       ...effectiveSettings,
       security: {

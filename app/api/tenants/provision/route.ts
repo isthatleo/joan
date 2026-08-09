@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
-import { createTenantSubscriptionInvoice, resolvePlan } from "@/lib/platform-billing";
+import { createTenantSubscriptionInvoice, requireSuperAdmin, resolvePlan } from "@/lib/platform-billing";
 import { upsertCredentialAuthUser, upsertForcePasswordSettings } from "@/lib/tenant-staff";
 import { inferCountryFromCity } from "@/lib/address-city-inference";
 import { buildTenantUrl } from "@/lib/tenant-routing";
@@ -133,6 +133,12 @@ const STAGES = [
 type StageKey = (typeof STAGES)[number];
 
 export async function POST(request: NextRequest) {
+  // Provisioning a tenant creates a live hospital-admin account and returns its
+  // temporary password in the response stream — only a platform super admin may
+  // trigger this.
+  const access = await requireSuperAdmin(request);
+  if (!access.ok) return access.response;
+
   const body = await request.json().catch(() => ({}));
 
   const encoder = new TextEncoder();

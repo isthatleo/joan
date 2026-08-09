@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getTenantIdBySlug } from "@/lib/accountant/server";
+import {getTenantIdBySlug, verifyTenantMembership } from "@/lib/accountant/server";
 import { createReportTemplate, listReportTemplates } from "@/lib/accountant/report-service";
 import { parseJsonBody, validateFinancePayload } from "@/lib/accountant/finance-api";
 import { reportTemplateCreateSchema } from "@/lib/accountant/route-schemas";
@@ -16,6 +16,10 @@ export async function GET(
     const { slug } = await params;
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const membership = await verifyTenantMembership(session, tenantId);
+    if (!membership.ok) {
+      return NextResponse.json({ error: membership.status === 401 ? "Unauthorized" : "Forbidden" }, { status: membership.status });
+    }
 
     const rows = await listReportTemplates(tenantId);
     return NextResponse.json(
@@ -49,6 +53,10 @@ export async function POST(
     const { slug } = await params;
     const tenantId = await getTenantIdBySlug(slug);
     if (!tenantId) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const membership = await verifyTenantMembership(session, tenantId);
+    if (!membership.ok) {
+      return NextResponse.json({ error: membership.status === 401 ? "Unauthorized" : "Forbidden" }, { status: membership.status });
+    }
 
     const jsonResult = await parseJsonBody(request);
     if (!jsonResult.ok) return jsonResult.response;

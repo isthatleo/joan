@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { TenantService } from "@/lib/services/tenant.service";
-import { verifyAuth } from "@/lib/api/auth-middleware";
+import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users, userRoles, roles } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, ilike, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { inferCountryFromCity } from "@/lib/address-city-inference";
 
@@ -43,6 +43,25 @@ const updateTenantSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
+async function resolveCurrentUser(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers }).catch(() => null as any);
+  if (!session?.user?.email) return null;
+  const appUser = await db.query.users.findFirst({
+    where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
+  });
+  if (!appUser?.id) return null;
+
+  const roleRows = await db
+    .select({ roleName: roles.name })
+    .from(userRoles)
+    .innerJoin(roles, eq(roles.id, userRoles.roleId))
+    .where(eq(userRoles.userId, appUser.id))
+    .catch(() => []);
+  const isSuperAdmin = appUser.role === "super_admin" || roleRows.some((r) => r.roleName === "super_admin");
+
+  return { appUser, isSuperAdmin };
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -53,42 +72,26 @@ export async function GET(request: NextRequest) {
     const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : undefined;
     const offset = searchParams.get("offset") ? parseInt(searchParams.get("offset")!) : undefined;
 
+    const current = await resolveCurrentUser(request);
+    if (!current) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const { appUser, isSuperAdmin } = current;
+
     if (searchParams.get("stats") === "true") {
+      if (!isSuperAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       const stats = await service.getTenantStats();
       return NextResponse.json(stats);
     }
 
     if (searchParams.get("usage") === "true") {
+      if (!isSuperAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       const usage = await service.getUsageStats();
       return NextResponse.json(usage);
     }
 
-    // Get the authenticated user to scope results by their tenant
-    const auth = await verifyAuth(request);
-    let userTenantId: string | undefined;
-    let isSuperAdmin = false;
-
-    if (auth.authenticated && auth.user?.sub) {
-      try {
-        const user = await db.query.users.findFirst({
-          where: eq(users.id, auth.user.sub as string),
-        });
-        userTenantId = user?.tenantId?.toString();
-
-        // Check if user is super admin
-        if (user) {
-          const userRolesResult = await db
-            .select({ roleName: roles.name })
-            .from(userRoles)
-            .innerJoin(roles, eq(userRoles.roleId, roles.id))
-            .where(eq(userRoles.userId, user.id));
-
-          isSuperAdmin = userRolesResult.some(r => r.roleName === 'super_admin');
-        }
-      } catch {
-        // If we can't find the user's tenant, return empty
-        userTenantId = undefined;
-      }
+    if (deleted && !isSuperAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     if (deleted && isSuperAdmin) {
@@ -103,7 +106,7 @@ export async function GET(request: NextRequest) {
       status,
       limit,
       offset,
-      tenantId: isSuperAdmin ? undefined : userTenantId, // Only scope if not super admin
+      tenantId: isSuperAdmin ? undefined : appUser.tenantId?.toString(), // Only scope if not super admin
       deleted,
     });
     return NextResponse.json(tenants);
@@ -115,6 +118,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const current = await resolveCurrentUser(request);
+    if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!current.isSuperAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
     const data = await request.json();
     const validatedData = createTenantSchema.parse(data);
     const tenant = await service.createTenant(normalizeTenantAddress(validatedData));
@@ -131,6 +138,9 @@ export async function POST(request: NextRequest) {
 // Handle PUT for updating tenants
 export async function PUT(request: NextRequest) {
   try {
+    const current = await resolveCurrentUser(request);
+    if (!current) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
@@ -138,8 +148,18 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Tenant ID required" }, { status: 400 });
     }
 
+    if (!current.isSuperAdmin && current.appUser.tenantId?.toString() !== id) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const data = await request.json();
     const validatedData = updateTenantSchema.parse(data);
+    if (!current.isSuperAdmin) {
+      // Tenant admins may update their own contact/branding details, but not
+      // reactivate/deactivate their own tenant or change its plan.
+      delete validatedData.isActive;
+      delete validatedData.plan;
+    }
     const tenant = await service.updateTenant(id, normalizeTenantAddress(validatedData));
     return NextResponse.json(tenant[0]);
   } catch (error) {

@@ -1,18 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "node:crypto";
 import { db } from "@/lib/db";
 import { payments, invoices, auditLogs, tenants } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
+import { getIntegrationCredentials } from "@/lib/integrations/server";
+
+function verifySignature(rawBody: string, signatureHeader: string | null, secret: string): boolean {
+  if (!signatureHeader) return false;
+  const expected = crypto.createHmac("sha256", secret).update(rawBody, "utf8").digest("hex");
+  const provided = Buffer.from(signatureHeader);
+  const expectedBuf = Buffer.from(expected);
+  if (provided.length !== expectedBuf.length) return false;
+  return crypto.timingSafeEqual(provided, expectedBuf);
+}
 
 // Webhook for payment success events
 export async function POST(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
     const { slug } = await params;
-    const body = await request.json();
 
-    // Verify webhook signature (implement based on payment provider)
-    // const signature = request.headers.get('stripe-signature');
-    // if (!signature) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Verify webhook signature before trusting anything in the payload. The
+    // secret is the tenant's own configured payment-provider webhook secret
+    // (set via their integration settings) — an unsigned or wrongly-signed
+    // request is rejected outright rather than acted upon.
+    const rawBody = await request.text();
+    const stripeCreds = await getIntegrationCredentials(slug, "stripe");
+    const webhookSecret = stripeCreds?.webhookSecret;
+    if (!webhookSecret) {
+      return NextResponse.json({ error: "Webhook not configured for this tenant" }, { status: 503 });
+    }
 
+    const signature = request.headers.get("x-webhook-signature") || request.headers.get("stripe-signature");
+    if (!verifySignature(rawBody, signature, webhookSecret)) {
+      return NextResponse.json({ error: "Invalid webhook signature" }, { status: 401 });
+    }
+
+    const body = JSON.parse(rawBody);
     const { eventType, paymentId, invoiceId, amount, method, metadata } = body;
 
     if (!invoiceId || !amount) {
@@ -73,6 +96,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     // Audit log
     await db.insert(auditLogs).values({
+      tenantId: tenant.id,
       action: `billing.webhook.${eventType}`,
       entity: "payment",
       entityId: paymentId || invoiceId,

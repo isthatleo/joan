@@ -5,9 +5,15 @@ import * as path from "path";
 import { db } from "@/lib/db";
 import { tenants } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { requireSuperAdmin } from "@/lib/platform-billing";
 
 export async function GET(request: NextRequest) {
   try {
+    // Host-level infrastructure metrics (memory, disk, network interfaces incl.
+    // MAC addresses) — platform super admins only, not tenant-scoped data.
+    const access = await requireSuperAdmin(request);
+    if (!access.ok) return access.response;
+
     const { searchParams } = new URL(request.url);
     const tenantId = searchParams.get("tenantId");
 

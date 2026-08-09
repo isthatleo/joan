@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { integrations, tenants, auditLogs } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 import { z } from "zod";
 
 async function getTenantBySlug(slug: string) {
@@ -16,6 +17,8 @@ export async function GET(
     const { slug, integrationId } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const [integration] = await db.select().from(integrations)
       .where(and(eq(integrations.id, integrationId), eq(integrations.tenantId, tenant.id)));
@@ -48,6 +51,8 @@ export async function PUT(
     const { slug, integrationId } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const body = updateSchema.parse(await request.json());
 
@@ -94,6 +99,8 @@ export async function DELETE(
     const { slug, integrationId } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const [existing] = await db.select().from(integrations)
       .where(and(eq(integrations.id, integrationId), eq(integrations.tenantId, tenant.id)));

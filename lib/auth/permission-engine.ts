@@ -39,7 +39,11 @@ export async function resolvePermissions(userId: string) {
 export function can(
   permissions: Map<string, string>,
   required: string,
-  context?: { ownerId?: string; departmentId?: string }
+  // `isOwner` must be a caller-verified fact (e.g. a real guardian/patient
+  // relationship looked up in the database) — it is NOT satisfied merely by
+  // an id being present in the request. Passing an unverified id here would
+  // let any "own"-scoped permission be used to access any other user's data.
+  context?: { isOwner?: boolean; departmentId?: string }
 ) {
   const scope = permissions.get(required);
   if (!scope) return false;
@@ -52,7 +56,7 @@ export function can(
     case "department":
       return context?.departmentId !== undefined;
     case "own":
-      return context?.ownerId !== undefined;
+      return context?.isOwner === true;
     default:
       return false;
   }

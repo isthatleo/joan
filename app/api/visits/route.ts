@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "patientId is required" }, { status: 400 });
     }
 
-    const visits = await service.getPatientVisits(patientId);
+    const visits = await service.getPatientVisits(patientId, access.user.tenantId as string);
     return NextResponse.json(visits);
   } catch (error) {
     return NextResponse.json({ error: "Failed to fetch visits" }, { status: 500 });

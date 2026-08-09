@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { invoices, invoiceItems } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
 const tenantService = new TenantService();
 
@@ -28,6 +29,9 @@ export async function GET(
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     // Fetch invoices
     let query: any = db.select().from(invoices);
@@ -75,6 +79,9 @@ export async function POST(
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     // Create invoice
     const result = await db

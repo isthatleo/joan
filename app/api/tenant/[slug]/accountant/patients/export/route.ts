@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { verifyTenantMembership } from "@/lib/accountant/server";
 import { tenants } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
@@ -83,6 +84,11 @@ export async function GET(
     }
 
     const tenantId = tenant.id;
+
+    const membership = await verifyTenantMembership(session, tenantId);
+    if (!membership.ok) {
+      return NextResponse.json({ error: membership.status === 401 ? "Unauthorized" : "Forbidden" }, { status: membership.status });
+    }
 
     const { searchParams } = new URL(request.url);
     const format = searchParams.get("format") || "csv";

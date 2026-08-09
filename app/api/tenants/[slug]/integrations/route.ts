@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { integrations, tenants, auditLogs } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 import { z } from "zod";
 
 async function getTenantBySlug(slug: string) {
@@ -13,6 +14,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const integrationsList = await db.select().from(integrations).where(eq(integrations.tenantId, tenant.id));
     return NextResponse.json(integrationsList);
@@ -32,6 +35,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { slug } = await params;
     const tenant = await getTenantBySlug(slug);
     if (!tenant) return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    const admin = await requireTenantAdmin(request.headers, tenant.id);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const body = createSchema.parse(await request.json());
 

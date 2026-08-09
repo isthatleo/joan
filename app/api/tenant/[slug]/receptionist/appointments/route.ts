@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createReceptionAppointment, getReceptionAppointments, getTenantBySlug } from "@/lib/receptionist/data";
+import { createReceptionAppointment, getReceptionAppointments, getTenantBySlug, requireReceptionistAccess } from "@/lib/receptionist/data";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
@@ -7,6 +7,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const tenant = await getTenantBySlug(slug);
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+    const access = await requireReceptionistAccess(request, tenant.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     const todayOnly = request.nextUrl.searchParams.get("today") === "true";
@@ -25,6 +29,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const tenant = await getTenantBySlug(slug);
     if (!tenant) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
+    }
+    const access = await requireReceptionistAccess(request, tenant.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     const body = await request.json().catch(() => null);

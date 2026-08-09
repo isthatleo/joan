@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { auditLogs, integrations, tenantSettings, tenants } from "@/lib/db/schema";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 
 async function getTenantScopedData(tenantId: string) {
   const tenant = await db.query.tenants.findFirst({ where: eq(tenants.id, tenantId) });
@@ -45,6 +46,9 @@ export async function POST(request: NextRequest) {
     if (!tenantData) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
+
+    const admin = await requireTenantAdmin(request.headers, body.tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const activeIntegrations = tenantData.integrations.filter((item) => item.isActive);
     const communication = body.communication || tenantData.communication || {};

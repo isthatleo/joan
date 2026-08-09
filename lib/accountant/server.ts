@@ -1,6 +1,36 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ilike, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { invoiceItems, invoices, payments, tenantSettings, tenants } from "@/lib/db/schema"; // Added invoiceItems, invoices, payments, tenantSettings
+import { invoiceItems, invoices, payments, tenantSettings, tenants, users } from "@/lib/db/schema"; // Added invoiceItems, invoices, payments, tenantSettings
+
+type SessionLike = { user?: { id?: string | null; email?: string | null } | null } | null | undefined;
+
+/**
+ * Confirms the caller's own tenant membership matches the tenant resolved from the
+ * URL slug (or that they're a super admin). `getTenantIdBySlug` alone only looks up
+ * a tenant by slug — it is NOT an authorization check, and every accountant route
+ * must call this after it (session is expected to already be resolved by the caller
+ * via `auth.api.getSession`, passed straight through so we don't re-fetch it).
+ */
+export async function verifyTenantMembership(session: SessionLike, tenantId: string) {
+  const identifier = session?.user?.email
+    ? ilike(users.email, session.user.email)
+    : session?.user?.id
+      ? eq(users.id, session.user.id)
+      : null;
+  if (!identifier) return { ok: false as const, status: 401 as const };
+
+  const appUser = await db.query.users.findFirst({
+    where: and(identifier, isNull(users.deletedAt)),
+    columns: { id: true, tenantId: true, role: true, isActive: true },
+  });
+  if (!appUser || appUser.isActive === false) return { ok: false as const, status: 403 as const };
+
+  const isSuperAdmin = String(appUser.role || "").toLowerCase() === "super_admin";
+  if (!isSuperAdmin && appUser.tenantId !== tenantId) {
+    return { ok: false as const, status: 403 as const };
+  }
+  return { ok: true as const, user: appUser };
+}
 
 export async function getTenantBySlug(slug: string) {
   const [tenant] = await db

@@ -3,8 +3,8 @@
 import Link from "next/link";
 import type { Ref } from "react";
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, Download, FileImage, Loader2, MessageSquareWarning, Printer, RefreshCw, ReceiptText } from "lucide-react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, CreditCard, Download, FileImage, Loader2, MessageSquareWarning, Printer, RefreshCw, ReceiptText, Sparkles } from "lucide-react";
 import { toJpeg, toPng } from "html-to-image";
 import jsPDF from "jspdf";
 
@@ -57,6 +57,8 @@ function statusClass(status: string) {
 
 export default function HospitalPlatformInvoiceDetailsPage() {
   const params = useParams();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const slug = params?.slug as string;
   const invoiceId = params?.invoiceId as string;
   const invoiceRef = useRef<HTMLDivElement>(null);
@@ -67,6 +69,7 @@ export default function HospitalPlatformInvoiceDetailsPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [disputeMessage, setDisputeMessage] = useState("");
+  const [confirmingPayment, setConfirmingPayment] = useState(searchParams?.get("paid") === "pending");
 
   async function load(silent = false) {
     if (!silent) setLoading(true);
@@ -89,6 +92,45 @@ export default function HospitalPlatformInvoiceDetailsPage() {
   useEffect(() => {
     if (slug && invoiceId) void load();
   }, [slug, invoiceId]);
+
+  // A "Pay with Pesapal" click redirects the browser away and back with ?paid=pending —
+  // the actual status flip happens async via Pesapal's IPN, so poll briefly for it to land.
+  useEffect(() => {
+    if (!confirmingPayment) return;
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts += 1;
+      await load(true);
+      if (attempts >= 8) clearInterval(interval);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [confirmingPayment, slug, invoiceId]);
+
+  useEffect(() => {
+    if (confirmingPayment && invoice?.status === "paid") {
+      setConfirmingPayment(false);
+      setNotice("Payment confirmed — thank you.");
+      router.replace(`/tenant/${slug}/billing/platform-invoices/${invoiceId}`);
+    }
+  }, [confirmingPayment, invoice?.status, slug, invoiceId, router]);
+
+  async function payWithPesapal() {
+    setBusy("pay");
+    setError("");
+    setNotice("");
+    try {
+      const res = await fetch(`/api/tenant/${slug}/billing/platform-invoices/${invoiceId}/pay`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Could not start Pesapal checkout");
+      window.location.href = data.redirectUrl;
+    } catch (payError: any) {
+      setError(payError?.message || "Could not start Pesapal checkout");
+      setBusy("");
+    }
+  }
 
   async function runAction(action: "acknowledge" | "dispute") {
     setBusy(action);
@@ -177,6 +219,12 @@ export default function HospitalPlatformInvoiceDetailsPage() {
 
       {(error || notice) && <div className={`rounded-xl border px-4 py-3 text-sm print:hidden ${error ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-700"}`}>{error || notice}</div>}
 
+      {confirmingPayment && (
+        <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 print:hidden">
+          <Loader2 className="size-4 animate-spin" /> Confirming your Pesapal payment — this can take a few seconds.
+        </div>
+      )}
+
       {loading ? (
         <div className="flex min-h-[420px] items-center justify-center rounded-xl border border-border bg-card">
           <Loader2 className="size-7 animate-spin text-orange-500" />
@@ -195,9 +243,25 @@ export default function HospitalPlatformInvoiceDetailsPage() {
           </div>
 
           <aside className="space-y-4 print:hidden">
+            {invoice.status !== "paid" && invoice.amountDue > 0 && (
+              <div className="rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 to-white p-5">
+                <div className="flex items-center gap-2">
+                  <h2 className="font-semibold text-foreground">Pay this invoice</h2>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-orange-600 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-white">
+                    <Sparkles className="size-3" /> Recommended
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">Pay {money(invoice.currency, invoice.amountDue)} securely with Pesapal. You'll be redirected to complete checkout, then brought back here.</p>
+                <button onClick={payWithPesapal} disabled={busy === "pay"} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60">
+                  {busy === "pay" ? <Loader2 className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+                  Pay with Pesapal
+                </button>
+              </div>
+            )}
+
             <div className="rounded-xl border border-border bg-card p-5">
               <h2 className="font-semibold text-foreground">Admin Actions</h2>
-              <p className="mt-1 text-sm text-muted-foreground">These actions do not alter payment state. Payment status remains controlled by super admin billing/payment reconciliation.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Reviewing or disputing an invoice does not change what's owed — use "Pay with Pesapal" above to settle it.</p>
               <button onClick={() => runAction("acknowledge")} disabled={busy === "acknowledge"} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60">
                 {busy === "acknowledge" ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
                 Mark reviewed

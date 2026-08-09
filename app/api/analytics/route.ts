@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { users, patients, appointments } from "@/lib/db/schema";
 import { and, count, eq, gte, lte, sql, type SQL } from "drizzle-orm";
+import { requireAppUser } from "@/lib/api/route-guards";
 
 type DateFilter = {
   gte: Date;
@@ -18,6 +19,12 @@ export async function GET(request: NextRequest) {
 
     if (!tenantId) {
       return NextResponse.json({ error: "Tenant ID required" }, { status: 400 });
+    }
+
+    const access = await requireAppUser(request);
+    if (!access.ok) return access.response;
+    if (access.user.role !== "super_admin" && access.user.tenantId !== tenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const dateFilter = startDate && endDate ? {

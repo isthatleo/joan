@@ -19,9 +19,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const user = await db.query.users.findFirst({
     where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
-    columns: { id: true },
+    columns: { id: true, tenantId: true },
   });
-  if (!user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!user?.id || user.tenantId !== tenant.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const body = await request.json().catch(() => ({}));
   const code = String(body?.code || "").trim();

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { users, userRoles, roles } from "@/lib/db/schema";
 import { eq, sql, and, type SQL } from "drizzle-orm";
 import { z } from "zod";
+import { requireSuperAdmin } from "@/lib/platform-billing";
 
 const createUserSchema = z.object({
   email: z.string().email(),
@@ -13,6 +14,9 @@ const createUserSchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
+  const access = await requireSuperAdmin(request);
+  if (!access.ok) return access.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search");
@@ -98,6 +102,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const access = await requireSuperAdmin(request);
+  if (!access.ok) return access.response;
+
   try {
     const body = await request.json();
     const validated = createUserSchema.parse(body);

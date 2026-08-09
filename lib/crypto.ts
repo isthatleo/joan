@@ -3,8 +3,12 @@ import crypto from "crypto";
 const ALGO = "aes-256-gcm";
 
 function getKey(): Buffer {
-  const raw = process.env.INTEGRATIONS_ENCRYPTION_KEY || process.env.BETTER_AUTH_SECRET || "";
-  if (!raw) throw new Error("INTEGRATIONS_ENCRYPTION_KEY (or BETTER_AUTH_SECRET fallback) is not set");
+  // Deliberately does NOT fall back to BETTER_AUTH_SECRET: that value also signs/
+  // encrypts session cookies, so reusing it here means anyone who ever obtains it
+  // (e.g. a leaked .env) can decrypt every stored TOTP secret and integration
+  // credential too. This must be its own, independent key.
+  const raw = process.env.INTEGRATIONS_ENCRYPTION_KEY || "";
+  if (!raw) throw new Error("INTEGRATIONS_ENCRYPTION_KEY is not set");
   // Derive 32-byte key
   return crypto.createHash("sha256").update(raw).digest();
 }

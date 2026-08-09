@@ -38,7 +38,20 @@ export async function POST(request: NextRequest) {
     const permissions = await resolvePermissions(session.user.id);
     if (!can(permissions, "patient.write")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+    const profile = await db.query.users.findFirst({
+      where: eq(users.email, session.user.email),
+      columns: { tenantId: true, role: true },
+    });
+    if (!profile?.tenantId && profile?.role !== "super_admin") {
+      return NextResponse.json({ error: "No tenant context" }, { status: 400 });
+    }
+
     const data = await request.json();
+    // A new patient is always created under the caller's own tenant — never a
+    // client-supplied tenantId.
+    if (profile?.role !== "super_admin") {
+      data.tenantId = profile?.tenantId;
+    }
     const patient = await service.createPatient(data);
     return NextResponse.json(patient);
   } catch (error) {

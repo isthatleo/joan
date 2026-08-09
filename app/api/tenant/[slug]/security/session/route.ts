@@ -18,7 +18,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     where: and(ilike(users.email, session.user.email), isNull(users.deletedAt)),
     columns: { id: true, email: true, tenantId: true, role: true },
   });
-  if (!user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!user?.id || user.tenantId !== tenant.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const security = await getCachedTenantSecuritySettings(tenant.id);
   const twoFactor = await getUserTwoFactor(user.id);

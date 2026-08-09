@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { securityEvents } from "@/lib/db/schema";
 import { and, eq, desc, gte } from "drizzle-orm";
+import { requireAppUser } from "@/lib/api/route-guards";
 
 export interface CreateSecurityEventRequest {
   tenantId: string;
@@ -15,9 +16,16 @@ export interface CreateSecurityEventRequest {
   metadata?: Record<string, any>;
 }
 
+function isSuperAdmin(role: string | null) {
+  return String(role || "").toLowerCase() === "super_admin";
+}
+
 // Create a security event
 export async function POST(request: NextRequest) {
   try {
+    const access = await requireAppUser(request);
+    if (!access.ok) return access.response;
+
     const body: CreateSecurityEventRequest = await request.json();
     const {
       tenantId,
@@ -36,6 +44,9 @@ export async function POST(request: NextRequest) {
         { error: "Missing required fields: tenantId, eventType" },
         { status: 400 }
       );
+    }
+    if (!isSuperAdmin(access.user.role) && tenantId !== access.user.tenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const event = await db.insert(securityEvents).values({
@@ -64,6 +75,9 @@ export async function POST(request: NextRequest) {
 // Get security events
 export async function GET(request: NextRequest) {
   try {
+    const access = await requireAppUser(request);
+    if (!access.ok) return access.response;
+
     const { searchParams } = new URL(request.url);
     const tenantId = searchParams.get("tenantId");
     const userId = searchParams.get("userId");
@@ -76,6 +90,9 @@ export async function GET(request: NextRequest) {
 
     if (!tenantId) {
       return NextResponse.json({ error: "Missing tenantId" }, { status: 400 });
+    }
+    if (!isSuperAdmin(access.user.role) && tenantId !== access.user.tenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const conditions = [eq(securityEvents.tenantId, tenantId)];
@@ -126,9 +143,11 @@ export async function GET(request: NextRequest) {
 // PUT: Resolve a security event
 export async function PUT(request: NextRequest) {
   try {
+    const access = await requireAppUser(request, ["super_admin", "hospital_admin"]);
+    if (!access.ok) return access.response;
+
     const { searchParams } = new URL(request.url);
     const eventId = searchParams.get("eventId");
-    const resolvedBy = searchParams.get("resolvedBy");
 
     const body = await request.json();
     const { notes } = body;
@@ -137,12 +156,20 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Missing eventId" }, { status: 400 });
     }
 
+    const existing = await db.query.securityEvents.findFirst({ where: eq(securityEvents.id, eventId) });
+    if (!existing) {
+      return NextResponse.json({ error: "Security event not found" }, { status: 404 });
+    }
+    if (!isSuperAdmin(access.user.role) && existing.tenantId !== access.user.tenantId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const event = await db
       .update(securityEvents)
       .set({
         isResolved: true,
         resolvedAt: new Date(),
-        resolvedBy,
+        resolvedBy: access.user.id,
         notes,
       })
       .where(eq(securityEvents.id, eventId));
@@ -156,4 +183,3 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Failed to resolve security event" }, { status: 500 });
   }
 }
-

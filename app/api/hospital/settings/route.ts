@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tenants, tenantSettings, integrations, auditLogs } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
+import { requireTenantAdmin } from "@/lib/tenant-staff";
 import { z } from "zod";
 import { inferCountryFromCity } from "@/lib/address-city-inference";
 
@@ -191,6 +192,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "tenantId is required" }, { status: 400 });
     }
 
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
+
     const tenant = await db.query.tenants.findFirst({
       where: eq(tenants.id, tenantId),
     });
@@ -272,6 +276,9 @@ export async function PUT(request: NextRequest) {
     if (!tenantId) {
       return NextResponse.json({ error: "tenantId is required" }, { status: 400 });
     }
+
+    const admin = await requireTenantAdmin(request.headers, tenantId);
+    if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
     const tenant = await db.query.tenants.findFirst({
       where: eq(tenants.id, tenantId),
