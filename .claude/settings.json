@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s https://api.github.com/repos/isthatleo/joan)",
+      "Bash(curl -s https://raw.githubusercontent.com/isthatleo/joan/main/.env)",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/next/package.json'\\).version\\)\")",
+      "PowerShell(cd \"c:\\\\Users\\\\leona\\\\Desktop\\\\joan\"; if \\(Test-Path node_modules\\\\next\\\\package.json\\) { \\(Get-Content node_modules\\\\next\\\\package.json | ConvertFrom-Json\\).version } else { \"next not installed\" }; Test-Path node_modules\\\\next\\\\dist\\\\docs)",
+      "Bash(timeout 90 npm audit --package-lock-only --json)",
+      "Bash(node -e \"console.log\\('next:', require\\('./node_modules/next/package.json'\\).version\\)\")",
+      "Bash(node -e \"console.log\\('better-auth:', require\\('./node_modules/better-auth/package.json'\\).version\\)\")",
+      "Bash(node -e \"console.log\\('drizzle-orm:', require\\('./node_modules/drizzle-orm/package.json'\\).version\\)\")",
+      "Bash(npm audit *)",
+      "Bash(node -e ' *)",
+      "Bash(grep -rln \"sql\\\\`\" --include=\"*.ts\" lib app)",
+      "Bash(grep -rn \"sql.identifier\\\\|\\\\.as\\(\\\\`\\\\|\\\\.as\\(\\\\$\\\\{\" --include=\"*.ts\" lib app)",
+      "Bash(grep -E \"\\\\.log$|audit\\\\.log\")",
+      "Bash(git grep *)",
+      "WebFetch(domain:developer.pesapal.com)",
+      "Bash(awk '/export const platformSettings/,/^\\\\}\\\\\\);/' lib/db/schema.ts)",
+      "Bash(awk '/export const platformInvoices/,/^\\\\}\\\\\\);/' lib/db/schema.ts)",
+      "Bash(awk '/export const notifications = pgTable/,/^\\\\}\\\\\\);/' lib/db/schema.ts)",
+      "Bash(awk '/^const baseColumns/,/^};/' lib/db/schema.ts)",
+      "Bash(npx tsc *)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(npm install *)",
+      "Bash(git rm *)",
+      "Bash(grep -lE \"postgresql://|npg_|password\\\\s*[:=]\\\\s*[\\\\\"'][^\\\\\"']{4,}[\\\\\"']\" check-auth-users.js create-test-tenant.js create-test-users.ts fix-super-admin-password.ts list-tenants.js clear-tenants.js seed-super-admin.ts seed-notifications.ts seed-roles.ts verify-db.js verify-tenant-system.js check-db.js check-super-admin.ts check-tenants.js check-users.js test-tenant-delete.js)",
+      "Bash(grep -rA2 \"const tenantId = await getTenantIdBySlug\\(slug\\);\" app/api/tenant/\\\\[slug\\\\]/accountant)",
+      "Bash(xargs grep -l \"getTenantIdBySlug\\(slug\\)\")"
+    ]
+  }
+}
