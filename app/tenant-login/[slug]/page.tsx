@@ -24,10 +24,10 @@ export default async function PublicTenantLoginPage({ params }: PublicTenantLogi
             The hospital "{slug}" does not exist or is not currently available.
           </p>
           <Link
-            href="/login"
+            href="/"
             className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-semibold text-primary-foreground transition-opacity hover:opacity-90"
           >
-            Back to Login
+            Back to home
           </Link>
         </div>
       </div>

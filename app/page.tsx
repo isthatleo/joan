@@ -38,6 +38,7 @@ import { ModuleExplorer } from "@/components/marketing/ModuleExplorer";
 import { Pricing } from "@/components/marketing/Pricing";
 import { ProductTour } from "@/components/marketing/ProductTour";
 import { SectionHeading } from "@/components/marketing/SectionHeading";
+import { TenantSignInLink } from "@/components/marketing/TenantSignInLink";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://joan.health"),
@@ -403,13 +404,12 @@ export default function LandingPage() {
               Give every department the same clear view of care. Sign in to your workspace, or talk to us about bringing Joan to your organization.
             </p>
             <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-              <Link
-                href="/login"
+              <TenantSignInLink
                 className="group inline-flex items-center gap-2 rounded-full bg-orange-600 px-6 py-3.5 text-[13.5px] font-semibold text-white shadow-[0_14px_34px_-14px_rgba(249,115,22,0.9)] transition-all hover:-translate-y-0.5 hover:bg-orange-700"
               >
                 Sign in to Joan
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-              </Link>
+              </TenantSignInLink>
               <Link
                 href="/docs"
                 className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-6 py-3.5 text-[13.5px] font-semibold text-white transition-all hover:-translate-y-0.5 hover:bg-white/10"

@@ -27,8 +27,8 @@ export function TenantNotFoundRedirect({ slug }: { slug: string }) {
         <p className="mt-2 text-sm text-muted-foreground">
           The tenant slug "{slug}" is archived, inactive, or no longer available. Active sessions for this tenant have been terminated.
         </p>
-        <Link href="/login" className="mt-6 inline-flex items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white">
-          <LogOut className="size-4" /> Return to main login
+        <Link href="/" className="mt-6 inline-flex items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white">
+          <LogOut className="size-4" /> Return to home
         </Link>
       </div>
     </div>

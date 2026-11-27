@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ArrowRight, Check, Sparkles } from "lucide-react";
 import { SectionHeading } from "./SectionHeading";
+import { TenantSignInLink } from "./TenantSignInLink";
 
 type Plan = {
   name: string;
@@ -204,8 +205,7 @@ export function Pricing() {
                 ))}
               </ul>
 
-              <a
-                href="/login"
+              <TenantSignInLink
                 className={`group/cta mt-7 flex items-center justify-center gap-2 rounded-full px-4 py-3 text-[12.5px] font-semibold transition-all ${
                   plan.featured
                     ? "bg-orange-600 text-white hover:bg-orange-700"
@@ -214,7 +214,7 @@ export function Pricing() {
               >
                 Access platform
                 <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover/cta:translate-x-1" />
-              </a>
+              </TenantSignInLink>
               <p className="mt-2.5 text-center text-[9.5px] text-slate-400">{plan.support} · Accounts provisioned by an admin</p>
             </article>
           ))}

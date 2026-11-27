@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowUpRight, Menu, X } from "lucide-react";
 import { Logo } from "./Brand";
 import { MarketingThemeToggle } from "./MarketingThemeToggle";
+import { TenantSignInLink } from "./TenantSignInLink";
 
 const LINKS = [
   { label: "Platform", href: "/#platform" },
@@ -63,12 +64,11 @@ export function MarketingNav() {
 
         <div className="ml-auto hidden items-center gap-2 lg:flex">
           <MarketingThemeToggle />
-          <Link
-            href="/login"
+          <TenantSignInLink
             className="rounded-full px-4 py-2.5 text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             Sign in
-          </Link>
+          </TenantSignInLink>
           <Link
             href="mailto:support@joan.health?subject=Joan%20demo%20request"
             className="group inline-flex items-center gap-1.5 rounded-full bg-slate-950 px-5 py-2.5 text-[13px] font-semibold text-white shadow-[0_8px_20px_-10px_rgba(15,23,42,0.7)] transition-all hover:bg-orange-600 hover:shadow-[0_10px_24px_-10px_rgba(249,115,22,0.8)]"
@@ -116,13 +116,12 @@ export function MarketingNav() {
             <MarketingThemeToggle compact />
           </div>
           <div className="mt-3 grid grid-cols-2 gap-3">
-            <Link
-              href="/login"
+            <TenantSignInLink
               onClick={() => setOpen(false)}
               className="flex items-center justify-center rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800"
             >
               Sign in
-            </Link>
+            </TenantSignInLink>
             <Link
               href="mailto:support@joan.health?subject=Joan%20demo%20request"
               onClick={() => setOpen(false)}
