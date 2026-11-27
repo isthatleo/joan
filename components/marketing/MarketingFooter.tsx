@@ -15,7 +15,7 @@ const FOOTER_COLUMNS = [
   {
     title: "Access",
     links: [
-      { label: "Sign in", href: "/login" },
+      { label: "Contact us", href: "/contact" },
       { label: "Super admin", href: "/master" },
       { label: "Documentation", href: "/docs" },
       { label: "FAQ", href: "/#faq" },

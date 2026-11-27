@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, type AnyColumn } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   appointments,
@@ -151,12 +151,20 @@ function todayRange() {
   return { start, end, weekAgo };
 }
 
+/** Doctors are limited to assigned records; other roles stay tenant-scoped. */
+function assigneeFilter(column: AnyColumn, actorId: string, scopeToAssignee: boolean) {
+  return scopeToAssignee ? eq(column, actorId) : undefined;
+}
+
 export async function buildHandoffContext({
-  doctorId,
+  actorId,
   tenantId,
+  scopeToAssignee,
 }: {
-  doctorId: string;
+  actorId: string;
   tenantId: string;
+  /** Doctors keep assignment scoping; other roles are scoped by tenant only. */
+  scopeToAssignee: boolean;
 }): Promise<CopilotContext> {
   const { start, end, weekAgo } = todayRange();
 
@@ -179,7 +187,7 @@ export async function buildHandoffContext({
       .where(
         and(
           eq(queues.tenantId, tenantId),
-          eq(queues.assignedTo, doctorId),
+          assigneeFilter(queues.assignedTo, actorId, scopeToAssignee),
           inArray(queues.status, ["waiting", "called", "in-progress"]),
           isNull(queues.deletedAt),
           eq(patients.tenantId, tenantId),
@@ -203,7 +211,7 @@ export async function buildHandoffContext({
       .where(
         and(
           eq(appointments.tenantId, tenantId),
-          eq(appointments.doctorId, doctorId),
+          assigneeFilter(appointments.doctorId, actorId, scopeToAssignee),
           gte(appointments.scheduledAt, start),
           lt(appointments.scheduledAt, end),
           isNull(appointments.deletedAt),
@@ -232,7 +240,7 @@ export async function buildHandoffContext({
         and(
           eq(labResults.tenantId, tenantId),
           eq(labOrders.tenantId, tenantId),
-          eq(labOrders.doctorId, doctorId),
+          assigneeFilter(labOrders.doctorId, actorId, scopeToAssignee),
           isNull(labResults.deletedAt),
           isNull(labOrders.deletedAt),
           eq(patients.tenantId, tenantId),
@@ -264,7 +272,7 @@ export async function buildHandoffContext({
       .where(
         and(
           eq(prescriptions.tenantId, tenantId),
-          eq(prescriptions.doctorId, doctorId),
+          assigneeFilter(prescriptions.doctorId, actorId, scopeToAssignee),
           isNull(prescriptions.deletedAt),
           eq(patients.tenantId, tenantId),
           isNull(patients.deletedAt)
@@ -292,7 +300,7 @@ export async function buildHandoffContext({
       .where(
         and(
           eq(visits.tenantId, tenantId),
-          eq(visits.doctorId, doctorId),
+          assigneeFilter(visits.doctorId, actorId, scopeToAssignee),
           gte(vitals.recordedAt, weekAgo),
           isNull(vitals.deletedAt),
           isNull(visits.deletedAt),
@@ -541,15 +549,18 @@ export async function buildHandoffContext({
 }
 
 export async function buildPatientContext({
-  doctorId,
+  actorId,
   tenantId,
   patientId,
   queueId,
+  scopeToAssignee,
 }: {
-  doctorId: string;
+  actorId: string;
   tenantId: string;
   patientId: string;
   queueId?: string;
+  /** Doctors keep assignment scoping; other roles are scoped by tenant only. */
+  scopeToAssignee: boolean;
 }): Promise<CopilotContext | null> {
   const patient = await db.query.patients.findFirst({
     where: and(eq(patients.id, patientId), eq(patients.tenantId, tenantId), isNull(patients.deletedAt)),
@@ -562,7 +573,7 @@ export async function buildPatientContext({
       where: and(
         eq(queues.id, queueId),
         eq(queues.tenantId, tenantId),
-        eq(queues.assignedTo, doctorId),
+        assigneeFilter(queues.assignedTo, actorId, scopeToAssignee),
         eq(queues.patientId, patientId),
         isNull(queues.deletedAt)
       ),
@@ -582,7 +593,7 @@ export async function buildPatientContext({
           and(
             eq(visits.tenantId, tenantId),
             eq(visits.patientId, patientId),
-            eq(visits.doctorId, doctorId),
+            assigneeFilter(visits.doctorId, actorId, scopeToAssignee),
             isNull(visits.deletedAt)
           )
         )
@@ -603,7 +614,7 @@ export async function buildPatientContext({
           and(
             eq(labResults.tenantId, tenantId),
             eq(labOrders.tenantId, tenantId),
-            eq(labOrders.doctorId, doctorId),
+            assigneeFilter(labOrders.doctorId, actorId, scopeToAssignee),
             eq(labOrders.patientId, patientId),
             isNull(labResults.deletedAt),
             isNull(labOrders.deletedAt)
@@ -626,7 +637,7 @@ export async function buildPatientContext({
         .where(
           and(
             eq(visits.tenantId, tenantId),
-            eq(visits.doctorId, doctorId),
+            assigneeFilter(visits.doctorId, actorId, scopeToAssignee),
             eq(visits.patientId, patientId),
             isNull(vitals.deletedAt),
             isNull(visits.deletedAt)
@@ -651,7 +662,7 @@ export async function buildPatientContext({
         .where(
           and(
             eq(prescriptions.tenantId, tenantId),
-            eq(prescriptions.doctorId, doctorId),
+            assigneeFilter(prescriptions.doctorId, actorId, scopeToAssignee),
             eq(prescriptions.patientId, patientId),
             isNull(prescriptions.deletedAt)
           )
@@ -676,7 +687,7 @@ export async function buildPatientContext({
         .where(
           and(
             eq(appointments.tenantId, tenantId),
-            eq(appointments.doctorId, doctorId),
+            assigneeFilter(appointments.doctorId, actorId, scopeToAssignee),
             eq(appointments.patientId, patientId),
             isNull(appointments.deletedAt)
           )
@@ -842,57 +853,67 @@ export async function buildPatientContext({
 
 /**
  * Builds the narrowest safe context for a free-form question. Without a
- * patient focus it uses the doctor's active handoff scope. With a patient
- * focus it first verifies that the patient is assigned to this doctor through
- * a queue entry or a consultation, then builds the patient-level context.
+ * patient focus it uses the caller's handoff scope. With a patient focus,
+ * doctors must have a queue or consultation assignment; other authorized
+ * roles only need the patient to exist in the same tenant.
  */
 export async function buildQueryContext({
-  doctorId,
+  actorId,
   tenantId,
   patientId,
   queueId,
+  scopeToAssignee,
 }: {
-  doctorId: string;
+  actorId: string;
   tenantId: string;
   patientId?: string;
   queueId?: string;
+  scopeToAssignee: boolean;
 }): Promise<CopilotContext | null> {
   if (!patientId) {
-    return buildHandoffContext({ doctorId, tenantId });
+    return buildHandoffContext({ actorId, tenantId, scopeToAssignee });
   }
 
   if (queueId) {
-    return buildPatientContext({ doctorId, tenantId, patientId, queueId });
+    return buildPatientContext({ actorId, tenantId, patientId, queueId, scopeToAssignee });
   }
 
-  const [queueAssignment, visitAssignment] = await Promise.all([
-    db
-      .select({ id: queues.id })
-      .from(queues)
-      .where(
-        and(
-          eq(queues.tenantId, tenantId),
-          eq(queues.patientId, patientId),
-          eq(queues.assignedTo, doctorId),
-          isNull(queues.deletedAt)
-        )
-      )
-      .limit(1),
-    db
-      .select({ id: visits.id })
-      .from(visits)
-      .where(
-        and(
-          eq(visits.tenantId, tenantId),
-          eq(visits.patientId, patientId),
-          eq(visits.doctorId, doctorId),
-          isNull(visits.deletedAt)
-        )
-      )
-      .limit(1),
-  ]);
+  const patient = await db.query.patients.findFirst({
+    where: and(eq(patients.id, patientId), eq(patients.tenantId, tenantId), isNull(patients.deletedAt)),
+    columns: { id: true },
+  });
+  if (!patient) return null;
 
-  if (!queueAssignment[0] && !visitAssignment[0]) return null;
+  if (scopeToAssignee) {
+    const [queueAssignment, visitAssignment] = await Promise.all([
+      db
+        .select({ id: queues.id })
+        .from(queues)
+        .where(
+          and(
+            eq(queues.tenantId, tenantId),
+            eq(queues.patientId, patientId),
+            assigneeFilter(queues.assignedTo, actorId, scopeToAssignee),
+            isNull(queues.deletedAt)
+          )
+        )
+        .limit(1),
+      db
+        .select({ id: visits.id })
+        .from(visits)
+        .where(
+          and(
+            eq(visits.tenantId, tenantId),
+            eq(visits.patientId, patientId),
+            assigneeFilter(visits.doctorId, actorId, scopeToAssignee),
+            isNull(visits.deletedAt)
+          )
+        )
+        .limit(1),
+    ]);
 
-  return buildPatientContext({ doctorId, tenantId, patientId });
+    if (!queueAssignment[0] && !visitAssignment[0]) return null;
+  }
+
+  return buildPatientContext({ actorId, tenantId, patientId, scopeToAssignee });
 }

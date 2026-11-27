@@ -400,14 +400,14 @@ export default function LandingPage() {
               Bring your operations into <span className="text-orange-400">focus.</span>
             </h2>
             <p className="mx-auto mt-6 max-w-2xl text-[15px] leading-8 text-slate-300">
-              Give every department the same clear view of care. Sign in to your workspace, or talk to us about bringing Joan to your organization.
+              Give every department the same clear view of care. Talk to us about bringing Joan to your organization.
             </p>
             <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
               <Link
-                href="/login"
+                href="/contact"
                 className="group inline-flex items-center gap-2 rounded-full bg-orange-600 px-6 py-3.5 text-[13.5px] font-semibold text-white shadow-[0_14px_34px_-14px_rgba(249,115,22,0.9)] transition-all hover:-translate-y-0.5 hover:bg-orange-700"
               >
-                Sign in to Joan
+                Contact us
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Link>
               <Link

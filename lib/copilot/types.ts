@@ -78,11 +78,22 @@ export type CopilotNoteInsight = {
   factsReviewed: number;
 };
 
+export type CopilotActor = {
+  userId: string;
+  tenantId: string;
+  email: string;
+  fullName: string | null;
+  /** Whether the actor is a doctor and therefore limited to assigned records. */
+  isDoctor: boolean;
+};
+
 export type CopilotScopeSummary = {
   tenantId: string;
   userId: string;
   allowedCategories: CopilotFactCategory[];
   factsReviewed: number;
+  /** True for doctors (assignment scope), false for tenant-only scope. */
+  scopeToAssignee: boolean;
 };
 
 export type CopilotAnswer = {

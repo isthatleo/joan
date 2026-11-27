@@ -1,13 +1,18 @@
 import { can, resolvePermissions } from "@/lib/auth/permission-engine";
 import type { CopilotContext, CopilotFact, CopilotFactCategory } from "./types";
 
+export const COPILOT_ACCESS_DENIED_MESSAGE =
+  "Your role does not grant access to clinical data through Copilot.";
+
 /**
- * Every clinical fact in a Copilot context is already scoped by tenant and by
- * the signed-in doctor's assignments in `lib/copilot/context.ts`. The
- * `isOwner` flag below therefore reflects a server-verified relationship, not
- * a client-supplied id.
+ * Every clinical fact in a Copilot context is already scoped by tenant and,
+ * for doctors, by assignment in `lib/copilot/context.ts`. `own`-scoped
+ * permissions are only treated as satisfied when that assignment scope is
+ * verified; tenant-only callers do not get it implied by a client-supplied id.
  */
-const VERIFIED_OWNER_CONTEXT = { isOwner: true } as const;
+function permissionContext(scopeToAssignee: boolean) {
+  return { isOwner: scopeToAssignee } as const;
+}
 
 const CATEGORY_PERMISSIONS: Record<CopilotFactCategory, string[]> = {
   queue: ["appointment.read"],
@@ -25,12 +30,15 @@ export type CopilotAccess = {
   hasClinicalAccess: boolean;
 };
 
-export async function resolveCopilotAccess(userId: string): Promise<CopilotAccess> {
+export async function resolveCopilotAccess(
+  userId: string,
+  options: { scopeToAssignee?: boolean } = {}
+): Promise<CopilotAccess> {
   const permissions = await resolvePermissions(userId);
+  const context = permissionContext(options.scopeToAssignee === true);
 
-  const hasAdminOverride = can(permissions, "admin.manage", VERIFIED_OWNER_CONTEXT);
-  const hasPatientRead =
-    hasAdminOverride || can(permissions, "patient.read", VERIFIED_OWNER_CONTEXT);
+  const hasAdminOverride = can(permissions, "admin.manage", context);
+  const hasPatientRead = hasAdminOverride || can(permissions, "patient.read", context);
 
   const allowedCategories = new Set<CopilotFactCategory>();
 
@@ -40,7 +48,7 @@ export async function resolveCopilotAccess(userId: string): Promise<CopilotAcces
     >) {
       const allowed =
         hasAdminOverride ||
-        required.some((permission) => can(permissions, permission, VERIFIED_OWNER_CONTEXT));
+        required.some((permission) => can(permissions, permission, context));
 
       if (allowed) allowedCategories.add(category);
     }

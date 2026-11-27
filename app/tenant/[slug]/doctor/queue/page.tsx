@@ -4,9 +4,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { Activity, CheckCircle2, ChevronRight, Clock3, FlaskConical, History, Loader2, Mail, PhoneCall, Plus, RefreshCw, Search, Sparkles, Stethoscope, UserRound, XCircle } from "lucide-react";
+import { Activity, CheckCircle2, Clock3, FlaskConical, History, Loader2, Mail, PhoneCall, Plus, RefreshCw, Search, Sparkles, Stethoscope, UserRound, XCircle } from "lucide-react";
 import { toast } from "sonner";
-import { AICopilotButton } from "@/components/AICopilotButton";
 import { CopilotPanel } from "@/components/copilot/CopilotPanel";
 import { KPICard } from "@/components/KPICard";
 import { useTenantPath } from "@/hooks/useTenantPath";
@@ -104,7 +103,6 @@ export default function QueuePage() {
   const [patientSearch, setPatientSearch] = useState("");
   const [consultationEntry, setConsultationEntry] = useState<QueueEntry | null>(null);
   const [consultationForm, setConsultationForm] = useState(emptyConsultation());
-  const [copilotOpen, setCopilotOpen] = useState(false);
   const [activeQueueAction, setActiveQueueAction] = useState<{ id: string; nextStatus: string } | null>(null);
 
   const queueQuery = useQuery<QueueResponse>({
@@ -236,7 +234,6 @@ export default function QueuePage() {
     queueAction.isPending && activeQueueAction?.id === entryId && activeQueueAction.nextStatus === nextStatus ? "Saving..." : label;
 
   const openConsultation = (entry: QueueEntry) => {
-    setCopilotOpen(false);
     setConsultationEntry(entry);
     setConsultationForm({
       ...emptyConsultation(),
@@ -301,11 +298,7 @@ export default function QueuePage() {
       </div>
 
       {copilotOverviewQuery.data && (
-        <button
-          type="button"
-          onClick={() => setCopilotOpen(true)}
-          className="flex w-full flex-col gap-3 rounded-2xl border border-orange-200/70 bg-orange-50/60 p-4 text-left transition hover:bg-orange-50 dark:border-orange-500/20 dark:bg-orange-500/5 dark:hover:bg-orange-500/10 sm:flex-row sm:items-center sm:justify-between"
-        >
+        <div className="flex w-full flex-col gap-3 rounded-2xl border border-orange-200/70 bg-orange-50/60 p-4 dark:border-orange-500/20 dark:bg-orange-500/5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-500/15 text-orange-600 dark:text-orange-300">
               <Sparkles className="h-4 w-4" />
@@ -317,11 +310,10 @@ export default function QueuePage() {
               </p>
             </div>
           </div>
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-orange-800 dark:text-orange-200">
+          <span className="text-xs font-medium text-orange-800 dark:text-orange-200">
             &ldquo;{DEFAULT_HANDOFF_QUESTION}&rdquo;
-            <ChevronRight className="h-3.5 w-3.5" />
           </span>
-        </button>
+        </div>
       )}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
@@ -637,8 +629,6 @@ export default function QueuePage() {
           </div>
         </div>
       )}
-
-      {!consultationEntry && <AICopilotButton open={copilotOpen} onOpenChange={setCopilotOpen} />}
     </div>
   );
 }

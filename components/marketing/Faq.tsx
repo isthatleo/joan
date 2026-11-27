@@ -39,7 +39,7 @@ const FAQS = [
   {
     question: "How do staff at a hospital access their workspace?",
     answer:
-      "Sign in at /login and choose your role, or use your organization's tenant-specific login page. Tenant subdomains route directly to the right hospital workspace.",
+      "Existing teams use the role selector at /login, or open their organization's own tenant URL to reach its role selector. There is no shared default workspace — each hospital uses its own slug or subdomain.",
   },
 ];
 

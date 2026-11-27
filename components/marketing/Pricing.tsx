@@ -205,14 +205,14 @@ export function Pricing() {
               </ul>
 
               <a
-                href="/login"
+                href="/contact"
                 className={`group/cta mt-7 flex items-center justify-center gap-2 rounded-full px-4 py-3 text-[12.5px] font-semibold transition-all ${
                   plan.featured
                     ? "bg-orange-600 text-white hover:bg-orange-700"
                     : "border border-slate-200 bg-white text-slate-900 dark:text-white hover:border-slate-900 hover:bg-slate-950 hover:text-white dark:border-slate-700 dark:bg-slate-800 dark:hover:border-orange-500 dark:hover:bg-orange-600"
                 }`}
               >
-                Access platform
+                Contact us
                 <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover/cta:translate-x-1" />
               </a>
               <p className="mt-2.5 text-center text-[9.5px] text-slate-400">{plan.support} · Accounts provisioned by an admin</p>

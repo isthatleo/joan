@@ -18,9 +18,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const copilotContext = await buildPatientContext({
-      doctorId: doctor.id,
+      actorId: doctor.id,
       tenantId: doctor.tenantId,
       patientId: id,
+      scopeToAssignee: true,
     });
     if (!copilotContext) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -30,7 +31,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       context: copilotContext,
       focus: "assessment",
       patientId: id,
-      actor: { doctorId: doctor.id, tenantId: doctor.tenantId },
+      actor: {
+        userId: doctor.id,
+        tenantId: doctor.tenantId,
+        email: doctor.email,
+        fullName: doctor.fullName,
+        isDoctor: true,
+      },
     });
 
     return NextResponse.json(

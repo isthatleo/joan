@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { checkRateLimit } from "@/lib/api/utils";
+import { filterContextByAccess } from "@/lib/copilot/access";
+import { resolveCopilotRequestContext } from "@/lib/copilot/actor";
 import { buildPatientContext } from "@/lib/copilot/context";
 import { copilotErrorResponse } from "@/lib/copilot/route-errors";
 import { generateNoteInsight } from "@/lib/copilot/service";
 import { db } from "@/lib/db";
 import { patients, queues } from "@/lib/db/schema";
-import { resolveDoctorContext } from "@/lib/doctor/server";
 
 const requestSchema = z.object({
   queueId: z.string().trim().min(1).max(200),
@@ -16,17 +17,15 @@ const requestSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const context = await resolveDoctorContext(request.headers);
-  if (!context.ok) {
-    return NextResponse.json({ error: context.error }, { status: context.status });
+  const gate = await resolveCopilotRequestContext(request.headers);
+  if (!gate.ok) {
+    return NextResponse.json({ error: gate.error }, { status: gate.status });
   }
 
-  const { doctor } = context;
-  if (!doctor.tenantId) {
-    return NextResponse.json({ error: "Tenant context required" }, { status: 403 });
-  }
+  const { actor, access } = gate;
+  const scopeToAssignee = actor.isDoctor;
 
-  if (!checkRateLimit(`copilot-insight:${doctor.id}`, 20, 60_000)) {
+  if (!checkRateLimit(`copilot-insight:${actor.userId}`, 20, 60_000)) {
     return NextResponse.json({ error: "Too many copilot requests. Try again shortly." }, { status: 429 });
   }
 
@@ -43,15 +42,15 @@ export async function POST(request: NextRequest) {
       db.query.queues.findFirst({
         where: and(
           eq(queues.id, queueId),
-          eq(queues.tenantId, doctor.tenantId),
-          eq(queues.assignedTo, doctor.id),
+          eq(queues.tenantId, actor.tenantId),
+          scopeToAssignee ? eq(queues.assignedTo, actor.userId) : undefined,
           eq(queues.patientId, patientId),
           isNull(queues.deletedAt)
         ),
         columns: { id: true },
       }),
       db.query.patients.findFirst({
-        where: and(eq(patients.id, patientId), eq(patients.tenantId, doctor.tenantId), isNull(patients.deletedAt)),
+        where: and(eq(patients.id, patientId), eq(patients.tenantId, actor.tenantId), isNull(patients.deletedAt)),
         columns: { id: true },
       }),
     ]);
@@ -61,20 +60,22 @@ export async function POST(request: NextRequest) {
     }
 
     const copilotContext = await buildPatientContext({
-      doctorId: doctor.id,
-      tenantId: doctor.tenantId,
+      actorId: actor.userId,
+      tenantId: actor.tenantId,
       patientId,
       queueId,
+      scopeToAssignee,
     });
     if (!copilotContext) {
       return NextResponse.json({ error: "Patient or queue entry not found" }, { status: 404 });
     }
 
+    const filteredContext = filterContextByAccess(copilotContext, access);
     const insight = await generateNoteInsight({
-      context: copilotContext,
+      context: filteredContext,
       focus,
       patientId,
-      actor: { doctorId: doctor.id, tenantId: doctor.tenantId },
+      actor,
     });
 
     return NextResponse.json(insight, { headers: { "Cache-Control": "no-store" } });

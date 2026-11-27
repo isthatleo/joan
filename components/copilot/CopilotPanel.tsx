@@ -123,7 +123,7 @@ export function CopilotPanel({ patientId, queueId, onAddToNote, variant = "full"
           <h3 className="text-sm font-semibold text-foreground">AI Copilot</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {showHandoff
-              ? "Ask anything about your assigned patients. Answers use only records your role is allowed to access."
+              ? "Ask anything about patients in your scope. Answers use only records your role is allowed to access."
               : "Ask about this patient or generate draft note text. Review everything before adding it to the note."}
           </p>
         </div>
@@ -236,7 +236,7 @@ export function CopilotPanel({ patientId, queueId, onAddToNote, variant = "full"
       )}
 
       {error && (
-        <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>{error}</span>
         </div>

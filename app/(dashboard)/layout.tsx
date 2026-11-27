@@ -1,5 +1,6 @@
 "use client";
 
+import { AICopilotButton } from "@/components/AICopilotButton";
 import { Sidebar } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
 import { AuthProvider } from "@/components/auth/AuthProvider";
@@ -22,13 +23,16 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
   if (!user) return null;
 
   return (
-    <div className="flex h-screen bg-subtle text-foreground">
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar />
-        <main className="flex-1 overflow-y-auto px-6 py-6 scrollbar-thin">{children}</main>
+    <>
+      <div className="flex h-screen bg-subtle text-foreground">
+        <Sidebar />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Topbar />
+          <main className="flex-1 overflow-y-auto px-6 py-6 scrollbar-thin">{children}</main>
+        </div>
       </div>
-    </div>
+      <AICopilotButton />
+    </>
   );
 }
 

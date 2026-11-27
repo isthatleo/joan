@@ -84,10 +84,10 @@ export function Hero() {
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
             </Link>
             <Link
-              href="/login"
+              href="/contact"
               className="inline-flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/80 dark:border-slate-700 dark:bg-slate-900/80 px-6 py-3.5 text-[14px] font-semibold text-slate-800 dark:text-slate-100 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white"
             >
-              Sign in to Joan
+              Contact us
             </Link>
           </div>
 

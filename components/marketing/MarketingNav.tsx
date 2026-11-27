@@ -64,10 +64,10 @@ export function MarketingNav() {
         <div className="ml-auto hidden items-center gap-2 lg:flex">
           <MarketingThemeToggle />
           <Link
-            href="/login"
+            href="/contact"
             className="rounded-full px-4 py-2.5 text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
           >
-            Sign in
+            Contact
           </Link>
           <Link
             href="mailto:support@joan.health?subject=Joan%20demo%20request"
@@ -117,11 +117,11 @@ export function MarketingNav() {
           </div>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <Link
-              href="/login"
+              href="/contact"
               onClick={() => setOpen(false)}
               className="flex items-center justify-center rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800"
             >
-              Sign in
+              Contact
             </Link>
             <Link
               href="mailto:support@joan.health?subject=Joan%20demo%20request"

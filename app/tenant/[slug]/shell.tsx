@@ -1,5 +1,6 @@
 "use client";
 
+import { AICopilotButton } from "@/components/AICopilotButton";
 import { Sidebar } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
 import { AuthProvider } from "@/components/auth/AuthProvider";
@@ -332,17 +333,20 @@ function AuthenticatedShell({
   }
 
   return (
-    <div className="flex h-screen bg-subtle text-foreground">
-      <Sidebar
-        mobileEnabled={mobileNavEnabled}
-        mobileOpen={mobileNavEnabled && mobileSidebarOpen}
-        onMobileClose={() => setMobileSidebarOpen(false)}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onMobileMenuClick={mobileNavEnabled ? () => setMobileSidebarOpen(true) : undefined} />
-        <main className={`flex-1 overflow-y-auto scrollbar-thin ${mobileNavEnabled ? "px-3 py-4 sm:px-4 lg:px-6 lg:py-6" : "px-6 py-6"}`}>{children}</main>
+    <>
+      <div className="flex h-screen bg-subtle text-foreground">
+        <Sidebar
+          mobileEnabled={mobileNavEnabled}
+          mobileOpen={mobileNavEnabled && mobileSidebarOpen}
+          onMobileClose={() => setMobileSidebarOpen(false)}
+        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Topbar onMobileMenuClick={mobileNavEnabled ? () => setMobileSidebarOpen(true) : undefined} />
+          <main className={`flex-1 overflow-y-auto scrollbar-thin ${mobileNavEnabled ? "px-3 py-4 sm:px-4 lg:px-6 lg:py-6" : "px-6 py-6"}`}>{children}</main>
+        </div>
       </div>
-    </div>
+      <AICopilotButton />
+    </>
   );
 }
 
