@@ -31,9 +31,9 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
-import { Logo } from "@/components/marketing/Brand";
 import { Faq } from "@/components/marketing/Faq";
 import { Hero } from "@/components/marketing/Hero";
+import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 import { MarketingNav } from "@/components/marketing/MarketingNav";
 import { Pricing } from "@/components/marketing/Pricing";
 import { ProductTour } from "@/components/marketing/ProductTour";
@@ -518,84 +518,7 @@ export default function LandingPage() {
         </section>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-white/10 bg-slate-950 pb-10 pt-16">
-        <div className="mx-auto max-w-7xl px-6 lg:px-8">
-          <div className="grid grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_repeat(3,minmax(0,1fr))]">
-            <div>
-              <Logo light />
-              <p className="mt-5 max-w-xs text-[12.5px] leading-6 text-slate-400">
-                A multi-tenant healthcare operating system for hospitals, clinics, labs, and networks. Secure healthcare operations for every tenant.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-2">
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] text-slate-400">Healthcare OS</span>
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] text-slate-400">Multi-tenant</span>
-              </div>
-            </div>
-
-            <FooterColumn
-              title="Platform"
-              links={[
-                { label: "Overview", href: "#platform" },
-                { label: "Workflow", href: "#workflow" },
-                { label: "Roles", href: "#roles" },
-                { label: "Pricing", href: "#pricing" },
-              ]}
-            />
-            <FooterColumn
-              title="Access"
-              links={[
-                { label: "Role sign in", href: "/login" },
-                { label: "Super admin", href: "/master" },
-                { label: "Documentation", href: "/docs" },
-                { label: "FAQ", href: "#faq" },
-              ]}
-            />
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">Contact</p>
-              <ul className="mt-5 space-y-3">
-                <li>
-                  <a href="mailto:support@joan.health" className="text-[12.5px] text-slate-400 transition-colors hover:text-white">
-                    support@joan.health
-                  </a>
-                </li>
-                <li>
-                  <a href="mailto:ops@joan.health" className="text-[12.5px] text-slate-400 transition-colors hover:text-white">
-                    ops@joan.health
-                  </a>
-                </li>
-                <li>
-                  <a href="https://joan.health" className="text-[12.5px] text-slate-400 transition-colors hover:text-white">
-                    joan.health
-                  </a>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="mt-14 flex flex-col items-start justify-between gap-4 border-t border-white/10 pt-7 sm:flex-row sm:items-center">
-            <p className="text-[11px] text-slate-500">© {new Date().getFullYear()} Joan Healthcare OS. All rights reserved.</p>
-            <p className="text-[11px] text-slate-500">Built for care that never stops.</p>
-          </div>
-        </div>
-      </footer>
-    </div>
-  );
-}
-
-function FooterColumn({ title, links }: { title: string; links: Array<{ label: string; href: string }> }) {
-  return (
-    <div>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">{title}</p>
-      <ul className="mt-5 space-y-3">
-        {links.map((link) => (
-          <li key={link.label}>
-            <Link href={link.href} className="text-[12.5px] text-slate-400 transition-colors hover:text-white">
-              {link.label}
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <MarketingFooter />
     </div>
   );
 }

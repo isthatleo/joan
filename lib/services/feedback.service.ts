@@ -72,6 +72,7 @@ export class FeedbackService {
     "platform_billing",
     "platform_general",
     "security_issue",
+    "contact_request",
   ]);
 
   static readonly TENANT_TYPES = new Set([

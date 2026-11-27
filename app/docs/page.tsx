@@ -53,7 +53,7 @@ export default function DocumentationPage() {
             </div>
             <div className="border rounded-lg p-4">
               <h3 className="font-semibold">AI Copilot</h3>
-              <p className="text-sm text-gray-600">Diagnosis suggestions, drug interactions, clinical insights</p>
+              <p className="text-sm text-gray-600">Free-form answers from permission-filtered tenant records, grounded handoff summaries, patient-specific note drafts, and source references</p>
             </div>
           </div>
         </section>
@@ -84,7 +84,12 @@ export default function DocumentationPage() {
             <p>POST /api/pharmacy/prescriptions - Write prescription</p>
             <p>POST /api/billing/invoices - Create invoice</p>
             <p>POST /api/queue/add - Add to queue</p>
-            <p>GET /api/ai/summary/:id - AI summary</p>
+            <p>POST /api/copilot/query - Free-form, permission-filtered answer</p>
+            <p>POST /api/copilot/handoff - Grounded handoff summary</p>
+            <p>POST /api/copilot/insight - Patient-specific note draft</p>
+            <p>GET /api/copilot/overview - Copilot data counts</p>
+            <p>GET /api/ai/summary/:id - Patient-scoped summary</p>
+            <p>POST /api/contact - Super-admin-routed contact request</p>
           </div>
         </section>
 
@@ -100,7 +105,7 @@ export default function DocumentationPage() {
             <li>✓ Mobile app support</li>
             <li>✓ SMS/WhatsApp notifications</li>
             <li>✓ Insurance claims integration</li>
-            <li>✓ HIPAA/GDPR compliance</li>
+            <li>✓ Tenant-scoped access and audit logging</li>
           </ul>
         </section>
 

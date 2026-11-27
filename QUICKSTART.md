@@ -10,6 +10,7 @@ npm install
 # Create .env.local with:
 DATABASE_URL=your_neon_database_url
 OPENAI_API_KEY=your_openai_key
+OPENAI_MODEL=gpt-4o-mini  # optional; defaults to gpt-4o-mini
 TWILIO_ACCOUNT_SID=your_twilio_sid
 TWILIO_AUTH_TOKEN=your_twilio_token
 TWILIO_PHONE_NUMBER=your_twilio_number
@@ -114,8 +115,23 @@ curl -X POST https://joanhealth.tech//api/queue/add \
   -H "Content-Type: application/json" \
   -d '{"tenantId":"...","patientId":"...","departmentId":"...","priority":"normal"}'
 
-# Get AI summary
-curl https://joanhealth.tech//api/ai/summary/[patientId]
+# Ask Copilot a free-form question (doctor session required; answers are tenant and permission scoped)
+curl -X POST https://joanhealth.tech/api/copilot/query \
+  -H "Content-Type: application/json" \
+  -d "{\"question\":\"Summarize today's high-priority cases for handoff.\"}"
+
+# Generate a grounded handoff summary (doctor session required)
+curl -X POST https://joanhealth.tech/api/copilot/handoff \
+  -H "Content-Type: application/json" \
+  -d "{\"question\":\"Summarize today's high-priority cases for handoff.\"}"
+
+# Get a patient-scoped AI summary (doctor session required)
+curl https://joanhealth.tech/api/ai/summary/[patientId]
+
+# Submit a website contact request (routed to super admin feedback queue)
+curl -X POST https://joanhealth.tech/api/contact \
+  -H "Content-Type: application/json" \
+  -d '{"firstName":"Jane","lastName":"Doe","workEmail":"jane@hospital.org","organization":"Example Hospital","role":"hospital_admin","topic":"sales","urgency":"normal","subject":"Deployment inquiry","message":"We would like to discuss a multi-clinic deployment.","consent":true}'
 ```
 
 ## Project Structure

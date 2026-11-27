@@ -6,11 +6,11 @@ import { ArrowUpRight, Menu, X } from "lucide-react";
 import { Logo } from "./Brand";
 
 const LINKS = [
-  { label: "Platform", href: "#platform" },
-  { label: "Workflow", href: "#workflow" },
-  { label: "Roles", href: "#roles" },
-  { label: "Pricing", href: "#pricing" },
-  { label: "FAQ", href: "#faq" },
+  { label: "Platform", href: "/#platform" },
+  { label: "Workflow", href: "/#workflow" },
+  { label: "Roles", href: "/#roles" },
+  { label: "Pricing", href: "/#pricing" },
+  { label: "FAQ", href: "/#faq" },
 ];
 
 export function MarketingNav() {

@@ -49,6 +49,17 @@
 - `/check-in` - Patient check-in
 - `/system-health` - Infrastructure monitoring
 
+### Public / Marketing Pages
+- `/` - Healthcare landing page
+- `/contact` - Detailed contact form routed to super admins
+- `/privacy` - Privacy policy
+- `/terms` - Terms of service
+- `/refund` - Refund policy
+- `/cookie` - Cookie policy
+- `/security` - Security overview
+- `/accessibility` - Accessibility statement
+- `/docs` - Platform and API documentation
+
 ---
 
 ## 🎨 Component Quick Reference
@@ -224,7 +235,7 @@ export default function Component() {
   - Topbar.tsx
   - KPICard.tsx
   - DataCard.tsx
-  - AICopilotPanel.tsx
+  - AICopilotPanel.tsx (re-exports components/copilot/CopilotPanel.tsx)
   - [other components]
 
 /stores

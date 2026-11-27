@@ -24,10 +24,10 @@
 
 ### 4. **AI Copilot Button**
 - Floating action button (bottom-right)
-- Click to open chat dialog
-- Modern gradient styling (orange-500 to orange-600)
-- Responsive chat interface
-- Send messages with Enter key
+- Click to open grounded clinical Copilot drawer
+- Free-form questions are scoped server-side by tenant, doctor assignment, and role permissions
+- Answers include allowlisted source references and clinician-review limitations
+- “Add to note” inserts text locally only; it never writes to a clinical record silently
 
 ### 5. **Super Admin Pages Created**
 
@@ -153,7 +153,10 @@ The system is now ready to replicate for all 10 roles:
 ## Files Created/Modified
 
 **New Files:**
-- `/components/AICopilotButton.tsx` - Floating AI chat
+- `/components/AICopilotButton.tsx` - Floating grounded AI Copilot drawer
+- `/app/api/copilot/query/route.ts` - Free-form, permission-filtered Copilot answers
+- `/app/api/contact/route.ts` - Website contact submission routed to super admins
+- `/app/contact/page.tsx` - Detailed public contact form
 - `/app/(dashboard)/super-admin/hospitals/page.tsx`
 - `/app/(dashboard)/super-admin/users/page.tsx`
 - `/app/(dashboard)/super-admin/analytics/page.tsx`
