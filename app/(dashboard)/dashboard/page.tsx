@@ -8,7 +8,7 @@ import {
   AlertOctagon, MessageSquare, Baby, ShieldCheck, FileText, Hospital,
   TrendingUp, Building2, History, ServerCog,
 } from "lucide-react";
-import SuperAdminDashboard from "./super-admin/page";
+import SuperAdminDashboard from "../super-admin/page";
 
 export default function Dashboard() {
   const { user, isLoading } = useAuthStore();

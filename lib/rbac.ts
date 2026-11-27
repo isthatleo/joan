@@ -29,9 +29,8 @@ export const ROLE_LABELS: Record<AppRole, string> = {
 };
 
 /**
- * Where each role lands after login. We use "/" because every dashboard
- * is rendered under (dashboard)/page.tsx which switches on the user's role.
- * Sub-routes are then navigated to from the sidebar.
+ * Where each role lands after login. Each role has a dedicated dashboard
+ * route under the (dashboard) group; sub-routes are reached from the sidebar.
  */
 export const ROLE_HOME: Record<AppRole, string> = {
   super_admin: "/super-admin",

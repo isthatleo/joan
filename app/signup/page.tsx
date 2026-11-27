@@ -47,7 +47,7 @@ export default function SignupPage() {
           body: JSON.stringify({ userId, roleName: "super_admin" }),
         });
       }
-      router.push("/");
+      router.push("/login");
     } catch (err: any) {
       setError(err?.message || "Signup failed");
     } finally {
