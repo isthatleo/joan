@@ -96,7 +96,7 @@ export function Pricing() {
   const [annual, setAnnual] = useState(false);
 
   return (
-    <section id="pricing" className="scroll-mt-24 bg-[#FBFAF8] py-24 sm:py-28 lg:py-32">
+    <section id="pricing" className="scroll-mt-24 bg-[#FBFAF8] py-24 sm:py-28 lg:py-32 dark:bg-slate-950">
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         <div className="flex flex-col items-start justify-between gap-8 lg:flex-row lg:items-end">
           <SectionHeading
@@ -109,13 +109,13 @@ export function Pricing() {
             description="Start with the workflows you need and grow into the full platform. Every tenant can be configured with its own modules, roles, and limits."
           />
 
-          <div className="flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+          <div className="flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <button
               type="button"
               onClick={() => setAnnual(false)}
               aria-pressed={!annual}
               className={`rounded-full px-4 py-2 text-[12px] font-semibold transition-all ${
-                !annual ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:text-slate-900"
+                !annual ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:text-white"
               }`}
             >
               Monthly
@@ -125,7 +125,7 @@ export function Pricing() {
               onClick={() => setAnnual(true)}
               aria-pressed={annual}
               className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-[12px] font-semibold transition-all ${
-                annual ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 hover:text-slate-900"
+                annual ? "bg-slate-950 text-white shadow-sm" : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:text-white"
               }`}
             >
               Annually
@@ -142,8 +142,8 @@ export function Pricing() {
               key={plan.name}
               className={`group relative flex flex-col rounded-[22px] border p-6 transition-all duration-300 hover:-translate-y-1 sm:p-7 ${
                 plan.featured
-                  ? "border-orange-300 bg-white shadow-[0_24px_70px_-35px_rgba(234,88,12,0.55)]"
-                  : "border-slate-200 bg-white shadow-[0_12px_40px_-30px_rgba(15,23,42,0.35)] hover:border-slate-300 hover:shadow-[0_24px_60px_-35px_rgba(15,23,42,0.4)]"
+                  ? "border-orange-300 bg-white shadow-[0_24px_70px_-35px_rgba(234,88,12,0.55)] dark:border-orange-500/40 dark:bg-slate-900"
+                  : "border-slate-200 bg-white shadow-[0_12px_40px_-30px_rgba(15,23,42,0.35)] hover:border-slate-300 hover:shadow-[0_24px_60px_-35px_rgba(15,23,42,0.4)] dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
               }`}
             >
               {plan.badge && (
@@ -155,16 +155,16 @@ export function Pricing() {
 
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-[18px] font-semibold tracking-[-0.03em] text-slate-950">{plan.name}</h3>
-                  <p className="mt-1.5 min-h-[42px] text-[12px] leading-5 text-slate-500">{plan.description}</p>
+                  <h3 className="text-[18px] font-semibold tracking-[-0.03em] text-slate-950 dark:text-white">{plan.name}</h3>
+                  <p className="mt-1.5 min-h-[42px] text-[12px] leading-5 text-slate-500 dark:text-slate-400">{plan.description}</p>
                 </div>
               </div>
 
               <div className="mt-5 flex items-end gap-1.5">
-                <span className="text-[36px] font-semibold leading-none tracking-[-0.05em] text-slate-950">
+                <span className="text-[36px] font-semibold leading-none tracking-[-0.05em] text-slate-950 dark:text-white">
                   ${number(annual ? plan.yearly : plan.monthly)}
                 </span>
-                <span className="pb-1 text-[11px] font-medium text-slate-500">
+                <span className="pb-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
                   / {annual ? "year" : "month"}
                 </span>
               </div>
@@ -175,22 +175,22 @@ export function Pricing() {
               )}
 
               <div className="mt-6 flex flex-wrap gap-1.5">
-                <span className="rounded-md bg-slate-100 px-2 py-1 text-[9.5px] font-medium text-slate-600">
+                <span className="rounded-md bg-slate-100 px-2 py-1 text-[9.5px] font-medium dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                   {number(plan.staff)} staff
                 </span>
-                <span className="rounded-md bg-slate-100 px-2 py-1 text-[9.5px] font-medium text-slate-600">
+                <span className="rounded-md bg-slate-100 px-2 py-1 text-[9.5px] font-medium dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                   {number(plan.patients)} patients
                 </span>
-                <span className="rounded-md bg-slate-100 px-2 py-1 text-[9.5px] font-medium text-slate-600">
+                <span className="rounded-md bg-slate-100 px-2 py-1 text-[9.5px] font-medium dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                   {number(plan.storage)} GB
                 </span>
               </div>
 
-              <div className="my-6 h-px bg-slate-100" />
+              <div className="my-6 h-px bg-slate-100 dark:bg-slate-800" />
 
               <ul className="flex-1 space-y-3">
                 {plan.features.map((feature) => (
-                  <li key={feature} className="flex items-center gap-2.5 text-[12px] text-slate-700">
+                  <li key={feature} className="flex items-center gap-2.5 text-[12px] text-slate-700 dark:text-slate-200">
                     <span
                       className={`flex items-center justify-center rounded-full ${
                         plan.featured ? "bg-orange-50 text-orange-600" : "bg-emerald-50 text-emerald-600"
@@ -209,7 +209,7 @@ export function Pricing() {
                 className={`group/cta mt-7 flex items-center justify-center gap-2 rounded-full px-4 py-3 text-[12.5px] font-semibold transition-all ${
                   plan.featured
                     ? "bg-orange-600 text-white hover:bg-orange-700"
-                    : "border border-slate-200 bg-white text-slate-900 hover:border-slate-900 hover:bg-slate-950 hover:text-white"
+                    : "border border-slate-200 bg-white text-slate-900 dark:text-white hover:border-slate-900 hover:bg-slate-950 hover:text-white dark:border-slate-700 dark:bg-slate-800 dark:hover:border-orange-500 dark:hover:bg-orange-600"
                 }`}
               >
                 Access platform
@@ -220,8 +220,8 @@ export function Pricing() {
           ))}
         </div>
 
-        <div className="mt-10 flex flex-col items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-6 py-5 sm:flex-row">
-          <p className="text-[13px] text-slate-600">
+        <div className="mt-10 flex flex-col items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white px-6 py-5 sm:flex-row dark:border-slate-800 dark:bg-slate-900">
+          <p className="text-[13px] text-slate-600 dark:text-slate-400">
             Need a custom deployment, integration, or SLA? Let&apos;s design it together.
           </p>
           <a

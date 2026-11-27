@@ -11,7 +11,6 @@ import {
   CalendarCheck2,
   Check,
   ChevronRight,
-  ClipboardList,
   CreditCard,
   DollarSign,
   FileCheck2,
@@ -35,6 +34,7 @@ import { Faq } from "@/components/marketing/Faq";
 import { Hero } from "@/components/marketing/Hero";
 import { MarketingFooter } from "@/components/marketing/MarketingFooter";
 import { MarketingNav } from "@/components/marketing/MarketingNav";
+import { ModuleExplorer } from "@/components/marketing/ModuleExplorer";
 import { Pricing } from "@/components/marketing/Pricing";
 import { ProductTour } from "@/components/marketing/ProductTour";
 import { SectionHeading } from "@/components/marketing/SectionHeading";
@@ -64,63 +64,6 @@ const CONTINUUM = [
   { label: "Clinical care", icon: Stethoscope },
   { label: "Lab & pharmacy", icon: FlaskConical },
   { label: "Finance & claims", icon: Receipt },
-];
-
-const FEATURES: Array<{
-  icon: LucideIcon;
-  title: string;
-  description: string;
-  tag: string;
-  tone: string;
-}> = [
-  {
-    icon: CalendarCheck2,
-    title: "Front desk flow",
-    description:
-      "Book appointments, register patients, manage check-ins, and watch the live queue move — all from one calm, focused screen.",
-    tag: "Appointments",
-    tone: "bg-sky-50 text-sky-600 ring-sky-100",
-  },
-  {
-    icon: ClipboardList,
-    title: "Clinical command",
-    description:
-      "Consultations, notes, diagnoses, vitals, and results live together in a medical timeline that makes the whole picture obvious.",
-    tag: "EMR / EHR",
-    tone: "bg-orange-50 text-orange-600 ring-orange-100",
-  },
-  {
-    icon: Microscope,
-    title: "Diagnostic pipeline",
-    description:
-      "Track lab orders from request to result, with clear priorities, quality signals, and sign-off workflows for technicians and doctors.",
-    tag: "Laboratory",
-    tone: "bg-violet-50 text-violet-600 ring-violet-100",
-  },
-  {
-    icon: Pill,
-    title: "Dispense hub",
-    description:
-      "Manage medications, prescriptions, stock levels, and interaction alerts with a pharmacy workspace built around patient safety.",
-    tag: "Pharmacy",
-    tone: "bg-emerald-50 text-emerald-600 ring-emerald-100",
-  },
-  {
-    icon: DollarSign,
-    title: "Finance grid",
-    description:
-      "Issue invoices, reconcile payments, and follow insurance claims from submission to settlement without leaving the platform.",
-    tag: "Billing",
-    tone: "bg-amber-50 text-amber-600 ring-amber-100",
-  },
-  {
-    icon: Sparkles,
-    title: "Intelligence layer",
-    description:
-      "An AI copilot and role-aware analytics turn the noise of daily operations into summaries, signals, and better decisions.",
-    tag: "AI & analytics",
-    tone: "bg-rose-50 text-rose-600 ring-rose-100",
-  },
 ];
 
 const STEPS = [
@@ -177,14 +120,14 @@ const INTEGRATIONS: Array<{ label: string; detail: string; icon: LucideIcon }> =
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-[#FBFAF8] text-slate-900">
+    <div className="min-h-screen bg-[#FBFAF8] text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <MarketingNav />
 
       <main>
         <Hero />
 
         {/* Continuum strip */}
-        <section className="border-y border-slate-200/80 bg-white">
+        <section className="border-y border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900">
           <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 sm:flex-row sm:items-center sm:justify-between lg:px-8">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
               One continuous workflow
@@ -194,7 +137,7 @@ export default function LandingPage() {
                 const Icon = item.icon;
                 return (
                   <div key={item.label} className="flex items-center gap-3">
-                    <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-[#FBFAF8] px-3.5 py-2 text-[12px] font-medium text-slate-700">
+                    <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-[#FBFAF8] px-3.5 py-2 text-[12px] font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                       <Icon className="h-3.5 w-3.5 text-orange-500" />
                       {item.label}
                     </span>
@@ -209,7 +152,7 @@ export default function LandingPage() {
         </section>
 
         {/* Feature grid */}
-        <section className="bg-[#FBFAF8] py-24 sm:py-28 lg:py-32">
+        <section className="bg-[#FBFAF8] py-24 sm:py-28 lg:py-32 dark:bg-slate-950">
           <div className="mx-auto max-w-7xl px-6 lg:px-8">
             <div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
               <SectionHeading
@@ -230,49 +173,14 @@ export default function LandingPage() {
               </Link>
             </div>
 
-            <div className="mt-14 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {FEATURES.map((feature, index) => {
-                const Icon = feature.icon;
-                return (
-                  <article
-                    key={feature.title}
-                    className="group relative overflow-hidden rounded-[22px] border border-slate-200 bg-white p-7 transition-all duration-300 hover:-translate-y-1.5 hover:border-orange-200 hover:shadow-[0_24px_60px_-35px_rgba(15,23,42,0.4)]"
-                  >
-                    <div
-                      aria-hidden
-                      className="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-orange-50/0 blur-2xl transition-colors duration-500 group-hover:bg-orange-50/80"
-                    />
-                    <div className="relative">
-                      <div className="flex items-start justify-between">
-                        <span className={`flex h-12 w-12 items-center justify-center rounded-2xl ring-1 ${feature.tone}`}>
-                          <Icon className="h-5 w-5" />
-                        </span>
-                        <span className="font-mono text-[10px] font-medium text-slate-300">
-                          0{index + 1}
-                        </span>
-                      </div>
-                      <p className="mt-6 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-orange-600">
-                        {feature.tag}
-                      </p>
-                      <h3 className="mt-2 text-[19px] font-semibold tracking-[-0.03em] text-slate-950">
-                        {feature.title}
-                      </h3>
-                      <p className="mt-3 text-[13px] leading-6 text-slate-600">{feature.description}</p>
-                      <div className="mt-6 flex items-center gap-1.5 text-[11.5px] font-semibold text-slate-500 transition-colors group-hover:text-orange-600">
-                        Explore module <ChevronRight className="h-3.5 w-3.5" />
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
+            <ModuleExplorer />
           </div>
         </section>
 
         <ProductTour />
 
         {/* Workflow */}
-        <section id="workflow" className="scroll-mt-24 bg-white py-24 sm:py-28 lg:py-32">
+        <section id="workflow" className="scroll-mt-24 bg-white py-24 sm:py-28 lg:py-32 dark:bg-slate-900">
           <div className="mx-auto max-w-7xl px-6 lg:px-8">
             <SectionHeading
               eyebrow="How it works"
@@ -288,33 +196,33 @@ export default function LandingPage() {
             <div className="relative mt-16 grid grid-cols-1 gap-8 md:grid-cols-4 md:gap-5">
               <div
                 aria-hidden
-                className="absolute left-[12%] right-[12%] top-7 hidden h-px bg-gradient-to-r from-orange-200 via-slate-200 to-emerald-200 md:block"
+                className="absolute left-[12%] right-[12%] top-7 hidden h-px bg-gradient-to-r from-orange-200 via-slate-200 to-emerald-200 dark:via-slate-700 md:block"
               />
               {STEPS.map((step, index) => {
                 const Icon = step.icon;
                 return (
                   <div key={step.title} className="relative text-center">
-                    <div className="relative z-10 mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_-14px_rgba(15,23,42,0.35)]">
+                    <div className="relative z-10 mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_-14px_rgba(15,23,42,0.35)] dark:border-slate-700 dark:bg-slate-800">
                       <Icon className="h-5 w-5 text-orange-600" />
                       <span className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-slate-950 text-[9px] font-bold text-white">
                         {index + 1}
                       </span>
                     </div>
-                    <h3 className="mt-6 text-[16px] font-semibold tracking-[-0.02em] text-slate-950">{step.title}</h3>
-                    <p className="mx-auto mt-3 max-w-[240px] text-[12.5px] leading-6 text-slate-600">{step.description}</p>
+                    <h3 className="mt-6 text-[16px] font-semibold tracking-[-0.02em] text-slate-950 dark:text-white">{step.title}</h3>
+                    <p className="mx-auto mt-3 max-w-[240px] text-[12.5px] leading-6 text-slate-600 dark:text-slate-400">{step.description}</p>
                   </div>
                 );
               })}
             </div>
 
-            <div className="mt-14 flex flex-col items-center justify-between gap-5 rounded-[22px] border border-slate-200 bg-[#FBFAF8] px-7 py-6 sm:flex-row">
+            <div className="mt-14 flex flex-col items-center justify-between gap-5 rounded-[22px] border border-slate-200 bg-[#FBFAF8] px-7 py-6 sm:flex-row dark:border-slate-800 dark:bg-slate-800/40">
               <div className="flex items-center gap-3">
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
                   <Activity className="h-4 w-4" />
                 </span>
                 <div>
                   <p className="text-[13px] font-semibold text-slate-900">Updates travel with the patient</p>
-                  <p className="text-[11.5px] text-slate-500">Every handoff keeps the full clinical and operational context.</p>
+                  <p className="text-[11.5px] text-slate-500 dark:text-slate-400">Every handoff keeps the full clinical and operational context.</p>
                 </div>
               </div>
               <Link
@@ -328,7 +236,7 @@ export default function LandingPage() {
         </section>
 
         {/* Roles */}
-        <section id="roles" className="scroll-mt-24 bg-[#FBFAF8] py-24 sm:py-28 lg:py-32">
+        <section id="roles" className="scroll-mt-24 bg-[#FBFAF8] py-24 sm:py-28 lg:py-32 dark:bg-slate-950">
           <div className="mx-auto max-w-7xl px-6 lg:px-8">
             <div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
               <SectionHeading
@@ -340,7 +248,7 @@ export default function LandingPage() {
                 }
                 description="Joan gives every person in the building a workspace designed around their responsibilities — with the context they need and nothing they don't."
               />
-              <div className="flex items-center gap-2 text-[12px] font-medium text-slate-500">
+              <div className="flex items-center gap-2 text-[12px] font-medium text-slate-500 dark:text-slate-400">
                 <ShieldCheck className="h-4 w-4 text-emerald-600" />
                 Permissions built in from day one
               </div>
@@ -352,13 +260,13 @@ export default function LandingPage() {
                 return (
                   <div
                     key={role.label}
-                    className="group rounded-2xl border border-slate-200 bg-white p-5 transition-all duration-300 hover:-translate-y-1 hover:border-orange-200 hover:shadow-[0_20px_45px_-30px_rgba(15,23,42,0.45)]"
+                    className="group rounded-2xl border border-slate-200 bg-white p-5 transition-all duration-300 hover:-translate-y-1 hover:border-orange-200 hover:shadow-[0_20px_45px_-30px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-slate-900 dark:hover:border-orange-500/40"
                   >
                     <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${role.tone}`}>
                       <Icon className="h-4.5 w-4.5" style={{ width: 18, height: 18 }} />
                     </span>
                     <p className="mt-4 text-[13px] font-semibold text-slate-900">{role.label}</p>
-                    <p className="mt-1 text-[11px] text-slate-500">{role.description}</p>
+                    <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{role.description}</p>
                   </div>
                 );
               })}
@@ -367,7 +275,7 @@ export default function LandingPage() {
         </section>
 
         {/* Security / trust */}
-        <section className="bg-[#FBFAF8] pb-24 sm:pb-28 lg:pb-32">
+        <section className="bg-[#FBFAF8] pb-24 sm:pb-28 lg:pb-32 dark:bg-slate-950">
           <div className="mx-auto max-w-7xl px-6 lg:px-8">
             <div className="relative overflow-hidden rounded-[32px] bg-slate-950 px-6 py-14 shadow-[0_40px_90px_-50px_rgba(15,23,42,0.8)] sm:px-10 lg:px-16 lg:py-20">
               <div aria-hidden className="pointer-events-none absolute inset-0">
@@ -426,7 +334,7 @@ export default function LandingPage() {
         </section>
 
         {/* Integrations */}
-        <section className="bg-white py-24 sm:py-28 lg:py-32">
+        <section className="bg-white py-24 sm:py-28 lg:py-32 dark:bg-slate-900">
           <div className="mx-auto max-w-7xl px-6 lg:px-8">
             <SectionHeading
               eyebrow="Connected by design"
@@ -445,9 +353,9 @@ export default function LandingPage() {
                 return (
                   <div
                     key={integration.label}
-                    className="group rounded-2xl border border-slate-200 bg-[#FBFAF8] px-4 py-6 text-center transition-all hover:-translate-y-1 hover:border-orange-200 hover:bg-white hover:shadow-[0_18px_40px_-28px_rgba(15,23,42,0.4)]"
+                    className="group rounded-2xl border border-slate-200 bg-[#FBFAF8] px-4 py-6 text-center transition-all hover:-translate-y-1 hover:border-orange-200 hover:bg-white hover:shadow-[0_18px_40px_-28px_rgba(15,23,42,0.4)] dark:border-slate-800 dark:bg-slate-800/40 dark:hover:bg-slate-800"
                   >
-                    <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-700 shadow-sm ring-1 ring-slate-200 transition-colors group-hover:text-orange-600">
+                    <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-700 shadow-sm ring-1 ring-slate-200 transition-colors group-hover:text-orange-600 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-700">
                       <Icon className="h-4 w-4" />
                     </span>
                     <p className="mt-3.5 text-[12px] font-semibold text-slate-900">{integration.label}</p>
@@ -457,11 +365,11 @@ export default function LandingPage() {
               })}
             </div>
 
-            <div className="mt-10 flex flex-col items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-[#FBFAF8] px-6 py-5 sm:flex-row">
+            <div className="mt-10 flex flex-col items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-[#FBFAF8] px-6 py-5 sm:flex-row dark:border-slate-800 dark:bg-slate-800/40">
               <div className="flex items-center gap-3">
                 <Braces className="h-4 w-4 text-orange-600" />
-                <p className="text-[13px] text-slate-700">
-                  <span className="font-semibold text-slate-950">API-first underneath.</span> Extend workflows and connect your own systems.
+                <p className="text-[13px] text-slate-700 dark:text-slate-300">
+                  <span className="font-semibold text-slate-950 dark:text-white">API-first underneath.</span> Extend workflows and connect your own systems.
                 </p>
               </div>
               <Link

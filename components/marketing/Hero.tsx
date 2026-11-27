@@ -51,7 +51,7 @@ const QUEUE = [
 
 export function Hero() {
   return (
-    <section className="relative overflow-hidden bg-[#FBFAF8] pb-20 pt-28 sm:pt-32 lg:pb-28 lg:pt-40">
+    <section className="relative overflow-hidden bg-[#FBFAF8] pb-20 pt-28 sm:pt-32 lg:pb-28 lg:pt-40 dark:bg-slate-950">
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <div className="absolute -top-52 left-1/2 h-[620px] w-[980px] -translate-x-1/2 rounded-full bg-[radial-gradient(ellipse,rgba(249,115,22,0.14),transparent_66%)]" />
         <div className="absolute -right-40 top-24 h-[460px] w-[460px] rounded-full bg-[radial-gradient(circle,rgba(0,164,130,0.11),transparent_68%)]" />
@@ -62,14 +62,14 @@ export function Hero() {
         <div className="animate-fade-up">
           <Eyebrow>Healthcare OS for modern teams</Eyebrow>
 
-          <h1 className="mt-7 text-balance text-[42px] font-semibold leading-[1.06] tracking-[-0.052em] text-slate-950 sm:text-[56px] lg:text-[64px] xl:text-[70px]">
+          <h1 className="mt-7 text-balance text-[42px] font-semibold leading-[1.06] tracking-[-0.052em] text-slate-950 dark:text-white sm:text-[56px] lg:text-[64px] xl:text-[70px]">
             One operating system for{" "}
             <span className="bg-gradient-to-r from-orange-600 via-orange-500 to-emerald-500 bg-clip-text text-transparent">
               every moment of care.
             </span>
           </h1>
 
-          <p className="mt-6 max-w-xl text-[16px] leading-8 text-slate-600 sm:text-[17px]">
+          <p className="mt-6 max-w-xl text-[16px] leading-8 text-slate-600 dark:text-slate-400 sm:text-[17px]">
             From the front desk to the final claim, Joan brings appointments, clinical records, labs,
             pharmacy, and finance into a single multi-tenant workspace — so your teams spend less time
             switching systems and more time with patients.
@@ -85,13 +85,13 @@ export function Hero() {
             </Link>
             <Link
               href="/login"
-              className="inline-flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/80 px-6 py-3.5 text-[14px] font-semibold text-slate-800 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white"
+              className="inline-flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/80 dark:border-slate-700 dark:bg-slate-900/80 px-6 py-3.5 text-[14px] font-semibold text-slate-800 dark:text-slate-100 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white"
             >
               Sign in to Joan
             </Link>
           </div>
 
-          <div className="mt-10 flex flex-wrap items-center gap-x-5 gap-y-3 text-[12px] font-medium text-slate-500">
+          <div className="mt-10 flex flex-wrap items-center gap-x-5 gap-y-3 text-[12px] font-medium text-slate-500 dark:text-slate-400">
             {["10 role-specific workspaces", "6 deployment tiers", "Real-time queues"].map((item, index) => (
               <span key={item} className="inline-flex items-center gap-5">
                 {index > 0 && <span className="h-1 w-1 rounded-full bg-slate-300" />}
@@ -118,8 +118,8 @@ function HeroMockup() {
         className="absolute -inset-8 rounded-[44px] bg-gradient-to-br from-orange-200/50 via-white/0 to-emerald-200/50 blur-3xl"
       />
 
-      <div className="relative overflow-hidden rounded-[22px] border border-slate-200/90 bg-white shadow-[0_40px_90px_-35px_rgba(15,23,42,0.36),0_4px_16px_-8px_rgba(15,23,42,0.12)]">
-        <div className="flex h-11 items-center gap-3 border-b border-slate-200/80 bg-slate-50/90 px-4">
+      <div className="relative overflow-hidden rounded-[22px] border border-slate-200/90 bg-white dark:border-slate-800 dark:bg-slate-900 shadow-[0_40px_90px_-35px_rgba(15,23,42,0.36),0_4px_16px_-8px_rgba(15,23,42,0.12)]">
+        <div className="flex h-11 items-center gap-3 border-b border-slate-200/80 bg-slate-50/90 dark:border-slate-800 dark:bg-slate-800 px-4">
           <div className="flex gap-1.5" aria-hidden>
             <span className="h-2.5 w-2.5 rounded-full bg-[#FF6B6B]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#FFC044]" />
@@ -144,7 +144,7 @@ function HeroMockup() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-[72px_minmax(0,1fr)]">
-          <aside className="hidden flex-col items-center gap-2 border-r border-slate-200/70 bg-white px-3 py-5 sm:flex">
+          <aside className="hidden flex-col items-center gap-2 border-r border-slate-200/70 bg-white dark:border-slate-800 dark:bg-slate-900 px-3 py-5 sm:flex">
             <span className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-slate-950 text-white">
               <LayoutDashboard className="h-4 w-4" />
             </span>
@@ -169,11 +169,11 @@ function HeroMockup() {
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                   Command center
                 </p>
-                <p className="mt-1 text-[15px] font-semibold tracking-[-0.02em] text-slate-900">
+                <p className="mt-1 text-[15px] font-semibold tracking-[-0.02em] text-slate-900 dark:text-white">
                   Good morning, Dr. Chen
                 </p>
               </div>
-              <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] text-slate-500 shadow-sm sm:flex">
+              <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 px-2.5 py-1.5 text-[10px] text-slate-500 dark:text-slate-400 shadow-sm sm:flex">
                 <Search className="h-3 w-3" />
                 Search anything
               </div>
@@ -185,7 +185,7 @@ function HeroMockup() {
                 return (
                   <div
                     key={stat.label}
-                    className="rounded-xl border border-slate-200/80 bg-white p-3 shadow-[0_2px_8px_-6px_rgba(15,23,42,0.25)]"
+                    className="rounded-xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900 p-3 shadow-[0_2px_8px_-6px_rgba(15,23,42,0.25)]"
                   >
                     <div className="flex items-center justify-between">
                       <span className={`flex h-7 w-7 items-center justify-center rounded-lg ring-1 ${TONES[stat.tone]}`}>
@@ -193,8 +193,8 @@ function HeroMockup() {
                       </span>
                       <TrendingUp className="h-3 w-3 text-emerald-500" />
                     </div>
-                    <p className="mt-3 text-[17px] font-semibold tracking-[-0.03em] text-slate-900">{stat.value}</p>
-                    <p className="text-[9.5px] font-medium text-slate-500">{stat.label}</p>
+                    <p className="mt-3 text-[17px] font-semibold tracking-[-0.03em] text-slate-900 dark:text-white">{stat.value}</p>
+                    <p className="text-[9.5px] font-medium text-slate-500 dark:text-slate-400">{stat.label}</p>
                     <p className="mt-1 text-[8.5px] text-slate-400">{stat.note}</p>
                   </div>
                 );
@@ -202,10 +202,10 @@ function HeroMockup() {
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-              <div className="rounded-xl border border-slate-200/80 bg-white p-4">
+              <div className="rounded-xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900 p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-[11px] font-semibold text-slate-800">Patient volume</p>
+                    <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-100">Patient volume</p>
                     <p className="text-[9px] text-slate-400">Last 7 days</p>
                   </div>
                   <span className="rounded-md bg-emerald-50 px-1.5 py-1 text-[8.5px] font-semibold text-emerald-700">
@@ -234,22 +234,22 @@ function HeroMockup() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-slate-200/80 bg-white p-4">
+              <div className="rounded-xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900 p-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-[11px] font-semibold text-slate-800">Live queue</p>
+                  <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-100">Live queue</p>
                   <span className="text-[9px] font-medium text-orange-600">View all</span>
                 </div>
                 <div className="mt-3 space-y-2.5">
                   {QUEUE.map((patient) => (
                     <div key={patient.initials} className="flex items-center gap-2">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[8px] font-bold text-slate-600">
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[8px] font-bold dark:bg-slate-700 text-slate-600 dark:text-slate-400">
                         {patient.initials}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[9.5px] font-semibold text-slate-800">{patient.name}</span>
+                        <span className="block truncate text-[9.5px] font-semibold text-slate-800 dark:text-slate-100">{patient.name}</span>
                         <span className="block truncate text-[8px] text-slate-400">{patient.reason}</span>
                       </span>
-                      <span className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-1.5 py-1 text-[8px] font-medium text-slate-500">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-1.5 dark:bg-slate-800 py-1 text-[8px] font-medium text-slate-500 dark:text-slate-400">
                         <span className={`h-1 w-1 rounded-full ${patient.dot}`} />
                         {patient.wait}
                       </span>
@@ -270,17 +270,17 @@ function HeroMockup() {
         </div>
       </div>
 
-      <div className="absolute -left-4 bottom-8 hidden w-[218px] animate-float rounded-2xl border border-slate-200/80 bg-white/95 p-3.5 shadow-[0_20px_50px_-24px_rgba(15,23,42,0.4)] backdrop-blur md:block lg:-left-10">
+      <div className="absolute -left-4 bottom-8 hidden w-[218px] animate-float rounded-2xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900/95 dark:border-slate-800 dark:bg-slate-900/95 p-3.5 shadow-[0_20px_50px_-24px_rgba(15,23,42,0.4)] backdrop-blur md:block lg:-left-10">
         <div className="flex items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
             <Sparkles className="h-3.5 w-3.5" />
           </span>
           <div>
-            <p className="text-[10px] font-semibold text-slate-900">AI Copilot</p>
+            <p className="text-[10px] font-semibold text-slate-900 dark:text-white">AI Copilot</p>
             <p className="text-[8px] text-slate-400">Clinical intelligence</p>
           </div>
         </div>
-        <p className="mt-2.5 text-[9.5px] leading-4 text-slate-600">
+        <p className="mt-2.5 text-[9.5px] leading-4 text-slate-600 dark:text-slate-400">
           &ldquo;Summarize today&apos;s high-priority cases for handoff.&rdquo;
         </p>
         <div className="mt-2 flex items-center gap-1.5 text-[8.5px] font-semibold text-orange-600">
@@ -289,18 +289,18 @@ function HeroMockup() {
         </div>
       </div>
 
-      <div className="absolute -right-3 top-20 hidden w-[190px] animate-float rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-[0_20px_50px_-24px_rgba(15,23,42,0.4)] backdrop-blur [animation-delay:1.2s] md:block lg:-right-8">
+      <div className="absolute -right-3 top-20 hidden w-[190px] animate-float rounded-2xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900/95 dark:border-slate-800 dark:bg-slate-900/95 p-3 shadow-[0_20px_50px_-24px_rgba(15,23,42,0.4)] backdrop-blur [animation-delay:1.2s] md:block lg:-right-8">
         <div className="flex items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
             <HeartPulse className="h-3.5 w-3.5" />
           </span>
           <div>
-            <p className="text-[9.5px] font-semibold text-slate-900">Vitals updated</p>
+            <p className="text-[9.5px] font-semibold text-slate-900 dark:text-white">Vitals updated</p>
             <p className="text-[8px] text-slate-400">Bed 12 · 2 min ago</p>
           </div>
           <Bell className="ml-auto h-3 w-3 text-slate-300" />
         </div>
-        <div className="mt-2.5 flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-[8.5px] text-slate-600">
+        <div className="mt-2.5 flex items-center gap-2 rounded-lg bg-slate-50 px-2 dark:bg-slate-800 py-1.5 text-[8.5px] text-slate-600 dark:text-slate-400">
           <Clock3 className="h-3 w-3 text-orange-500" />
           BP 118/76 · HR 72 bpm
         </div>

@@ -37,24 +37,24 @@ export function LegalPage({
   children,
 }: LegalPageProps) {
   return (
-    <div className="min-h-screen bg-[#FBFAF8] text-slate-900">
+    <div className="min-h-screen bg-[#FBFAF8] text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <MarketingNav />
 
       <main className="pb-24 pt-28 sm:pt-32">
         <section className="mx-auto max-w-4xl px-6 text-center lg:px-8">
-          <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-700 shadow-sm">
+          <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-700 shadow-sm dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300">
             <FileText className="h-3.5 w-3.5" />
             {eyebrow}
           </span>
-          <h1 className="mt-7 text-balance text-4xl font-semibold leading-[1.08] tracking-[-0.05em] text-slate-950 sm:text-5xl">
+          <h1 className="mt-7 text-balance text-4xl font-semibold leading-[1.08] tracking-[-0.05em] text-slate-950 dark:text-white sm:text-5xl">
             {title}
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-[15px] leading-8 text-slate-600">{description}</p>
+          <p className="mx-auto mt-6 max-w-2xl text-[15px] leading-8 text-slate-600 dark:text-slate-400">{description}</p>
           <p className="mt-5 text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">{updated}</p>
         </section>
 
         <section className="mx-auto mt-16 grid max-w-6xl grid-cols-1 gap-8 px-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:px-8">
-          <article className="rounded-[24px] border border-slate-200 bg-white p-7 shadow-[0_24px_60px_-45px_rgba(15,23,42,0.35)] sm:p-10">
+          <article className="rounded-[24px] border border-slate-200 bg-white p-7 shadow-[0_24px_60px_-45px_rgba(15,23,42,0.35)] dark:border-slate-800 dark:bg-slate-900 sm:p-10">
             <div className="space-y-10">
               {sections.map((section, index) => (
                 <section key={section.title}>
@@ -63,16 +63,16 @@ export function LegalPage({
                       {String(index + 1).padStart(2, "0")}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <h2 className="text-xl font-semibold tracking-[-0.025em] text-slate-950">
+                      <h2 className="text-xl font-semibold tracking-[-0.025em] text-slate-950 dark:text-white">
                         {section.title}
                       </h2>
-                      <div className="mt-3 space-y-3 text-[14px] leading-7 text-slate-600">
+                      <div className="mt-3 space-y-3 text-[14px] leading-7 text-slate-600 dark:text-slate-400">
                         {section.paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
                       </div>
                       {section.bullets && section.bullets.length > 0 && (
                         <ul className="mt-4 space-y-2.5">
                           {section.bullets.map((bullet) => (
-                            <li key={bullet} className="flex gap-2.5 text-[14px] leading-6 text-slate-600">
+                            <li key={bullet} className="flex gap-2.5 text-[14px] leading-6 text-slate-600 dark:text-slate-400">
                               <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
                               <span>{bullet}</span>
                             </li>
@@ -85,11 +85,11 @@ export function LegalPage({
               ))}
             </div>
 
-            {children && <div className="mt-10 border-t border-slate-200 pt-10">{children}</div>}
+            {children && <div className="mt-10 border-t border-slate-200 pt-10 dark:border-slate-800">{children}</div>}
 
-            <div className="mt-10 rounded-2xl border border-orange-200 bg-orange-50/60 p-5">
-              <p className="text-[13px] font-semibold text-orange-950">Questions about this policy?</p>
-              <p className="mt-1 text-[12.5px] leading-6 text-orange-900/75">
+            <div className="mt-10 rounded-2xl border border-orange-200 bg-orange-50/60 p-5 dark:border-orange-500/20 dark:bg-orange-500/10">
+              <p className="text-[13px] font-semibold text-orange-950 dark:text-orange-200">Questions about this policy?</p>
+              <p className="mt-1 text-[12.5px] leading-6 text-orange-900/75 dark:text-orange-200/80">
                 Send a message through our contact page. We route platform questions to the Joan super
                 admin team for review.
               </p>
@@ -103,7 +103,7 @@ export function LegalPage({
           </article>
 
           <aside className="space-y-4 lg:sticky lg:top-28 lg:self-start">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
               <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
                 Related information
               </p>
@@ -112,7 +112,7 @@ export function LegalPage({
                   <li key={link.href}>
                     <Link
                       href={link.href}
-                      className="flex items-center justify-between gap-2 text-[12.5px] font-medium text-slate-700 transition-colors hover:text-orange-600"
+                      className="flex items-center justify-between gap-2 text-[12.5px] font-medium text-slate-700 transition-colors hover:text-orange-600 dark:text-slate-200"
                     >
                       {link.label}
                       <ArrowRight className="h-3.5 w-3.5 text-slate-300" />
@@ -131,12 +131,12 @@ export function LegalPage({
               </p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
               <Mail className="h-5 w-5 text-orange-600" />
               <p className="mt-3 text-[13px] font-semibold">Direct email</p>
               <a
                 href="mailto:support@joan.health"
-                className="mt-1 block break-all text-[12px] text-slate-600 hover:text-orange-600"
+                className="mt-1 block break-all text-[12px] text-slate-600 hover:text-orange-600 dark:text-slate-400"
               >
                 support@joan.health
               </a>

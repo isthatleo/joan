@@ -47,7 +47,7 @@ export function Faq() {
   const [open, setOpen] = useState<number | null>(0);
 
   return (
-    <section id="faq" className="scroll-mt-24 bg-white py-24 sm:py-28 lg:py-32">
+    <section id="faq" className="scroll-mt-24 bg-white py-24 sm:py-28 lg:py-32 dark:bg-slate-900">
       <div className="mx-auto grid max-w-7xl grid-cols-1 gap-12 px-6 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-20 lg:px-8">
         <div>
           <SectionHeading
@@ -59,9 +59,9 @@ export function Faq() {
             }
             description="Everything you need to know about deploying Joan across a hospital, a clinic group, or a national network."
           />
-          <div className="mt-8 rounded-2xl border border-slate-200 bg-[#FBFAF8] p-6">
-            <p className="text-[13px] font-semibold text-slate-900">Still have a question?</p>
-            <p className="mt-2 text-[12px] leading-6 text-slate-600">
+          <div className="mt-8 rounded-2xl border border-slate-200 bg-[#FBFAF8] p-6 dark:border-slate-800 dark:bg-slate-800/40">
+            <p className="text-[13px] font-semibold text-slate-900 dark:text-white">Still have a question?</p>
+            <p className="mt-2 text-[12px] leading-6 text-slate-600 dark:text-slate-400">
               Our team can walk through your workflows, plan structure, and integration requirements.
             </p>
             <a
@@ -74,14 +74,14 @@ export function Faq() {
           </div>
           <Link
             href="/docs"
-            className="group mt-4 inline-flex items-center gap-2 text-[12.5px] font-semibold text-slate-700 hover:text-slate-950"
+            className="group mt-4 inline-flex items-center gap-2 text-[12.5px] font-semibold text-slate-700 dark:text-slate-200 hover:text-slate-950 dark:text-white"
           >
             Read the platform documentation
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
           </Link>
         </div>
 
-        <div className="divide-y divide-slate-200 overflow-hidden rounded-[22px] border border-slate-200 bg-white">
+        <div className="divide-y divide-slate-200 overflow-hidden rounded-[22px] border border-slate-200 bg-white dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900">
           {FAQS.map((item, index) => {
             const isOpen = open === index;
             return (
@@ -91,16 +91,16 @@ export function Faq() {
                   aria-expanded={isOpen}
                   aria-controls={`faq-answer-${index}`}
                   onClick={() => setOpen(isOpen ? null : index)}
-                  className="flex w-full items-center justify-between gap-6 px-6 py-5 text-left transition-colors hover:bg-slate-50/70 sm:px-7"
+                  className="flex w-full items-center justify-between gap-6 px-6 py-5 text-left transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-800/60 sm:px-7"
                 >
-                  <span className={`text-[14px] font-semibold ${isOpen ? "text-slate-950" : "text-slate-800"}`}>
+                  <span className={`text-[14px] font-semibold ${isOpen ? "text-slate-950 dark:text-white" : "text-slate-800 dark:text-slate-100"}`}>
                     {item.question}
                   </span>
                   <span
                     className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition-all ${
                       isOpen
                         ? "rotate-180 border-orange-200 bg-orange-50 text-orange-600"
-                        : "border-slate-200 text-slate-500"
+                        : "border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400"
                     }`}
                   >
                     <ChevronDown className="h-3.5 w-3.5" />
@@ -108,7 +108,7 @@ export function Faq() {
                 </button>
                 {isOpen && (
                   <div id={`faq-answer-${index}`} className="animate-fade-up px-6 pb-6 sm:px-7">
-                    <p className="max-w-2xl text-[13px] leading-7 text-slate-600">{item.answer}</p>
+                    <p className="max-w-2xl text-[13px] leading-7 text-slate-600 dark:text-slate-400">{item.answer}</p>
                   </div>
                 )}
               </div>

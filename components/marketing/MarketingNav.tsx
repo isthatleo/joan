@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Menu, X } from "lucide-react";
 import { Logo } from "./Brand";
+import { MarketingThemeToggle } from "./MarketingThemeToggle";
 
 const LINKS = [
   { label: "Platform", href: "/#platform" },
@@ -35,8 +36,8 @@ export function MarketingNav() {
     <header
       className={`fixed inset-x-0 top-0 z-50 transition-all duration-300 ${
         scrolled
-          ? "border-b border-slate-200/70 bg-white/85 shadow-[0_8px_30px_-20px_rgba(15,23,42,0.35)] backdrop-blur-xl"
-          : "border-b border-transparent bg-white/40 backdrop-blur-md"
+          ? "border-b border-slate-200/70 bg-white/85 shadow-[0_8px_30px_-20px_rgba(15,23,42,0.35)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/85"
+          : "border-b border-transparent bg-white/40 backdrop-blur-md dark:bg-slate-950/40"
       }`}
     >
       <nav className="mx-auto flex h-[72px] max-w-7xl items-center gap-6 px-6 lg:px-8" aria-label="Main navigation">
@@ -47,23 +48,24 @@ export function MarketingNav() {
             <Link
               key={link.href}
               href={link.href}
-              className="rounded-full px-3.5 py-2 text-[13px] font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-950"
+              className="rounded-full px-3.5 py-2 text-[13px] font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
             >
               {link.label}
             </Link>
           ))}
           <Link
             href="/docs"
-            className="ml-1 rounded-full px-3.5 py-2 text-[13px] font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-950"
+            className="ml-1 rounded-full px-3.5 py-2 text-[13px] font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             Docs
           </Link>
         </div>
 
         <div className="ml-auto hidden items-center gap-2 lg:flex">
+          <MarketingThemeToggle />
           <Link
             href="/login"
-            className="rounded-full px-4 py-2.5 text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-950"
+            className="rounded-full px-4 py-2.5 text-[13px] font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             Sign in
           </Link>
@@ -82,21 +84,21 @@ export function MarketingNav() {
           aria-expanded={open}
           aria-controls="mobile-navigation"
           onClick={() => setOpen((value) => !value)}
-          className="ml-auto flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-50 lg:hidden"
+          className="ml-auto flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 lg:hidden"
         >
           {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
       </nav>
 
       {open && (
-        <div id="mobile-navigation" className="border-t border-slate-200 bg-white px-6 pb-7 pt-4 lg:hidden">
+        <div id="mobile-navigation" className="border-t border-slate-200 bg-white px-6 pb-7 pt-4 dark:border-slate-800 dark:bg-slate-950 lg:hidden">
           <div className="flex flex-col gap-1">
             {LINKS.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
                 onClick={() => setOpen(false)}
-                className="rounded-xl px-3 py-3 text-[15px] font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                className="rounded-xl px-3 py-3 text-[15px] font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
               >
                 {link.label}
               </Link>
@@ -109,7 +111,11 @@ export function MarketingNav() {
               Documentation
             </Link>
           </div>
-          <div className="mt-5 grid grid-cols-2 gap-3 border-t border-slate-100 pt-5">
+          <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-5 dark:border-slate-800">
+            <span className="text-[12.5px] font-medium text-slate-500 dark:text-slate-400">Appearance</span>
+            <MarketingThemeToggle compact />
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3">
             <Link
               href="/login"
               onClick={() => setOpen(false)}

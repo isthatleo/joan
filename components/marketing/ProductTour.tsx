@@ -56,7 +56,7 @@ export function ProductTour() {
   const CurrentIcon = TABS[active].icon;
 
   return (
-    <section id="platform" className="scroll-mt-24 bg-white py-24 sm:py-28 lg:py-32">
+    <section id="platform" className="scroll-mt-24 bg-white py-24 sm:py-28 lg:py-32 dark:bg-slate-900">
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         <SectionHeading
           eyebrow="The platform"
@@ -69,8 +69,8 @@ export function ProductTour() {
           align="center"
         />
 
-        <div className="mt-14 overflow-hidden rounded-[28px] border border-slate-200 bg-[#FBFAF8] shadow-[0_30px_80px_-45px_rgba(15,23,42,0.35)]">
-          <div className="flex overflow-x-auto border-b border-slate-200 bg-white px-2 sm:px-4" role="tablist" aria-label="Product views">
+        <div className="mt-14 overflow-hidden rounded-[28px] border border-slate-200 bg-[#FBFAF8] shadow-[0_30px_80px_-45px_rgba(15,23,42,0.35)] dark:border-slate-800 dark:bg-slate-950/40">
+          <div className="flex overflow-x-auto border-b border-slate-200 bg-white px-2 sm:px-4 dark:border-slate-800 dark:bg-slate-900" role="tablist" aria-label="Product views">
             {TABS.map((tab, index) => {
               const Icon = tab.icon;
               const isActive = index === active;
@@ -84,7 +84,7 @@ export function ProductTour() {
                   aria-controls={`panel-${tab.id}`}
                   onClick={() => setActive(index)}
                   className={`relative flex shrink-0 items-center gap-2.5 px-4 py-4 text-[13px] font-semibold transition-colors sm:px-6 ${
-                    isActive ? "text-slate-950" : "text-slate-500 hover:text-slate-800"
+                    isActive ? "text-slate-950 dark:text-white" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-slate-100"
                   }`}
                 >
                   <Icon className={`h-4 w-4 ${isActive ? "text-orange-600" : "text-slate-400"}`} />
@@ -102,17 +102,17 @@ export function ProductTour() {
               <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-50 text-orange-600 ring-1 ring-orange-100">
                 <CurrentIcon className="h-5 w-5" />
               </span>
-              <h3 className="mt-5 text-2xl font-semibold tracking-[-0.035em] text-slate-950">
+              <h3 className="mt-5 text-2xl font-semibold tracking-[-0.035em] text-slate-950 dark:text-white">
                 {TABS[active].label}
               </h3>
-              <p className="mt-3 text-[14px] leading-7 text-slate-600">{TABS[active].blurb}</p>
+              <p className="mt-3 text-[14px] leading-7 text-slate-600 dark:text-slate-400">{TABS[active].blurb}</p>
               <ul className="mt-6 space-y-3">
                 {[
                   "Role-aware by default",
                   "Live, not batch-updated",
                   "Works across every tenant",
                 ].map((item) => (
-                  <li key={item} className="flex items-center gap-2.5 text-[13px] text-slate-700">
+                  <li key={item} className="flex items-center gap-2.5 text-[13px] text-slate-700 dark:text-slate-200">
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
                       <Check className="h-3 w-3" />
                     </span>
@@ -149,10 +149,10 @@ export function ProductTour() {
 
 function WindowFrame({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_50px_-30px_rgba(15,23,42,0.35)]">
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_50px_-30px_rgba(15,23,42,0.35)] dark:border-slate-800 dark:bg-slate-900">
       <div className="flex h-9 items-center gap-2 border-b border-slate-100 bg-slate-50/80 px-4">
         <span className="h-2 w-2 rounded-full bg-orange-400" />
-        <span className="text-[10px] font-medium text-slate-500">joan / {label}</span>
+        <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">joan / {label}</span>
         <span className="ml-auto flex items-center gap-1 text-[9px] text-slate-400">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
           Synced
@@ -182,26 +182,26 @@ function CommandCenterPanel() {
         ].map((item) => {
           const Icon = item.icon;
           return (
-            <div key={item.label} className="rounded-xl border border-slate-200/80 bg-white p-3">
+            <div key={item.label} className="rounded-xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-800/40 p-3">
               <Icon className="h-3.5 w-3.5 text-orange-500" />
-              <p className="mt-2 text-[16px] font-semibold tracking-[-0.03em] text-slate-900">{item.value}</p>
-              <p className="text-[9px] text-slate-500">{item.label}</p>
+              <p className="mt-2 text-[16px] font-semibold tracking-[-0.03em] text-slate-900 dark:text-white">{item.value}</p>
+              <p className="text-[9px] text-slate-500 dark:text-slate-400">{item.label}</p>
             </div>
           );
         })}
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border border-slate-200/80 p-4">
+        <div className="rounded-xl border border-slate-200/80 dark:border-slate-700 p-4">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] font-semibold text-slate-800">Department activity</p>
+            <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-100">Department activity</p>
             <BarChart3 className="h-3.5 w-3.5 text-slate-400" />
           </div>
           <div className="mt-4 space-y-3">
             {departments.map((dept) => (
               <div key={dept.name}>
                 <div className="mb-1.5 flex items-center justify-between text-[9.5px]">
-                  <span className="font-medium text-slate-700">{dept.name}</span>
+                  <span className="font-medium text-slate-700 dark:text-slate-200">{dept.name}</span>
                   <span className="text-slate-400">{dept.value} encounters</span>
                 </div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
@@ -212,9 +212,9 @@ function CommandCenterPanel() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200/80 p-4">
+        <div className="rounded-xl border border-slate-200/80 dark:border-slate-700 p-4">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] font-semibold text-slate-800">Operational alerts</p>
+            <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-100">Operational alerts</p>
             <span className="rounded-md bg-orange-50 px-1.5 py-0.5 text-[8px] font-semibold text-orange-700">5 new</span>
           </div>
           <div className="mt-3 space-y-2.5">
@@ -226,7 +226,7 @@ function CommandCenterPanel() {
             ].map((alert) => (
               <div key={alert.title} className="flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-2">
                 <span className={`h-1.5 w-1.5 rounded-full ${alert.color}`} />
-                <span className="flex-1 truncate text-[9.5px] font-medium text-slate-700">{alert.title}</span>
+                <span className="flex-1 truncate text-[9.5px] font-medium text-slate-700 dark:text-slate-200">{alert.title}</span>
                 <span className="text-[8px] text-slate-400">{alert.time}</span>
               </div>
             ))}
@@ -240,13 +240,13 @@ function CommandCenterPanel() {
 function ClinicalPanel() {
   return (
     <WindowFrame label="clinical-record">
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/60 p-3">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-800/60 p-3">
         <span className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 to-sky-600 text-[11px] font-bold text-white">
           SJ
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[12px] font-semibold text-slate-900">Sarah Johnson</p>
-          <p className="text-[9px] text-slate-500">MRN 0042-8819 · 42 yrs · Hypertension follow-up</p>
+          <p className="text-[12px] font-semibold text-slate-900 dark:text-white">Sarah Johnson</p>
+          <p className="text-[9px] text-slate-500 dark:text-slate-400">MRN 0042-8819 · 42 yrs · Hypertension follow-up</p>
         </div>
         <span className="rounded-full bg-orange-50 px-2 py-1 text-[8.5px] font-semibold text-orange-700 ring-1 ring-orange-100">
           In consultation
@@ -262,24 +262,24 @@ function ClinicalPanel() {
         ].map((vital) => {
           const Icon = vital.icon;
           return (
-            <div key={vital.label} className="rounded-xl border border-slate-200/80 p-3">
+            <div key={vital.label} className="rounded-xl border border-slate-200/80 dark:border-slate-700 p-3">
               <div className="flex items-center gap-1.5 text-slate-400">
                 <Icon className="h-3 w-3" />
                 <span className="text-[8.5px] font-medium">{vital.label}</span>
               </div>
-              <p className="mt-1.5 text-[13px] font-semibold text-slate-900">{vital.value}</p>
+              <p className="mt-1.5 text-[13px] font-semibold text-slate-900 dark:text-white">{vital.value}</p>
             </div>
           );
         })}
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-        <div className="rounded-xl border border-slate-200/80 p-4">
+        <div className="rounded-xl border border-slate-200/80 dark:border-slate-700 p-4">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] font-semibold text-slate-800">Clinical timeline</p>
+            <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-100">Clinical timeline</p>
             <span className="text-[8.5px] text-slate-400">Last 30 days</span>
           </div>
-          <div className="mt-4 space-y-3 border-l border-slate-200 pl-4">
+          <div className="mt-4 space-y-3 border-l border-slate-200 pl-4 dark:border-slate-700">
             {[
               { title: "Consultation note", detail: "Dr. Chen · Hypertension review", color: "bg-orange-500" },
               { title: "Lab results posted", detail: "Lipid panel · Within range", color: "bg-sky-500" },
@@ -287,8 +287,8 @@ function ClinicalPanel() {
             ].map((item) => (
               <div key={item.title} className="relative">
                 <span className={`absolute -left-[21px] top-1 h-2 w-2 rounded-full ring-2 ring-white ${item.color}`} />
-                <p className="text-[10px] font-semibold text-slate-800">{item.title}</p>
-                <p className="text-[8.5px] text-slate-500">{item.detail}</p>
+                <p className="text-[10px] font-semibold text-slate-800 dark:text-slate-100">{item.title}</p>
+                <p className="text-[8.5px] text-slate-500 dark:text-slate-400">{item.detail}</p>
               </div>
             ))}
           </div>
@@ -308,9 +308,9 @@ function ClinicalPanel() {
         </div>
       </div>
 
-      <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-200/80 p-3">
+      <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-200/80 dark:border-slate-700 p-3">
         <Pill className="h-3.5 w-3.5 text-violet-500" />
-        <span className="flex-1 text-[9.5px] text-slate-700">3 active prescriptions · 1 refill awaiting review</span>
+        <span className="flex-1 text-[9.5px] text-slate-700 dark:text-slate-200">3 active prescriptions · 1 refill awaiting review</span>
         <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
       </div>
     </WindowFrame>
@@ -321,12 +321,12 @@ function PatientPanel() {
   return (
     <WindowFrame label="patient-portal">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-        <div className="rounded-xl border border-slate-200/80 p-4">
+        <div className="rounded-xl border border-slate-200/80 dark:border-slate-700 p-4">
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Next appointment</p>
-              <p className="mt-2 text-[15px] font-semibold tracking-[-0.02em] text-slate-900">Annual checkup</p>
-              <p className="mt-1 text-[9.5px] text-slate-500">Dr. Smith · Cardiology · Room 204</p>
+              <p className="mt-2 text-[15px] font-semibold tracking-[-0.02em] text-slate-900 dark:text-white">Annual checkup</p>
+              <p className="mt-1 text-[9.5px] text-slate-500 dark:text-slate-400">Dr. Smith · Cardiology · Room 204</p>
             </div>
             <span className="rounded-lg bg-orange-50 px-2 py-1 text-[9px] font-semibold text-orange-700">May 12</span>
           </div>
@@ -338,7 +338,7 @@ function PatientPanel() {
             ].map((item) => (
               <div key={item.label}>
                 <p className="text-[8px] uppercase tracking-wider text-slate-400">{item.label}</p>
-                <p className="mt-0.5 text-[10px] font-semibold text-slate-800">{item.value}</p>
+                <p className="mt-0.5 text-[10px] font-semibold text-slate-800 dark:text-slate-100">{item.value}</p>
               </div>
             ))}
           </div>
@@ -347,7 +347,7 @@ function PatientPanel() {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200/80 p-4">
+        <div className="rounded-xl border border-slate-200/80 dark:border-slate-700 p-4">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Your health</p>
           <div className="mt-3 space-y-2">
             {[
@@ -362,8 +362,8 @@ function PatientPanel() {
                   <span className={`flex h-6 w-6 items-center justify-center rounded-lg ${item.tone}`}>
                     <Icon className="h-3 w-3" />
                   </span>
-                  <span className="flex-1 text-[9.5px] font-medium text-slate-700">{item.label}</span>
-                  <span className="text-[9px] font-semibold text-slate-900">{item.value}</span>
+                  <span className="flex-1 text-[9.5px] font-medium text-slate-700 dark:text-slate-200">{item.label}</span>
+                  <span className="text-[9px] font-semibold text-slate-900 dark:text-white">{item.value}</span>
                 </div>
               );
             })}
@@ -371,11 +371,11 @@ function PatientPanel() {
         </div>
       </div>
 
-      <div className="mt-3 rounded-xl border border-slate-200/80 p-4">
+      <div className="mt-3 rounded-xl border border-slate-200/80 dark:border-slate-700 p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-3.5 w-3.5 text-sky-500" />
-            <p className="text-[11px] font-semibold text-slate-800">Messages from your care team</p>
+            <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-100">Messages from your care team</p>
           </div>
           <span className="text-[8.5px] text-orange-600">1 unread</span>
         </div>
@@ -384,8 +384,8 @@ function PatientPanel() {
             DS
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-[9.5px] font-semibold text-slate-800">Dr. Smith</p>
-            <p className="truncate text-[8.5px] text-slate-500">Your lipid panel came back — everything looks good.</p>
+            <p className="text-[9.5px] font-semibold text-slate-800 dark:text-slate-100">Dr. Smith</p>
+            <p className="truncate text-[8.5px] text-slate-500 dark:text-slate-400">Your lipid panel came back — everything looks good.</p>
           </div>
           <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
         </div>

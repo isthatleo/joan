@@ -75,7 +75,7 @@ const INITIAL_FORM = {
 };
 
 const INPUT_CLASS =
-  "mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] text-slate-900 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-100";
+  "mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:placeholder:text-slate-500 dark:focus:ring-orange-500/20";
 
 export default function ContactPage() {
   const [form, setForm] = useState(INITIAL_FORM);
@@ -113,37 +113,37 @@ export default function ContactPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FBFAF8] text-slate-900">
+    <div className="min-h-screen bg-[#FBFAF8] text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <MarketingNav />
 
       <main className="pb-24 pt-28 sm:pt-32">
         <section className="mx-auto max-w-4xl px-6 text-center lg:px-8">
-          <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-700 shadow-sm">
+          <span className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-700 shadow-sm dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300">
             <MessageSquare className="h-3.5 w-3.5" />
             Contact the platform team
           </span>
-          <h1 className="mt-7 text-balance text-4xl font-semibold leading-[1.08] tracking-[-0.05em] text-slate-950 sm:text-5xl">
+          <h1 className="mt-7 text-balance text-4xl font-semibold leading-[1.08] tracking-[-0.05em] text-slate-950 dark:text-white sm:text-5xl">
             Talk to the people behind Joan.
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-[15px] leading-8 text-slate-600">
+          <p className="mx-auto mt-6 max-w-2xl text-[15px] leading-8 text-slate-600 dark:text-slate-400">
             Ask about deployment, support, billing, security, or accessibility. Your message is stored
             as a platform request and routed to the Joan super admin team for review.
           </p>
         </section>
 
         <section className="mx-auto mt-14 grid max-w-6xl grid-cols-1 gap-8 px-6 lg:grid-cols-[minmax(0,1fr)_330px] lg:px-8">
-          <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_24px_60px_-45px_rgba(15,23,42,0.35)] sm:p-9">
+          <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-[0_24px_60px_-45px_rgba(15,23,42,0.35)] dark:border-slate-800 dark:bg-slate-900 sm:p-9">
             {reference ? (
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-7 text-center">
                 <CheckCircle2 className="mx-auto h-9 w-9 text-emerald-600" />
-                <h2 className="mt-4 text-xl font-semibold tracking-[-0.025em] text-slate-950">
+                <h2 className="mt-4 text-xl font-semibold tracking-[-0.025em] text-slate-950 dark:text-white">
                   Message sent to the super admin team
                 </h2>
-                <p className="mx-auto mt-3 max-w-lg text-[13px] leading-6 text-slate-600">
+                <p className="mx-auto mt-3 max-w-lg text-[13px] leading-6 text-slate-600 dark:text-slate-400">
                   We saved your request in the platform feedback queue and notified the super admins on
                   file. Keep the reference below if you need to follow up.
                 </p>
-                <p className="mt-5 inline-flex rounded-lg border border-emerald-200 bg-white px-3 py-2 font-mono text-[11px] text-emerald-800">
+                <p className="mt-5 inline-flex rounded-lg border border-emerald-200 bg-white px-3 py-2 font-mono text-[11px] text-emerald-800 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-emerald-300">
                   {reference}
                 </p>
                 <button
@@ -161,7 +161,7 @@ export default function ContactPage() {
                     Your details
                   </p>
                   <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <label className="block text-[12px] font-semibold text-slate-700">
+                    <label className="block text-[12px] font-semibold text-slate-700 dark:text-slate-200">
                       First name *
                       <input
                         required
@@ -172,7 +172,7 @@ export default function ContactPage() {
                         placeholder="Jane"
                       />
                     </label>
-                    <label className="block text-[12px] font-semibold text-slate-700">
+                    <label className="block text-[12px] font-semibold text-slate-700 dark:text-slate-200">
                       Last name *
                       <input
                         required
@@ -183,7 +183,7 @@ export default function ContactPage() {
                         placeholder="Doe"
                       />
                     </label>
-                    <label className="block text-[12px] font-semibold text-slate-700">
+                    <label className="block text-[12px] font-semibold text-slate-700 dark:text-slate-200">
                       Work email *
                       <input
                         required
@@ -195,7 +195,7 @@ export default function ContactPage() {
                         placeholder="jane@hospital.org"
                       />
                     </label>
-                    <label className="block text-[12px] font-semibold text-slate-700">
+                    <label className="block text-[12px] font-semibold text-slate-700 dark:text-slate-200">
                       Organization *
                       <input
                         required
@@ -206,7 +206,7 @@ export default function ContactPage() {
                         placeholder="Hospital, clinic, or company"
                       />
                     </label>
-                    <label className="block text-[12px] font-semibold text-slate-700 sm:col-span-2">
+                    <label className="block text-[12px] font-semibold text-slate-700 dark:text-slate-200 sm:col-span-2">
                       Your role *
                       <select
                         value={form.role}
@@ -223,12 +223,12 @@ export default function ContactPage() {
                   </div>
                 </div>
 
-                <div className="border-t border-slate-200 pt-6">
+                <div className="border-t border-slate-200 pt-6 dark:border-slate-800">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-600">
                     Your message
                   </p>
                   <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <label className="block text-[12px] font-semibold text-slate-700">
+                    <label className="block text-[12px] font-semibold text-slate-700 dark:text-slate-200">
                       Topic *
                       <select
                         value={form.topic}
@@ -242,7 +242,7 @@ export default function ContactPage() {
                         ))}
                       </select>
                     </label>
-                    <label className="block text-[12px] font-semibold text-slate-700">
+                    <label className="block text-[12px] font-semibold text-slate-700 dark:text-slate-200">
                       Urgency *
                       <select
                         value={form.urgency}
@@ -256,7 +256,7 @@ export default function ContactPage() {
                         <option value="high">High — blocking work or security concern</option>
                       </select>
                     </label>
-                    <label className="block text-[12px] font-semibold text-slate-700 sm:col-span-2">
+                    <label className="block text-[12px] font-semibold text-slate-700 dark:text-slate-200 sm:col-span-2">
                       Subject *
                       <input
                         required
@@ -268,7 +268,7 @@ export default function ContactPage() {
                         placeholder="Short summary of your request"
                       />
                     </label>
-                    <label className="block text-[12px] font-semibold text-slate-700 sm:col-span-2">
+                    <label className="block text-[12px] font-semibold text-slate-700 dark:text-slate-200 sm:col-span-2">
                       Message *
                       <textarea
                         required
@@ -287,8 +287,8 @@ export default function ContactPage() {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-                  <label className="flex items-start gap-3 text-[12px] leading-5 text-slate-600">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-800/50">
+                  <label className="flex items-start gap-3 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
                     <input
                       required
                       type="checkbox"
@@ -323,7 +323,7 @@ export default function ContactPage() {
                 )}
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
                     <LockKeyhole className="mr-1 inline h-3 w-3 text-emerald-600" />
                     Routed server-side to the super admin feedback queue.
                   </p>
@@ -341,10 +341,10 @@ export default function ContactPage() {
           </div>
 
           <aside className="space-y-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
               <Inbox className="h-5 w-5 text-orange-600" />
               <p className="mt-3 text-[13px] font-semibold">Where your message goes</p>
-              <ul className="mt-3 space-y-2.5 text-[12px] leading-5 text-slate-600">
+              <ul className="mt-3 space-y-2.5 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
                 <li className="flex gap-2"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" /> Saved as a platform feedback record.</li>
                 <li className="flex gap-2"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" /> An in-app notification is created for every active super admin.</li>
                 <li className="flex gap-2"><Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" /> An email is also sent when outbound email is configured.</li>
@@ -360,10 +360,10 @@ export default function ContactPage() {
               </p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
               <FileText className="h-5 w-5 text-orange-600" />
               <p className="mt-3 text-[13px] font-semibold">Helpful details to include</p>
-              <ul className="mt-3 space-y-2 text-[12px] leading-5 text-slate-600">
+              <ul className="mt-3 space-y-2 text-[12px] leading-5 text-slate-600 dark:text-slate-400">
                 <li>• The page, module, or workflow involved</li>
                 <li>• What you expected and what happened</li>
                 <li>• Steps to reproduce a problem</li>
@@ -371,19 +371,19 @@ export default function ContactPage() {
               </ul>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
               <Clock3 className="h-5 w-5 text-orange-600" />
               <p className="mt-3 text-[13px] font-semibold">Not an emergency channel</p>
-              <p className="mt-2 text-[11.5px] leading-5 text-slate-600">
+              <p className="mt-2 text-[11.5px] leading-5 text-slate-600 dark:text-slate-400">
                 For immediate clinical emergencies, contact local emergency services. For account or
                 urgent security concerns, mark the urgency as High and use a non-clinical description.
               </p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
               <Mail className="h-5 w-5 text-orange-600" />
               <p className="mt-3 text-[13px] font-semibold">Direct email</p>
-              <a href="mailto:support@joan.health" className="mt-1 block text-[12px] text-slate-600 hover:text-orange-600">
+              <a href="mailto:support@joan.health" className="mt-1 block text-[12px] text-slate-600 dark:text-slate-400 hover:text-orange-600">
                 support@joan.health
               </a>
               <Link href="/docs" className="mt-3 inline-flex items-center gap-1.5 text-[12px] font-semibold text-orange-600 hover:text-orange-700">
@@ -394,7 +394,7 @@ export default function ContactPage() {
         </section>
 
         <section className="mx-auto mt-16 max-w-6xl px-6 lg:px-8">
-          <div className="rounded-[24px] border border-slate-200 bg-white p-7 sm:p-9">
+          <div className="rounded-[24px] border border-slate-200 bg-white p-7 sm:p-9 dark:border-slate-800 dark:bg-slate-900">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-600">
               After you send
             </p>
@@ -404,10 +404,10 @@ export default function ContactPage() {
                 { icon: ShieldCheck, title: "Triaged", detail: "Super admins see the topic, urgency, organization, and your preferred reply address." },
                 { icon: MessageSquare, title: "Answered", detail: "Replies use the work email you provided. Keep your reference for follow-up." },
               ].map((item) => (
-                <div key={item.title} className="rounded-2xl border border-slate-200 bg-[#FBFAF8] p-5">
+                <div key={item.title} className="rounded-2xl border border-slate-200 bg-[#FBFAF8] p-5 dark:border-slate-800 dark:bg-slate-800/40">
                   <item.icon className="h-5 w-5 text-orange-600" />
                   <p className="mt-4 text-[13px] font-semibold">{item.title}</p>
-                  <p className="mt-2 text-[12px] leading-5 text-slate-600">{item.detail}</p>
+                  <p className="mt-2 text-[12px] leading-5 text-slate-600 dark:text-slate-400">{item.detail}</p>
                 </div>
               ))}
             </div>

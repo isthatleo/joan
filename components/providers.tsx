@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import {
   applyUserPreferences,
@@ -82,8 +83,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <PreferenceBootstrap />
-      <Toaster />
-      {children}
+      <ThemeProvider>
+        <Toaster />
+        {children}
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
