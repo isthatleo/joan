@@ -1,1020 +1,373 @@
 <div align="center">
+  <img src="public/assets/icons/logo-full.svg" width="260" alt="Joan Healthcare OS" />
   <br />
-    <a href="https://youtu.be/lEflo_sc82g?feature=shared" target="_blank">
-      <img src="https://github.com/adrianhajdin/healthcare/assets/151519281/a7dd73b6-93de-484d-84e0-e7f4e299167b" alt="Project Banner">
-    </a>
   <br />
+  <h1>One operating system for every moment of care.</h1>
+  <p><strong>Joan</strong> unifies appointments, clinical records, labs, pharmacy, and finance in one role-aware, multi-tenant healthcare workspace — from the front desk to the final claim.</p>
 
-  <div>
-    <img src="https://img.shields.io/badge/-Next_JS-black?style=for-the-badge&logoColor=white&logo=nextdotjs&color=000000" alt="nextdotjs" />
-    <img src="https://img.shields.io/badge/-TypeScript-black?style=for-the-badge&logoColor=white&logo=typescript&color=3178C6" alt="typescript" />
-    <img src="https://img.shields.io/badge/-Tailwind_CSS-black?style=for-the-badge&logoColor=white&logo=tailwindcss&color=06B6D4" alt="tailwindcss" />
-    <img src="https://img.shields.io/badge/-Appwrite-black?style=for-the-badge&logoColor=white&logo=appwrite&color=FD366E" alt="appwrite" />
-  </div>
+  <p>
+    <a href="https://joanhealth.tech/" target="_blank"><strong>Live site</strong></a> ·
+    <a href="https://joanhealth.tech/docs" target="_blank"><strong>Documentation</strong></a> ·
+    <a href="mailto:support@joan.health"><strong>Contact support</strong></a>
+  </p>
 
-  <h3 align="center">A HealthCare Management System</h3>
-
-   <div align="center">
-     Build this project step by step with our detailed tutorial on <a href="https://www.youtube.com/@javascriptmastery/videos" target="_blank"><b>JavaScript Mastery</b></a> YouTube. Join the JSM family!
-    </div>
+  <p>
+    <img src="https://img.shields.io/badge/Next.js-16.2.6-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js 16" />
+    <img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
+    <img src="https://img.shields.io/badge/Tailwind_CSS-3.4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" alt="Tailwind CSS" />
+    <img src="https://img.shields.io/badge/PostgreSQL-Drizzle-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL with Drizzle" />
+    <img src="https://img.shields.io/badge/Better_Auth-Session_RBAC-00A482?style=for-the-badge&logo=auth0&logoColor=white" alt="Better Auth" />
+    <img src="https://img.shields.io/badge/OpenAI-Grounded_Copilot-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI Copilot" />
+    <img src="https://img.shields.io/badge/Lucide-Icons-F56565?style=for-the-badge&logo=lucide&logoColor=white" alt="Lucide icons" />
+    <img src="https://img.shields.io/badge/Sentry-Observability-362D59?style=for-the-badge&logo=sentry&logoColor=white" alt="Sentry" />
+  </p>
 </div>
 
-## 📋 <a name="table">Table of Contents</a>
+---
 
-1. 🤖 [Introduction](#introduction)
-2. ⚙️ [Tech Stack](#tech-stack)
-3. 🔋 [Features](#features)
-4. 🤸 [Quick Start](#quick-start)
-5. 🕸️ [Snippets (Code to Copy)](#snippets)
-6. 🔗 [Assets](#links)
-7. 🚀 [More](#more)
+## 📋 Table of contents
 
-## 🚨 Tutorial
+- [🤖 Introduction](#-introduction)
+- [🧩 Platform modules](#-platform-modules)
+- [🎭 Role-specific workspaces](#-role-specific-workspaces)
+- [🔄 One continuous workflow](#-one-continuous-workflow)
+- [🖼️ Visual tour](#️-visual-tour)
+- [✨ Grounded AI Copilot](#-grounded-ai-copilot)
+- [🛡️ Security and isolation model](#️-security-and-isolation-model)
+- [🔌 Integrations](#-integrations)
+- [⚙️ Tech stack](#️-tech-stack)
+- [🚀 Quick start](#-quick-start)
+- [🧪 Validation and release checks](#-validation-and-release-checks)
+- [📁 Repository map](#-repository-map)
+- [🧭 Route map](#-route-map)
+- [📚 Documentation](#-documentation)
+- [🤝 Contributing](#-contributing)
+- [📞 Support](#-support)
 
-This repository contains the code corresponding to an in-depth tutorial available on our YouTube channel, <a href="https://www.youtube.com/@javascriptmastery/videos" target="_blank"><b>JavaScript Mastery</b></a>.
+---
 
-If you prefer visual learning, this is the perfect resource for you. Follow our tutorial to learn how to build projects like these step-by-step in a beginner-friendly manner!
+## 🤖 Introduction
 
-<a href="https://youtu.be/lEflo_sc82g?feature=shared" target="_blank"><img src="https://github.com/sujatagunale/EasyRead/assets/151519281/1736fca5-a031-4854-8c09-bc110e3bc16d" /></a>
+Joan is a Next.js healthcare operating system for hospitals, clinics, and multi-site care networks. It brings the full patient journey into a single bounded workspace with ten role-specific dashboards, tenant isolation, server-enforced permissions, real-time queues, and a grounded clinical Copilot.
 
-## <a name="introduction">🤖 Introduction</a>
+The public landing page lives at `/`; the role-switching dashboard remains available at `/dashboard`. Documentation is served at `/docs`, and public legal/info pages cover privacy, terms, refunds, cookies, security, and accessibility.
 
-A healthcare patient management application that allows patients to easily register, book, and manage their appointments with doctors, featuring administrative tools for scheduling, confirming, and canceling appointments, along with SMS notifications, all built using Next.js.
+> **Design note:** Joan is built with security-conscious defaults, but no code alone makes a deployment compliant. Compliance readiness — including HIPAA, GDPR, or local health-data rules — depends on your infrastructure, policies, contracts, and review.
 
-If you're getting started and need assistance or face any bugs, join our active Discord community with over **34k+** members. It's a place where people help each other out.
+---
 
-<a href="https://discord.com/invite/n6EdbFJ" target="_blank"><img src="https://github.com/sujatagunale/EasyRead/assets/151519281/618f4872-1e10-42da-8213-1d69e486d02e" /></a>
+## 🧩 Platform modules
 
-## <a name="tech-stack">⚙️ Tech Stack</a>
+The landing page module cards open detailed, keyboard-accessible dialogs. Each module is grounded in the same patient and tenant record model, so teams do not hand off context through spreadsheets or disconnected tools.
 
-- Next.js
-- Appwrite
-- Typescript
-- TailwindCSS
-- ShadCN
-- Twilio
+| Icon | Module | What it does | Key workflow |
+| :---: | --- | --- | --- |
+| 📅 | **Front desk flow** | Calendar booking, patient registration, arrival check-in, walk-ins, and a live queue. | Register → check in → assign to queue → consult |
+| 📋 | **Clinical command** | Consultation notes, diagnoses, vitals, patient history, results, and source-linked AI support. | Queue → consult → document → order → review |
+| 🔬 | **Diagnostic pipeline** | Lab orders with routine/urgent/STAT priority, technician worklists, abnormal flags, and sign-off. | Order → collect → analyze → verify → release |
+| 💊 | **Dispense hub** | Prescription validation, medication inventory, interaction/allergy alerts, and refill tracking. | Prescribe → validate → dispense → counsel → record |
+| 💳 | **Finance grid** | Encounter-based invoices, payment capture, insurance claims, reconciliation, and reporting. | Encounter → invoice → payment → claim → settlement |
+| ✨ | **Intelligence layer** | Tenant- and permission-scoped Copilot answers with sources, plus role-aware operational views. | Ask → ground → cite → review → decide |
 
-## <a name="features">🔋 Features</a>
+---
 
-👉 **Register as a Patient**: Users can sign up and create a personal profile as a patient.
+## 🎭 Role-specific workspaces
 
-👉 **Book a New Appointment with Doctor**: Patients can schedule appointments with doctors at their convenience and can book multiple appointments.
+Each role sees a workspace tuned to its responsibilities. Navigation, quick actions, and data access are enforced on the server — not just hidden in the UI.
 
-👉 **Manage Appointments on Admin Side**: Administrators can efficiently view and handle all scheduled appointments.
+| Icon | Role | Focus |
+| :---: | --- | --- |
+| 🛡️ | **Super Admin** | Platform-wide control, tenants, roles, feedback, system health, and billing. |
+| 🏥 | **Hospital Admin** | Facility oversight, staff, departments, workflow, security, and reporting. |
+| 🩺 | **Doctor** | Queues, consultations, records, lab orders, prescriptions, and analytics. |
+| ❤️ | **Nurse** | Vitals, care plans, medications, beds, ward handoffs, and queue movement. |
+| 🔬 | **Lab Technician** | Orders, sample status, result entry, quality control, and lab analytics. |
+| 💊 | **Pharmacist** | Dispensing, inventory, interactions, suppliers, and pharmacy analytics. |
+| 💰 | **Accountant** | Invoices, payments, claims, expenses, budgets, revenue, and reports. |
+| 📇 | **Receptionist** | Appointments, registration, check-in, waiting room, and queue operations. |
+| 🧑‍🤝‍🧑 | **Patient** | Appointments, records, results, prescriptions, bills, and feedback. |
+| 👶 | **Guardian** | Dependent appointments, records, results, vaccinations, and family oversight. |
 
-👉 **Confirm/Schedule Appointment from Admin Side**: Admins can confirm and set appointment times to ensure they are properly scheduled.
+---
 
-👉 **Cancel Appointment from Admin Side**: Administrators have the ability to cancel any appointment as needed.
+## 🔄 One continuous workflow
 
-👉 **Send SMS on Appointment Confirmation**: Patients receive SMS notifications to confirm their appointment details.
+`📅 Register & check in` → `🩺 Consult & document` → `🔬 Test & dispense` → `💳 Bill & reconcile`
 
-👉 **Complete Responsiveness**: The application works seamlessly on all device types and screen sizes.
+Every handoff retains clinical and operational context, with permissions checked at the API boundary and tenant boundaries applied to queries.
 
-👉 **File Upload Using Appwrite Storage**: Users can upload and store files securely within the app using Appwrite storage services.
+---
 
-👉 **Manage and Track Application Performance Using Sentry**: The application uses Sentry to monitor and track its performance and detect any errors.
+## 🖼️ Visual tour
 
-and many more, including code architecture and reusability
+Product artwork included in this repository:
 
-## <a name="quick-start">🤸 Quick Start</a>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <strong>Command center</strong><br />
+      <img src="public/assets/images/admin.png" width="420" alt="Joan command center" />
+    </td>
+    <td align="center" width="50%">
+      <strong>Appointment flow</strong><br />
+      <img src="public/assets/images/appointment-img.png" width="420" alt="Joan appointment flow" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <strong>Registration flow</strong><br />
+      <img src="public/assets/images/register-img.png" width="420" alt="Joan patient registration flow" />
+    </td>
+    <td align="center" width="50%">
+      <strong>Onboarding flow</strong><br />
+      <img src="public/assets/images/onboarding-img.png" width="420" alt="Joan onboarding flow" />
+    </td>
+  </tr>
+</table>
 
-Follow these steps to set up the project locally on your machine.
+The landing interface itself is built from accessible, icon-driven React components using Lucide icons, responsive Tailwind grids, and a light/dark/system theme toggle.
 
-**Prerequisites**
+---
 
-Make sure you have the following installed on your machine:
+## ✨ Grounded AI Copilot
 
-- [Git](https://git-scm.com/)
-- [Node.js](https://nodejs.org/en)
-- [npm](https://www.npmjs.com/) (Node Package Manager)
+The Copilot is designed to assist clinicians — not replace clinical judgment.
 
-**Cloning the Repository**
+- **Tenant-scoped:** context is restricted to the authenticated doctor's tenant.
+- **Permission-aware:** server-side checks decide which records may be read.
+- **Source-linked:** answers include allowlisted references the clinician can inspect.
+- **Review-first:** responses are framed as drafts for clinician review.
+- **Local-only insertion:** “Add to note” places text in the local editor; it never silently writes to a clinical record.
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/api/copilot/query` | `POST` | Free-form, grounded clinical question. |
+| `/api/copilot/handoff` | `POST` | Grounded shift/handoff summary. |
+| `/api/copilot/insight` | `POST` | Focused insight for a selected patient or context. |
+| `/api/copilot/overview` | `GET` | Safe overview context for the Copilot panel. |
+| `/api/ai/summary/[id]` | `GET` | Legacy patient summary wrapper around the grounded service. |
+
+`OPENAI_API_KEY` is server-only and must never be prefixed with `NEXT_PUBLIC_`.
+
+---
+
+## 🛡️ Security and isolation model
+
+| Guardrail | Implementation |
+| --- | --- |
+| 🔐 Role-based access | Permissions and session checks are enforced in route handlers and tenant-scoped services. |
+| 🏗️ Tenant isolation | Queries are bounded to the active hospital or care group; cross-tenant reads are rejected. |
+| 🧾 Audit trails | Operational and sensitive events are written to audit/activity logs for review. |
+| 🎛️ Module controls | Tenant preferences can enable or disable capabilities to match local workflows. |
+| 🧩 Input validation | Public endpoints use schema validation; invalid submissions return `400`. |
+| ⏱️ Rate limiting | Copilot requests are rate-limited per user/session. |
+
+This is a security posture description, not a certification or legal compliance claim.
+
+---
+
+## 🔌 Integrations
+
+`✨ OpenAI` · `⚡ Socket.IO` · `📱 Twilio` · `✉️ Resend` · `💳 Stripe` · `🧩 REST APIs` · `📊 Sentry` · `🔍 Vercel Analytics`
+
+- **OpenAI** powers the grounded Copilot using `gpt-4o-mini` by default; override with server-only `OPENAI_MODEL`.
+- **Socket.IO** supports real-time queue and notification updates.
+- **Twilio** sends SMS notifications.
+- **Resend** handles transactional email and contact routing.
+- **Stripe** supports payment tooling.
+- **Sentry**, Vercel Analytics, and Speed Insights provide runtime observability.
+
+---
+
+## ⚙️ Tech stack
+
+- **Framework:** Next.js 16 App Router, React 18
+- **Language:** TypeScript
+- **Styling:** Tailwind CSS, Radix primitives, Lucide icons
+- **Data:** PostgreSQL with Drizzle ORM and Neon serverless driver
+- **Auth:** Better Auth with role and permission checks
+- **State/data:** TanStack Query, TanStack Table, Zustand
+- **Realtime:** Socket.IO, Redis
+- **AI:** OpenAI SDK with grounded service layer
+- **Observability:** Sentry, Vercel Analytics, Speed Insights
+- **Messaging/payments:** Twilio, Resend, Stripe
+
+---
+
+## 🚀 Quick start
+
+### Prerequisites
+
+- Node.js `>=18`
+- npm `>=9`
+- Git
+- A PostgreSQL connection string (Neon works well)
+- Optional: Redis, OpenAI, Twilio, Resend, and Stripe credentials
+
+### Clone and install
 
 ```bash
-git clone https://github.com/adrianhajdin/healthcare.git
-cd healthcare
-```
-
-**Installation**
-
-Install the project dependencies using npm:
-
-```bash
+git clone https://github.com/isthatleo/joan.git
+cd joan
 npm install
 ```
 
-**Set Up Environment Variables**
+### Configure environment variables
 
-Create a new file named `.env.local` in the root of your project and add the following content:
+Create your local env file outside version control. Do **not** commit secrets or expose server keys with `NEXT_PUBLIC_`.
 
-```env
-#APPWRITE
-NEXT_PUBLIC_ENDPOINT=https://cloud.appwrite.io/v1
-PROJECT_ID=
-API_KEY=
-DATABASE_ID=
-PATIENT_COLLECTION_ID=
-APPOINTMENT_COLLECTION_ID=
-NEXT_PUBLIC_BUCKET_ID=
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `DATABASE_URL` | Yes | PostgreSQL/Neon connection string. |
+| `BETTER_AUTH_SECRET` | Yes | Use a long random value in production. |
+| `BETTER_AUTH_URL` | Yes | Canonical auth URL. |
+| `NEXT_PUBLIC_APP_URL` | Yes | Public app URL used in links and callbacks. |
+| `OPENAI_API_KEY` | For Copilot | **Server-only.** Never expose to the browser. |
+| `OPENAI_MODEL` | No | Defaults to `gpt-4o-mini`. |
+| `INTEGRATIONS_ENCRYPTION_KEY` | For encrypted integrations | Base64 key used by the integration crypto helpers. |
+| `REDIS_URL` | No | Defaults to `redis://localhost:6379`. |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | For SMS | Twilio credentials. |
+| `RESEND_API_KEY`, `EMAIL_FROM` | For email | Resend credentials and sender. |
+| `NEXT_PUBLIC_SOCKET_URL` | For realtime | Socket server URL. |
 
-NEXT_PUBLIC_ADMIN_PASSKEY=111111
-```
-
-Replace the placeholder values with your actual Appwrite credentials. You can obtain these credentials by signing up on the [Appwrite website](https://appwrite.io/).
-
-**Running the Project**
+### Prepare the database and start
 
 ```bash
+# Push the Drizzle schema, initialize core data, and seed the first super admin
+npm run setup
+
+# Start Next.js
 npm run dev
+
+# Optional: start the standalone WebSocket server
+npm run dev:socket
 ```
 
-Open [https://joanhealth.tech/](https://joanhealth.tech/) in your browser to view the project.
+Open `http://localhost:3000`.
 
-## <a name="snippets">🕸️ Snippets</a>
+---
 
-<details>
-<summary><code>tailwind.config.ts</code></summary>
+## 🧪 Validation and release checks
 
-```typescript
-import type { Config } from "tailwindcss";
+Run these before opening a pull request or shipping:
 
-const { fontFamily } = require("tailwindcss/defaultTheme");
-
-const config = {
-  darkMode: ["class"],
-  content: [
-    "./pages/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
-    "./app/**/*.{ts,tsx}",
-    "./src/**/*.{ts,tsx}",
-  ],
-  prefix: "",
-  theme: {
-    container: {
-      center: true,
-      padding: "2rem",
-      screens: {
-        "2xl": "1400px",
-      },
-    },
-    extend: {
-      colors: {
-        green: {
-          500: "#24AE7C",
-          600: "#0D2A1F",
-        },
-        blue: {
-          500: "#79B5EC",
-          600: "#152432",
-        },
-        red: {
-          500: "#F37877",
-          600: "#3E1716",
-          700: "#F24E43",
-        },
-        light: {
-          200: "#E8E9E9",
-        },
-        dark: {
-          200: "#0D0F10",
-          300: "#131619",
-          400: "#1A1D21",
-          500: "#363A3D",
-          600: "#76828D",
-          700: "#ABB8C4",
-        },
-      },
-      fontFamily: {
-        sans: ["var(--font-sans)", ...fontFamily.sans],
-      },
-      backgroundImage: {
-        appointments: "url('/assets/images/appointments-bg.png')",
-        pending: "url('/assets/images/pending-bg.png')",
-        cancelled: "url('/assets/images/cancelled-bg.png')",
-      },
-      keyframes: {
-        "accordion-down": {
-          from: { height: "0" },
-          to: { height: "var(--radix-accordion-content-height)" },
-        },
-        "accordion-up": {
-          from: { height: "var(--radix-accordion-content-height)" },
-          to: { height: "0" },
-        },
-        "caret-blink": {
-          "0%,70%,100%": { opacity: "1" },
-          "20%,50%": { opacity: "0" },
-        },
-      },
-      animation: {
-        "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out",
-        "caret-blink": "caret-blink 1.25s ease-out infinite",
-      },
-    },
-  },
-  plugins: [require("tailwindcss-animate")],
-} satisfies Config;
-
-export default config;
+```bash
+npm run type-check
+npm run lint -- --quiet
+npm run test:accountant
+npm run verify:e2e:smoke
+npm run build
 ```
 
-</details>
+The combined release gate is:
 
-<details>
-<summary><code>app/globals.css</code></summary>
-
-```css
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* ========================================== TAILWIND STYLES */
-@layer base {
-  /* Remove scrollbar */
-  .remove-scrollbar::-webkit-scrollbar {
-    width: 0px;
-    height: 0px;
-    border-radius: 0px;
-  }
-
-  .remove-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .remove-scrollbar::-webkit-scrollbar-thumb {
-    background: transparent;
-    border-radius: 0px;
-  }
-
-  .remove-scrollbar::-webkit-scrollbar-thumb:hover {
-    /* background: #1e2238; */
-    background: transparent;
-  }
-}
-
-@layer utilities {
-  /* ===== UTILITIES */
-  .sidebar {
-    @apply remove-scrollbar w-full max-w-72 flex-col overflow-auto bg-black-800 px-7 py-10;
-  }
-
-  .left-sidebar {
-    @apply hidden lg:flex;
-  }
-
-  .right-sidebar {
-    @apply hidden xl:flex;
-  }
-
-  .clip-text {
-    @apply bg-clip-text text-transparent;
-  }
-
-  .bg-image {
-    @apply bg-black-900 bg-light-rays bg-cover bg-no-repeat;
-  }
-
-  .header {
-    @apply text-32-bold md:text-36-bold;
-  }
-
-  .sub-header {
-    @apply text-18-bold md:text-24-bold;
-  }
-
-  .container {
-    @apply relative flex-1 overflow-y-auto px-[5%];
-  }
-
-  .sub-container {
-    @apply mx-auto flex size-full flex-col py-10;
-  }
-
-  .side-img {
-    @apply hidden h-full object-cover md:block;
-  }
-
-  .copyright {
-    @apply text-14-regular justify-items-end text-center text-dark-600 xl:text-left;
-  }
-
-  /* ==== SUCCESS */
-  .success-img {
-    @apply m-auto flex flex-1 flex-col items-center justify-between gap-10 py-10;
-  }
-
-  .request-details {
-    @apply flex w-full flex-col items-center gap-8 border-y-2 border-dark-400 py-8 md:w-fit md:flex-row;
-  }
-
-  /* ===== ADMIN */
-  .admin-header {
-    @apply sticky top-3 z-20 mx-3 flex items-center justify-between rounded-2xl bg-dark-200 px-[5%] py-5 shadow-lg xl:px-12;
-  }
-
-  .admin-main {
-    @apply flex flex-col items-center space-y-6 px-[5%] pb-12 xl:space-y-12 xl:px-12;
-  }
-
-  .admin-stat {
-    @apply flex w-full flex-col justify-between gap-5 sm:flex-row xl:gap-10;
-  }
-
-  /* ==== FORM */
-  .radio-group {
-    @apply flex h-full flex-1 items-center gap-2 rounded-md border border-dashed border-dark-500 bg-dark-400 p-3;
-  }
-
-  .checkbox-label {
-    @apply cursor-pointer text-sm font-medium text-dark-700 peer-disabled:cursor-not-allowed peer-disabled:opacity-70 md:leading-none;
-  }
-
-  /* ==== File Upload */
-  .file-upload {
-    @apply text-12-regular flex cursor-pointer  flex-col items-center justify-center gap-3 rounded-md border border-dashed border-dark-500 bg-dark-400 p-5;
-  }
-
-  .file-upload_label {
-    @apply flex flex-col justify-center gap-2 text-center text-dark-600;
-  }
-
-  /* ==== Stat Card */
-  .stat-card {
-    @apply flex flex-1 flex-col gap-6 rounded-2xl bg-cover p-6 shadow-lg;
-  }
-
-  /* ==== Status Badge */
-  .status-badge {
-    @apply flex w-fit items-center gap-2 rounded-full px-4 py-2;
-  }
-
-  /* Data Table */
-  .data-table {
-    @apply z-10 w-full overflow-hidden rounded-lg border border-dark-400 shadow-lg;
-  }
-
-  .table-actions {
-    @apply flex w-full items-center justify-between space-x-2 p-4;
-  }
-
-  /* ===== ALIGNMENTS */
-  .flex-center {
-    @apply flex items-center justify-center;
-  }
-
-  .flex-between {
-    @apply flex items-center justify-between;
-  }
-
-  /* ===== TYPOGRAPHY */
-  .text-36-bold {
-    @apply text-[36px] leading-[40px] font-bold;
-  }
-
-  .text-24-bold {
-    @apply text-[24px] leading-[28px] font-bold;
-  }
-
-  .text-32-bold {
-    @apply text-[32px] leading-[36px] font-bold;
-  }
-
-  .text-18-bold {
-    @apply text-[18px] leading-[24px] font-bold;
-  }
-
-  .text-16-semibold {
-    @apply text-[16px] leading-[20px] font-semibold;
-  }
-
-  .text-16-regular {
-    @apply text-[16px] leading-[20px] font-normal;
-  }
-
-  .text-14-medium {
-    @apply text-[14px] leading-[18px] font-medium;
-  }
-
-  .text-14-regular {
-    @apply text-[14px] leading-[18px] font-normal;
-  }
-
-  .text-12-regular {
-    @apply text-[12px] leading-[16px] font-normal;
-  }
-
-  .text-12-semibold {
-    @apply text-[12px] leading-[16px] font-semibold;
-  }
-
-  /* =====  SHADCN OVERRIDES */
-  .shad-primary-btn {
-    @apply bg-green-500 text-white !important;
-  }
-
-  .shad-danger-btn {
-    @apply bg-red-700 text-white !important;
-  }
-
-  .shad-gray-btn {
-    @apply border border-dark-500 cursor-pointer bg-dark-400 text-white !important;
-  }
-
-  .shad-input-label {
-    @apply text-14-medium text-dark-700 !important;
-  }
-
-  .shad-input {
-    @apply bg-dark-400 placeholder:text-dark-600 border-dark-500 h-11 focus-visible:ring-0 focus-visible:ring-offset-0 !important;
-  }
-
-  .shad-input-icon {
-    @apply bg-dark-400 placeholder:text-dark-600 border-dark-500 h-11 focus-visible:ring-0 focus-visible:ring-offset-0 !important;
-  }
-
-  .shad-textArea {
-    @apply bg-dark-400 placeholder:text-dark-600 border-dark-500 focus-visible:ring-0 focus-visible:ring-offset-0 !important;
-  }
-
-  .shad-combobox-item {
-    @apply data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 !important;
-  }
-
-  .shad-combobox-trigger {
-    @apply h-11 !important;
-  }
-
-  .shad-select-trigger {
-    @apply bg-dark-400  placeholder:text-dark-600 border-dark-500 h-11 focus:ring-0 focus:ring-offset-0 !important;
-  }
-
-  .shad-select-content {
-    @apply bg-dark-400 border-dark-500 !important;
-  }
-
-  .shad-dialog {
-    @apply bg-dark-400 border-dark-500 !important;
-  }
-
-  .shad-dialog button {
-    @apply focus:ring-0 focus:ring-offset-0 focus-visible:border-none focus-visible:outline-none focus-visible:ring-transparent focus-visible:ring-offset-0 !important;
-  }
-
-  .shad-error {
-    @apply text-red-400 !important;
-  }
-
-  .shad-table {
-    @apply rounded-lg overflow-hidden !important;
-  }
-
-  .shad-table-row-header {
-    @apply border-b border-dark-400 text-light-200 hover:bg-transparent !important;
-  }
-
-  .shad-table-row {
-    @apply border-b border-dark-400 text-light-200 !important;
-  }
-
-  .shad-otp {
-    @apply w-full flex justify-between !important;
-  }
-
-  .shad-otp-slot {
-    @apply text-36-bold justify-center flex border border-dark-500 rounded-lg size-16 gap-4 !important;
-  }
-
-  .shad-alert-dialog {
-    @apply space-y-5 bg-dark-400 border-dark-500 outline-none !important;
-  }
-
-  .shad-sheet-content button {
-    @apply top-2 focus:ring-0 focus:ring-offset-0 focus-visible:border-none focus-visible:outline-none focus-visible:ring-transparent focus-visible:ring-offset-0 !important;
-  }
-
-  /* =====  REACT PHONE NUMBER INPUT OVERRIDES */
-  .input-phone {
-    @apply mt-2 h-11 rounded-md px-3 text-sm border bg-dark-400 placeholder:text-dark-600 border-dark-500 !important;
-  }
-
-  /* =====  REACT DATE PICKER OVERRIDES */
-  .date-picker {
-    @apply overflow-hidden border-transparent w-full placeholder:text-dark-600  h-11 text-14-medium rounded-md px-3 outline-none !important;
-  }
-}
-
-/* =====  REACT-DATEPICKER OVERRIDES */
-.react-datepicker-wrapper.date-picker {
-  display: flex;
-  align-items: center;
-}
-
-.react-datepicker,
-.react-datepicker__time,
-.react-datepicker__header,
-.react-datepicker__current-month,
-.react-datepicker__day-name,
-.react-datepicker__day,
-.react-datepicker-time__header {
-  background-color: #1a1d21 !important;
-  border-color: #363a3d !important;
-  color: #abb8c4 !important;
-}
-
-.react-datepicker__current-month,
-.react-datepicker__day-name,
-.react-datepicker-time__header {
-  color: #ffffff !important;
-}
-
-.react-datepicker__triangle {
-  fill: #1a1d21 !important;
-  color: #1a1d21 !important;
-  stroke: #1a1d21 !important;
-}
-
-.react-datepicker__time-list-item:hover {
-  background-color: #363a3d !important;
-}
-
-.react-datepicker__input-container input {
-  background-color: #1a1d21 !important;
-  width: 100%;
-  outline: none;
-}
-
-.react-datepicker__day--selected {
-  background-color: #24ae7c !important;
-  color: #ffffff !important;
-  border-radius: 4px;
-}
-
-.react-datepicker__time-list-item--selected {
-  background-color: #24ae7c !important;
-}
-
-.react-datepicker__time-container {
-  border-left: 1px solid #363a3d !important;
-}
-
-.react-datepicker__time-list-item {
-  display: flex !important;
-  align-items: center !important;
-}
-
-/* =====  REACT PHONE NUMBER INPUT OVERRIDES */
-.PhoneInputInput {
-  outline: none;
-  margin-left: 4px;
-  background: #1a1d21;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.PhoneInputInput::placeholder {
-  color: #1a1d21;
-}
+```bash
+npm run verify:ship
 ```
 
-</details>
+Useful operational scripts:
 
-<details>
-<summary><code>types/index.d.ts</code></summary>
-
-```typescript
-/* eslint-disable no-unused-vars */
-
-declare type SearchParamProps = {
-  params: { [key: string]: string };
-  searchParams: { [key: string]: string | string[] | undefined };
-};
-
-declare type Gender = "Male" | "Female" | "Other";
-declare type Status = "pending" | "scheduled" | "cancelled";
-
-declare interface CreateUserParams {
-  name: string;
-  email: string;
-  phone: string;
-}
-declare interface User extends CreateUserParams {
-  $id: string;
-}
-
-declare interface RegisterUserParams extends CreateUserParams {
-  userId: string;
-  birthDate: Date;
-  gender: Gender;
-  address: string;
-  occupation: string;
-  emergencyContactName: string;
-  emergencyContactNumber: string;
-  primaryPhysician: string;
-  insuranceProvider: string;
-  insurancePolicyNumber: string;
-  allergies: string | undefined;
-  currentMedication: string | undefined;
-  familyMedicalHistory: string | undefined;
-  pastMedicalHistory: string | undefined;
-  identificationType: string | undefined;
-  identificationNumber: string | undefined;
-  identificationDocument: FormData | undefined;
-  privacyConsent: boolean;
-}
-
-declare type CreateAppointmentParams = {
-  userId: string;
-  patient: string;
-  primaryPhysician: string;
-  reason: string;
-  schedule: Date;
-  status: Status;
-  note: string | undefined;
-};
-
-declare type UpdateAppointmentParams = {
-  appointmentId: string;
-  userId: string;
-  appointment: Appointment;
-  type: string;
-};
+```bash
+npm run db:generate   # Generate Drizzle migrations
+npm run db:push       # Push schema changes
+npm run db:studio     # Inspect the database
+npm run user:unlock   # Unlock a user account
+npm run tenant:repair-admin # Repair a tenant admin assignment
 ```
 
-</details>
+---
 
-<details>
-<summary><code>types/appwrite.types.ts</code></summary>
+## 📁 Repository map
 
-```typescript
-import { Models } from "node-appwrite";
-
-export interface Patient extends Models.Document {
-  userId: string;
-  name: string;
-  email: string;
-  phone: string;
-  birthDate: Date;
-  gender: Gender;
-  address: string;
-  occupation: string;
-  emergencyContactName: string;
-  emergencyContactNumber: string;
-  primaryPhysician: string;
-  insuranceProvider: string;
-  insurancePolicyNumber: string;
-  allergies: string | undefined;
-  currentMedication: string | undefined;
-  familyMedicalHistory: string | undefined;
-  pastMedicalHistory: string | undefined;
-  identificationType: string | undefined;
-  identificationNumber: string | undefined;
-  identificationDocument: FormData | undefined;
-  privacyConsent: boolean;
-}
-
-export interface Appointment extends Models.Document {
-  patient: Patient;
-  schedule: Date;
-  status: Status;
-  primaryPhysician: string;
-  reason: string;
-  note: string;
-  userId: string;
-  cancellationReason: string | null;
-}
+```text
+joan/
+├── app/
+│   ├── (dashboard)/        # Role-specific dashboards
+│   ├── api/                # Route handlers, auth, Copilot, tenant APIs
+│   ├── docs/               # Public documentation
+│   ├── login/              # Authentication entry
+│   ├── master/             # Super-admin entry
+│   ├── tenant/[slug]/      # Tenant-scoped workspaces
+│   └── page.tsx            # Public marketing landing page
+├── components/
+│   ├── marketing/          # Landing, legal, contact, module explorer, theme toggle
+│   ├── copilot/            # Grounded Copilot panel
+│   ├── theme/              # Theme provider
+│   └── ui/                 # Reusable interface primitives
+├── hooks/                  # Custom React hooks
+├── lib/
+│   ├── auth/               # Auth and RBAC helpers
+│   ├── copilot/            # Grounding, context, and source logic
+│   ├── db/                 # Drizzle schema and client
+│   ├── services/           # Business logic
+│   └── ws-server.ts        # Socket.IO server
+├── public/
+│   ├── assets/icons/       # Logo and interface icons
+│   └── assets/images/      # Product artwork used in this README
+├── scripts/                # Release and repair scripts
+├── stores/                 # Zustand stores
+├── middleware.ts           # Auth and tenant routing middleware
+└── package.json
 ```
 
-</details>
+---
 
-<details>
-<summary><code>lib/utils.ts</code></summary>
+## 🧭 Route map
 
-```typescript
-import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+### Public
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+| Route | Purpose |
+| --- | --- |
+| `/` | Marketing landing page with module explorer and theme toggle. |
+| `/contact` | Detailed contact routing to the super-admin feedback queue. |
+| `/docs` | Platform and API documentation. |
+| `/privacy`, `/terms`, `/refund`, `/cookie` | Legal pages. |
+| `/security`, `/accessibility` | Security and accessibility information. |
+| `/login`, `/master` | Authentication entry points. |
 
-export const parseStringify = (value: any) => JSON.parse(JSON.stringify(value));
+### Application
 
-export const convertFileToUrl = (file: File) => URL.createObjectURL(file);
+| Route pattern | Purpose |
+| --- | --- |
+| `/dashboard` | Role-switching dashboard shell. |
+| `/doctor`, `/nurse`, `/reception`, `/pharmacist`, `/accountant`, etc. | Legacy/global role workspaces. |
+| `/tenant/[slug]/...` | Tenant-scoped role workspaces and APIs. |
+| `/super-admin/...` | Platform administration. |
+| `/api/copilot/...` | Grounded Copilot endpoints. |
+| `/api/contact` | Validated public contact submission endpoint. |
 
-// FORMAT DATE TIME
-export const formatDateTime = (dateString: Date | string) => {
-  const dateTimeOptions: Intl.DateTimeFormatOptions = {
-    // weekday: "short", // abbreviated weekday name (e.g., 'Mon')
-    month: "short", // abbreviated month name (e.g., 'Oct')
-    day: "numeric", // numeric day of the month (e.g., '25')
-    year: "numeric", // numeric year (e.g., '2023')
-    hour: "numeric", // numeric hour (e.g., '8')
-    minute: "numeric", // numeric minute (e.g., '30')
-    hour12: true, // use 12-hour clock (true) or 24-hour clock (false)
-  };
+---
 
-  const dateDayOptions: Intl.DateTimeFormatOptions = {
-    weekday: "short", // abbreviated weekday name (e.g., 'Mon')
-    year: "numeric", // numeric year (e.g., '2023')
-    month: "2-digit", // abbreviated month name (e.g., 'Oct')
-    day: "2-digit", // numeric day of the month (e.g., '25')
-  };
+## 📚 Documentation
 
-  const dateOptions: Intl.DateTimeFormatOptions = {
-    month: "short", // abbreviated month name (e.g., 'Oct')
-    year: "numeric", // numeric year (e.g., '2023')
-    day: "numeric", // numeric day of the month (e.g., '25')
-  };
+- [Quick start guide](QUICKSTART.md)
+- [Quick reference](QUICK_REFERENCE.md)
+- [Super admin overview](SUPER_ADMIN_COMPLETE.md)
+- [In-app documentation](https://joanhealth.tech/docs)
 
-  const timeOptions: Intl.DateTimeFormatOptions = {
-    hour: "numeric", // numeric hour (e.g., '8')
-    minute: "numeric", // numeric minute (e.g., '30')
-    hour12: true, // use 12-hour clock (true) or 24-hour clock (false)
-  };
+---
 
-  const formattedDateTime: string = new Date(dateString).toLocaleString(
-    "en-US",
-    dateTimeOptions
-  );
+## 🤝 Contributing
 
-  const formattedDateDay: string = new Date(dateString).toLocaleString(
-    "en-US",
-    dateDayOptions
-  );
+1. Create a focused branch from `main`.
+2. Keep server-side authorization and tenant checks in place for any new data access.
+3. Never add secrets to the repository or prefix server keys with `NEXT_PUBLIC_`.
+4. Run the validation commands above.
+5. Open a pull request with a clear description of behavior and affected routes.
 
-  const formattedDate: string = new Date(dateString).toLocaleString(
-    "en-US",
-    dateOptions
-  );
+---
 
-  const formattedTime: string = new Date(dateString).toLocaleString(
-    "en-US",
-    timeOptions
-  );
+## 📞 Support
 
-  return {
-    dateTime: formattedDateTime,
-    dateDay: formattedDateDay,
-    dateOnly: formattedDate,
-    timeOnly: formattedTime,
-  };
-};
+Questions, demos, or deployment help:
 
-export function encryptKey(passkey: string) {
-  return btoa(passkey);
-}
+- <a href="mailto:support@joan.health">support@joan.health</a>
+- <a href="https://joanhealth.tech/contact" target="_blank">Contact page</a>
+- <a href="https://joanhealth.tech/docs" target="_blank">Documentation</a>
 
-export function decryptKey(passkey: string) {
-  return atob(passkey);
-}
-```
-
-</details>
-
-<details>
-<summary><code>lib/validation.ts</code></summary>
-
-```typescript
-import { z } from "zod";
-
-export const UserFormValidation = z.object({
-  name: z
-    .string()
-    .min(2, "Name must be at least 2 characters")
-    .max(50, "Name must be at most 50 characters"),
-  email: z.string().email("Invalid email address"),
-  phone: z
-    .string()
-    .refine((phone) => /^\+\d{10,15}$/.test(phone), "Invalid phone number"),
-});
-
-export const PatientFormValidation = z.object({
-  name: z
-    .string()
-    .min(2, "Name must be at least 2 characters")
-    .max(50, "Name must be at most 50 characters"),
-  email: z.string().email("Invalid email address"),
-  phone: z
-    .string()
-    .refine((phone) => /^\+\d{10,15}$/.test(phone), "Invalid phone number"),
-  birthDate: z.coerce.date(),
-  gender: z.enum(["Male", "Female", "Other"]),
-  address: z
-    .string()
-    .min(5, "Address must be at least 5 characters")
-    .max(500, "Address must be at most 500 characters"),
-  occupation: z
-    .string()
-    .min(2, "Occupation must be at least 2 characters")
-    .max(500, "Occupation must be at most 500 characters"),
-  emergencyContactName: z
-    .string()
-    .min(2, "Contact name must be at least 2 characters")
-    .max(50, "Contact name must be at most 50 characters"),
-  emergencyContactNumber: z
-    .string()
-    .refine(
-      (emergencyContactNumber) => /^\+\d{10,15}$/.test(emergencyContactNumber),
-      "Invalid phone number"
-    ),
-  primaryPhysician: z.string().min(2, "Select at least one doctor"),
-  insuranceProvider: z
-    .string()
-    .min(2, "Insurance name must be at least 2 characters")
-    .max(50, "Insurance name must be at most 50 characters"),
-  insurancePolicyNumber: z
-    .string()
-    .min(2, "Policy number must be at least 2 characters")
-    .max(50, "Policy number must be at most 50 characters"),
-  allergies: z.string().optional(),
-  currentMedication: z.string().optional(),
-  familyMedicalHistory: z.string().optional(),
-  pastMedicalHistory: z.string().optional(),
-  identificationType: z.string().optional(),
-  identificationNumber: z.string().optional(),
-  identificationDocument: z.custom<File[]>().optional(),
-  treatmentConsent: z
-    .boolean()
-    .default(false)
-    .refine((value) => value === true, {
-      message: "You must consent to treatment in order to proceed",
-    }),
-  disclosureConsent: z
-    .boolean()
-    .default(false)
-    .refine((value) => value === true, {
-      message: "You must consent to disclosure in order to proceed",
-    }),
-  privacyConsent: z
-    .boolean()
-    .default(false)
-    .refine((value) => value === true, {
-      message: "You must consent to privacy in order to proceed",
-    }),
-});
-
-export const CreateAppointmentSchema = z.object({
-  primaryPhysician: z.string().min(2, "Select at least one doctor"),
-  schedule: z.coerce.date(),
-  reason: z
-    .string()
-    .min(2, "Reason must be at least 2 characters")
-    .max(500, "Reason must be at most 500 characters"),
-  note: z.string().optional(),
-  cancellationReason: z.string().optional(),
-});
-
-export const ScheduleAppointmentSchema = z.object({
-  primaryPhysician: z.string().min(2, "Select at least one doctor"),
-  schedule: z.coerce.date(),
-  reason: z.string().optional(),
-  note: z.string().optional(),
-  cancellationReason: z.string().optional(),
-});
-
-export const CancelAppointmentSchema = z.object({
-  primaryPhysician: z.string().min(2, "Select at least one doctor"),
-  schedule: z.coerce.date(),
-  reason: z.string().optional(),
-  note: z.string().optional(),
-  cancellationReason: z
-    .string()
-    .min(2, "Reason must be at least 2 characters")
-    .max(500, "Reason must be at most 500 characters"),
-});
-
-export function getAppointmentSchema(type: string) {
-  switch (type) {
-    case "create":
-      return CreateAppointmentSchema;
-    case "cancel":
-      return CancelAppointmentSchema;
-    default:
-      return ScheduleAppointmentSchema;
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><code>constants/index.ts</code></summary>
-
-```typescript
-export const GenderOptions = ["Male", "Female", "Other"];
-
-export const PatientFormDefaultValues = {
-  firstName: "",
-  lastName: "",
-  email: "",
-  phone: "",
-  birthDate: new Date(Date.now()),
-  gender: "Male" as Gender,
-  address: "",
-  occupation: "",
-  emergencyContactName: "",
-  emergencyContactNumber: "",
-  primaryPhysician: "",
-  insuranceProvider: "",
-  insurancePolicyNumber: "",
-  allergies: "",
-  currentMedication: "",
-  familyMedicalHistory: "",
-  pastMedicalHistory: "",
-  identificationType: "Birth Certificate",
-  identificationNumber: "",
-  identificationDocument: [],
-  treatmentConsent: false,
-  disclosureConsent: false,
-  privacyConsent: false,
-};
-
-export const IdentificationTypes = [
-  "Birth Certificate",
-  "Driver's License",
-  "Medical Insurance Card/Policy",
-  "Military ID Card",
-  "National Identity Card",
-  "Passport",
-  "Resident Alien Card (Green Card)",
-  "Social Security Card",
-  "State ID Card",
-  "Student ID Card",
-  "Voter ID Card",
-];
-
-export const Doctors = [
-  {
-    image: "/assets/images/dr-green.png",
-    name: "John Green",
-  },
-  {
-    image: "/assets/images/dr-cameron.png",
-    name: "Leila Cameron",
-  },
-  {
-    image: "/assets/images/dr-livingston.png",
-    name: "David Livingston",
-  },
-  {
-    image: "/assets/images/dr-peter.png",
-    name: "Evan Peter",
-  },
-  {
-    image: "/assets/images/dr-powell.png",
-    name: "Jane Powell",
-  },
-  {
-    image: "/assets/images/dr-remirez.png",
-    name: "Alex Ramirez",
-  },
-  {
-    image: "/assets/images/dr-lee.png",
-    name: "Jasmine Lee",
-  },
-  {
-    image: "/assets/images/dr-cruz.png",
-    name: "Alyana Cruz",
-  },
-  {
-    image: "/assets/images/dr-sharma.png",
-    name: "Hardik Sharma",
-  },
-];
-
-export const StatusIcon = {
-  scheduled: "/assets/icons/check.svg",
-  pending: "/assets/icons/pending.svg",
-  cancelled: "/assets/icons/cancelled.svg",
-};
-```
-
-</details>
-
-## <a name="links">🔗 Assets</a>
-
-Public assets used in the project can be found [here](https://drive.google.com/file/d/1yGvWFeSaH1_-aiQ1gejT23lqz5979RKB/view?usp=sharing)
-
-## <a name="more">🚀 More</a>
-
-**Advance your skills with Next.js 14 Pro Course**
-
-Enjoyed creating this project? Dive deeper into our PRO courses for a richer learning adventure. They're packed with detailed explanations, cool features, and exercises to boost your skills. Give it a go!
-
-<a href="https://jsmastery.pro/next14" target="_blank">
-<img src="https://github.com/sujatagunale/EasyRead/assets/151519281/557837ce-f612-4530-ab24-189e75133c71" alt="Project Banner">
-</a>
-
-<br />
-<br />
-
-**Accelerate your professional journey with the Expert Training program**
-
-And if you're hungry for more than just a course and want to understand how we learn and tackle tech challenges, hop into our personalized masterclass. We cover best practices, different web skills, and offer mentorship to boost your confidence. Let's learn and grow together!
-
-<a href="https://www.jsmastery.pro/masterclass" target="_blank">
-<img src="https://github.com/sujatagunale/EasyRead/assets/151519281/fed352ad-f27b-400d-9b8f-c7fe628acb84" alt="Project Banner">
-</a>
-
-#
+<div align="center">
+  <br />
+  <img src="public/assets/icons/logo-icon.svg" width="38" alt="Joan icon" />
+  <br />
+  <sub>Built for connected care.</sub>
+</div>
