@@ -2,9 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
-  ArrowRight,
   Baby,
   Building2,
   DollarSign,
@@ -12,7 +11,6 @@ import {
   HeartPulse,
   Microscope,
   Pill,
-  ShieldCheck,
   Stethoscope,
   UserCheck,
   Users,
@@ -103,7 +101,6 @@ type TenantRoleLoginProps = {
   tenantId?: string | null;
   tenantName: string;
   backHref?: string;
-  audience?: "all" | "staff" | "admin";
 };
 
 export function formatTenantName(slug: string) {
@@ -126,10 +123,8 @@ export function TenantRoleLogin({
   slug,
   tenantId,
   tenantName,
-  backHref,
-  audience = "all",
+  backHref = "/login",
 }: TenantRoleLoginProps) {
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [email, setEmail] = useState("");
@@ -137,44 +132,25 @@ export function TenantRoleLogin({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const audienceParam = searchParams.get("audience");
-  const accessAudience = audienceParam === "patient-access";
+  const accessAudience = searchParams.get("audience") === "patient-access";
   const requestedRole = searchParams.get("role");
-  const mode: "all" | "staff" | "admin" =
-    audience === "all" && audienceParam === "staff"
-      ? "staff"
-      : audience === "all" && audienceParam === "admin"
-        ? "admin"
-        : audience;
-
-  const basePath = (pathname || "/").replace(/\/+$/, "") || "/";
-  const staffHref = `${basePath}?audience=staff`;
-  const adminHref = basePath === "/login" ? "/login/admin" : `${basePath}/admin`;
 
   const visibleRoles = useMemo(() => {
-    if (accessAudience) {
-      return ROLES.filter((role) => role.key === "patient" || role.key === "guardian");
+    if (!accessAudience) {
+      return ROLES;
     }
-    if (mode === "staff") {
-      return ROLES.filter((role) => role.key !== "hospital_admin");
-    }
-    if (mode === "admin") {
-      return ROLES.filter((role) => role.key === "hospital_admin");
-    }
-    return ROLES;
-  }, [accessAudience, mode]);
+
+    return ROLES.filter((role) => role.key === "patient" || role.key === "guardian");
+  }, [accessAudience]);
 
   useEffect(() => {
     try {
       document.cookie = `x-tenant-slug=${slug}; path=/; SameSite=Lax`;
       sessionStorage.setItem("active_tenant_slug", slug);
       sessionStorage.setItem("active_tenant_name", tenantName || formatTenantName(slug));
-      sessionStorage.removeItem("active_tenant_logo");
 
       if (tenantId) {
         sessionStorage.setItem("active_tenant_id", tenantId);
-      } else {
-        sessionStorage.removeItem("active_tenant_id");
       }
     } catch {}
   }, [slug, tenantId, tenantName]);
@@ -328,59 +304,12 @@ export function TenantRoleLogin({
   if (!selectedRole) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-subtle p-6">
-        {!accessAudience && mode !== "admin" ? (
-          <section className="mb-8 w-full max-w-5xl" aria-label="Access type">
-            <p className="mb-3 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Choose access type
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Link
-                href={staffHref}
-                className={`group flex items-center gap-4 rounded-2xl border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md ${
-                  mode === "staff" ? "border-primary/50 ring-2 ring-primary/15" : "border-border"
-                }`}
-              >
-                <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
-                  <Users className="size-5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-bold text-foreground">Staff</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    Doctors, nurses, lab, pharmacy, finance, front desk, patients, and guardians.
-                  </span>
-                </span>
-                <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-              </Link>
-
-              <Link
-                href={adminHref}
-                className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
-              >
-                <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600 dark:bg-orange-500/10 dark:text-orange-300">
-                  <ShieldCheck className="size-5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-bold text-foreground">Admins</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    Hospital admin workspace or the platform super admin console.
-                  </span>
-                </span>
-                <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-              </Link>
-            </div>
-          </section>
-        ) : null}
-
         <div className="mb-10 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg">
             <GraduationCap className="h-7 w-7" />
           </div>
           <h1 className="text-3xl font-bold text-foreground">{tenantName || "Hospital Login"}</h1>
-          <p className="mt-2 text-lg text-muted-foreground">
-            {mode === "staff"
-              ? "Select your staff role to continue"
-              : "Select your role to continue"}
-          </p>
+          <p className="mt-2 text-lg text-muted-foreground">Select your role to continue</p>
         </div>
 
         <div className="grid w-full max-w-5xl grid-cols-2 gap-3 md:grid-cols-3">
@@ -406,13 +335,10 @@ export function TenantRoleLogin({
           ))}
         </div>
 
-        {!accessAudience && mode !== "all" ? (
+        {!accessAudience ? (
           <div className="mt-8 flex flex-col items-center gap-3 text-sm">
-            <Link
-              href={backHref ?? basePath}
-              className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
-            >
-              {mode === "admin" ? "Back to admin options" : "Back to access options"}
+            <Link href={backHref} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
+              Back to Main Login
             </Link>
           </div>
         ) : null}

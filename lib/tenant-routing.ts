@@ -1,7 +1,6 @@
 import type { AppRole } from "@/lib/rbac";
 
 const FALLBACK_PRODUCTION_TENANT_DOMAINS = [
-  "joanhealth.tech",
   "joan.com",
   "joan.vercel.app",
   "joan-production.com",
@@ -22,26 +21,14 @@ function getProductionTenantDomains() {
   return domains.length ? domains : FALLBACK_PRODUCTION_TENANT_DOMAINS;
 }
 
-function getAppOrigin(originOverride?: string) {
-  if (originOverride) return originOverride;
+function getAppOrigin() {
   return process.env.NEXT_PUBLIC_APP_URL || process.env.BETTER_AUTH_URL || "https://joanhealth.tech/";
 }
 
 function getTenantRootDomain(base: URL) {
-  const configured = getProductionTenantDomains();
-  const domains = Array.from(
-    new Set([...configured, ...FALLBACK_PRODUCTION_TENANT_DOMAINS])
-  );
-
-  for (const domain of domains) {
-    if (base.hostname === domain || base.hostname.endsWith(`.${domain}`)) {
-      return domain;
-    }
-  }
-
-  const [primary] = configured;
-  if (primary && !FALLBACK_PRODUCTION_TENANT_DOMAINS.includes(primary)) {
-    return primary;
+  const [configured] = getProductionTenantDomains();
+  if (configured && !FALLBACK_PRODUCTION_TENANT_DOMAINS.includes(configured)) {
+    return configured;
   }
 
   const hostParts = base.hostname.split(".");
@@ -117,9 +104,9 @@ export function getTenantSubdomain(hostname?: string | null) {
   return null;
 }
 
-export function buildTenantUrl(slug: string, path = "/login", originOverride?: string) {
+export function buildTenantUrl(slug: string, path = "/login") {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const base = new URL(getAppOrigin(originOverride));
+  const base = new URL(getAppOrigin());
 
   if (base.hostname === "localhost") {
     return `${base.protocol}//${slug}.localhost:${base.port || "3000"}${normalizedPath}`;
@@ -136,11 +123,7 @@ export function buildTenantUrl(slug: string, path = "/login", originOverride?: s
   return `${base.protocol}//${slug}.${domain}${base.port ? `:${base.port}` : ""}${normalizedPath}`;
 }
 
-export function buildTenantLoginUrl(
-  slug: string,
-  params?: URLSearchParams | Record<string, string | undefined | null>,
-  originOverride?: string
-) {
+export function buildTenantLoginUrl(slug: string, params?: URLSearchParams | Record<string, string | undefined | null>) {
   const searchParams = params instanceof URLSearchParams ? params : new URLSearchParams();
   if (params && !(params instanceof URLSearchParams)) {
     Object.entries(params).forEach(([key, value]) => {
@@ -148,7 +131,7 @@ export function buildTenantLoginUrl(
     });
   }
   const query = searchParams.toString();
-  return buildTenantUrl(slug, `/login${query ? `?${query}` : ""}`, originOverride);
+  return buildTenantUrl(slug, `/login${query ? `?${query}` : ""}`);
 }
 
 export function isTenantSubdomainHost(hostname?: string | null, slug?: string | null) {

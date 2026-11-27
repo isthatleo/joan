@@ -381,7 +381,6 @@ Values below are references found in code. Set only what your deployment uses.
 | `BETTER_AUTH_ALLOWED_HOSTS` | Comma-separated allowed hosts for Better Auth. |
 | `NEXT_PUBLIC_ROOT_DOMAIN` | Root domain used by tenant-routing helpers. |
 | `NEXT_PUBLIC_TENANT_DOMAINS` | Configured tenant domains. |
-| `NEXT_PUBLIC_DEFAULT_TENANT_SLUG` | Optional override for the workspace used by public Sign in; falls back to the newest active tenant. |
 | `NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL` | Production URL exposed to the client. |
 | `ROOT_DOMAIN` | Root domain used by `proxy.ts`. |
 | `VERCEL_PROJECT_PRODUCTION_URL` | Vercel production URL used by `proxy.ts`. |
@@ -538,11 +537,10 @@ joan/
 | `/docs` | Platform and API documentation. |
 | `/privacy`, `/terms`, `/refund`, `/cookie` | Legal pages. |
 | `/security`, `/accessibility` | Security and accessibility information. |
-| `/login` | Redirects to the active tenant workspace login; the former global role grid was removed. |
+| `/login` | Primary role-based sign-in. |
 | `/master` | Super-admin entry. |
 | `/signup` | First-admin bootstrap; disabled after the first user exists. |
-| `/tenant-login/[slug]` | Public tenant login with Staff/Admins cards and the role selector. |
-| `/tenant-login/[slug]/admin` | Admin selector: Hospital Admin or Super Admin. |
+| `/tenant-login/[slug]` | Public tenant-specific role login. |
 | `/tenant/[slug]/...` | Tenant-scoped workspaces reached directly or via subdomain rewrite. |
 
 ### Application role homes

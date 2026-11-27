@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { ArrowUpRight, Mail } from "lucide-react";
 import { Logo } from "./Brand";
-import { TenantSignInLink } from "./TenantSignInLink";
 
 const FOOTER_COLUMNS = [
   {
@@ -84,10 +83,6 @@ export function MarketingFooter() {
                         {link.label}
                         <ArrowUpRight className="h-3 w-3" />
                       </a>
-                    ) : link.href === "/login" ? (
-                      <TenantSignInLink className="text-[12.5px] text-slate-400 transition-colors hover:text-white">
-                        {link.label}
-                      </TenantSignInLink>
                     ) : (
                       <Link
                         href={link.href}

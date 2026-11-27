@@ -58,7 +58,6 @@ function getProductionDomains() {
     process.env.ROOT_DOMAIN,
     process.env.VERCEL_PROJECT_PRODUCTION_URL,
     process.env.VERCEL_URL,
-    "joanhealth.tech",
     "joan.com",
     "joan.vercel.app",
     "joan-production.com",
@@ -66,7 +65,7 @@ function getProductionDomains() {
 
   return configured
     .flatMap((value) => String(value || "").split(","))
-    .map((value) => value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "").replace(/^\*\./, ""))
+    .map((value) => value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, ""))
     .filter(Boolean);
 }
 
