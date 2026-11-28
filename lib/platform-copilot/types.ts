@@ -1,6 +1,7 @@
 export const PLATFORM_CHAT_HISTORY_LIMIT = 8;
 export const PLATFORM_CHAT_MESSAGE_MAX_LENGTH = 1000;
 export const PLATFORM_CHAT_REQUEST_MAX_LENGTH = 500;
+export const PLATFORM_CHAT_SCOPE_VERSION = 1;
 
 export type PlatformCopilotSourceRef = {
   table: string;
@@ -46,6 +47,14 @@ export type PlatformChatMessage = {
   content: string;
 };
 
+/** Server-issued scope envelope; carries no transcript or prompt text. */
+export type PlatformChatSessionScope = {
+  version: typeof PLATFORM_CHAT_SCOPE_VERSION;
+  actorId: string;
+  access: "platform";
+  dataLayer: "platform_operations+read_only_clinical_metadata";
+};
+
 export type PlatformCopilotActor = {
   userId: string;
   email: string;
@@ -67,6 +76,8 @@ export type PlatformCopilotAnswer = {
   limitations: string[];
   generatedAt: string;
   scope: PlatformCopilotScope;
+  /** Present on chat responses; required to replay browser-session history. */
+  historyScope?: PlatformChatSessionScope;
 };
 
 export function platformSourceRefKey(ref: PlatformCopilotSourceRef): string {

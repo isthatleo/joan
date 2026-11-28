@@ -17,13 +17,16 @@ import {
 } from "lucide-react";
 import { useSessionChatState } from "@/hooks/use-session-chat";
 import { useTenantPath } from "@/hooks/useTenantPath";
+import { useAuthStore } from "@/stores/auth";
 import {
   COPILOT_CHAT_HISTORY_LIMIT,
+  COPILOT_CHAT_SCOPE_VERSION,
   DEFAULT_HANDOFF_QUESTION,
   DEFAULT_QUERY_PROMPT,
   sourceRefKey,
   type CopilotAnswer,
   type CopilotChatMessage,
+  type CopilotChatSessionScope,
   type CopilotHandoff,
   type CopilotNoteFocus,
   type CopilotNoteInsight,
@@ -49,7 +52,11 @@ type ChatMessage =
       createdAt: string;
     };
 
-type RetryState = { message: string; history: CopilotChatMessage[] };
+type RetryState = {
+  message: string;
+  history: CopilotChatMessage[];
+  scope?: CopilotChatSessionScope;
+};
 
 const MAX_STORED_MESSAGES = 20;
 
@@ -77,6 +84,20 @@ function createId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function isHistoryScope(value: unknown): value is CopilotChatSessionScope {
+  if (!value || typeof value !== "object") return false;
+  const scope = value as Partial<CopilotChatSessionScope>;
+  return (
+    scope.version === COPILOT_CHAT_SCOPE_VERSION &&
+    typeof scope.tenantId === "string" &&
+    typeof scope.userId === "string" &&
+    (scope.patientId === null || typeof scope.patientId === "string") &&
+    (scope.queueId === null || typeof scope.queueId === "string") &&
+    typeof scope.scopeToAssignee === "boolean" &&
+    Array.isArray(scope.allowedCategories)
+  );
+}
+
 function isCopilotAnswer(value: unknown): value is CopilotAnswer {
   if (!value || typeof value !== "object") return false;
   const answer = value as Partial<CopilotAnswer>;
@@ -86,7 +107,8 @@ function isCopilotAnswer(value: unknown): value is CopilotAnswer {
     Array.isArray(answer.keyPoints) &&
     Array.isArray(answer.sourceRefs) &&
     Array.isArray(answer.limitations) &&
-    Boolean(answer.scope)
+    Boolean(answer.scope) &&
+    (answer.historyScope === undefined || isHistoryScope(answer.historyScope))
   );
 }
 
@@ -124,6 +146,16 @@ function toApiHistory(messages: ChatMessage[]): CopilotChatMessage[] {
     );
 }
 
+function latestHistoryScope(messages: ChatMessage[]): CopilotChatSessionScope | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "assistant" && message.answer.historyScope) {
+      return message.answer.historyScope;
+    }
+  }
+  return undefined;
+}
+
 function priorityTone(priority: CopilotPriority): string {
   if (priority === "critical") return "bg-rose-500/10 text-rose-700 dark:text-rose-300";
   if (priority === "urgent") return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
@@ -157,7 +189,11 @@ function SourceChips({ refs }: { refs: CopilotSourceRef[] }) {
 
 export function CopilotPanel({ patientId, queueId, onAddToNote, variant = "full", sessionKey }: CopilotPanelProps) {
   const tenantPath = useTenantPath();
-  const storageKey = sessionKey || `copilot-chat:${patientId || "all"}:${queueId || "all"}`;
+  const { user } = useAuthStore();
+  const identity = user?.id || user?.email || "anonymous";
+  const tenant = user?.tenantId || user?.hospitalId || "global";
+  const storageKey =
+    sessionKey || `copilot-chat:${identity}:${tenant}:${patientId || "all"}:${queueId || "all"}`;
   const [messages, setMessages] = useSessionChatState<ChatMessage[]>(storageKey, [], sanitizeMessages);
   const [draft, setDraft] = useState("");
   const [question, setQuestion] = useState(DEFAULT_HANDOFF_QUESTION);
@@ -197,6 +233,7 @@ export function CopilotPanel({ patientId, queueId, onAddToNote, variant = "full"
     if (!message || isSending) return;
 
     const history = replay?.history ?? toApiHistory(messages);
+    const scope = replay?.scope ?? latestHistoryScope(messages);
     if (!replay) {
       setMessages((current) => [
         ...current,
@@ -212,6 +249,7 @@ export function CopilotPanel({ patientId, queueId, onAddToNote, variant = "full"
       const answer = await postJson<CopilotAnswer>("/api/copilot/chat", {
         message,
         history,
+        historyScope: scope,
         patientId,
         queueId,
       });
@@ -223,7 +261,7 @@ export function CopilotPanel({ patientId, queueId, onAddToNote, variant = "full"
     } catch (sendError) {
       const messageText = sendError instanceof Error ? sendError.message : "Copilot could not answer that request.";
       setError(messageText);
-      setRetry({ message, history });
+      setRetry({ message, history, scope });
       setMessages((current) => [
         ...current,
         { id: createId(), role: "error", content: messageText, createdAt: new Date().toISOString() },
@@ -261,8 +299,8 @@ export function CopilotPanel({ patientId, queueId, onAddToNote, variant = "full"
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {showHandoff
-              ? "Ask follow-ups about patients in your scope. Every turn is rebuilt from authorized records."
-              : "Ask about this patient or generate draft note text. Review everything before adding it to the note."}
+              ? "Ask follow-ups about patients in your scope. Every turn is rebuilt from authorized records; general medical questions are declined."
+              : "Ask about this patient or generate draft note text. Only authorized records are used; review before adding it to the note."}
           </p>
         </div>
         <button

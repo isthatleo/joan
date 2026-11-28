@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { roles, userRoles, users } from "@/lib/db/schema";
-import { and, eq, ilike, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { COPILOT_ACCESS_DENIED_MESSAGE, resolveCopilotAccess, type CopilotAccess } from "./access";
 import type { CopilotActor } from "./types";
 
@@ -13,34 +13,15 @@ type RequestContextResult =
   | { ok: true; actor: CopilotActor; access: CopilotAccess }
   | { ok: false; status: number; error: string };
 
-type ActorRow = {
-  id: string;
-  tenantId: string | null;
-  email: string;
-  fullName: string | null;
-  baseRole: string | null;
-  linkedRole: string | null;
-};
-
-function isDoctorRow(row: ActorRow): boolean {
-  return (
-    String(row.baseRole ?? "").trim().toLowerCase() === "doctor" ||
-    String(row.linkedRole ?? "").trim().toLowerCase() === "doctor"
-  );
-}
-
-function isSuperAdminRow(row: ActorRow): boolean {
-  return (
-    String(row.baseRole ?? "").trim().toLowerCase() === "super_admin" ||
-    String(row.linkedRole ?? "").trim().toLowerCase() === "super_admin"
-  );
+function normalizeRole(value: string | null | undefined): string {
+  return String(value ?? "").trim().toLowerCase();
 }
 
 /**
- * Resolves the signed-in app user from the Better Auth session. Copilot is
- * available to every active user with a tenant; `isDoctor` is returned so
- * routes can explicitly choose assignment scoping for doctors and tenant-only
- * scoping for everyone else.
+ * Resolves the signed-in app user from the Better Auth session. The link is
+ * the session-verified email, compared case-insensitively but as an exact
+ * value (no LIKE wildcards). More than one matching app user is rejected
+ * rather than guessed, so tenant scope can never be selected heuristically.
  */
 export async function resolveCopilotActor(headers: Headers): Promise<ActorResult> {
   const session = await auth.api.getSession({ headers }).catch(() => null);
@@ -55,46 +36,60 @@ export async function resolveCopilotActor(headers: Headers): Promise<ActorResult
       email: users.email,
       fullName: users.fullName,
       baseRole: users.role,
-      linkedRole: roles.name,
     })
     .from(users)
-    .leftJoin(userRoles, eq(userRoles.userId, users.id))
-    .leftJoin(roles, eq(roles.id, userRoles.roleId))
     .where(
       and(
-        ilike(users.email, session.user.email),
+        sql`lower(${users.email}) = lower(${session.user.email})`,
         isNull(users.deletedAt),
         eq(users.isActive, true)
       )
-    );
+    )
+    .limit(2);
 
-  // Prefer a tenant-scoped doctor row when duplicate app users share an email;
-  // that choice keeps doctor assignment scoping intact.
-  const tenantRows = rows.filter((row) => row.tenantId);
-  const activeUser = tenantRows.find(isDoctorRow) ?? tenantRows[0] ?? rows[0];
-
-  if (!activeUser) {
+  if (rows.length === 0) {
     return { ok: false, status: 403, error: "No active user account found for this session" };
   }
-  if (rows.some((row) => row.id === activeUser.id && isSuperAdminRow(row))) {
+  if (rows.length > 1) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Ambiguous account mapping. Ask your administrator to resolve duplicate user records.",
+    };
+  }
+
+  const appUser = rows[0];
+
+  const assignedRoles = await db
+    .select({ name: roles.name })
+    .from(userRoles)
+    .innerJoin(roles, eq(roles.id, userRoles.roleId))
+    .where(eq(userRoles.userId, appUser.id))
+    .catch(() => [] as Array<{ name: string | null }>);
+
+  const roleNames = new Set(
+    [appUser.baseRole, ...assignedRoles.map((role) => role.name)].map(normalizeRole)
+  );
+
+  if (roleNames.has("super_admin")) {
     return {
       ok: false,
       status: 403,
       error: "Platform super admins use Platform Copilot; clinical Copilot is tenant-scoped.",
     };
   }
-  if (!activeUser.tenantId) {
+  if (!appUser.tenantId) {
     return { ok: false, status: 403, error: "Tenant context required" };
   }
 
   return {
     ok: true,
     actor: {
-      userId: activeUser.id,
-      tenantId: activeUser.tenantId,
-      email: activeUser.email,
-      fullName: activeUser.fullName ?? null,
-      isDoctor: rows.some((row) => row.id === activeUser.id && isDoctorRow(row)),
+      userId: appUser.id,
+      tenantId: appUser.tenantId,
+      email: appUser.email,
+      fullName: appUser.fullName ?? null,
+      isDoctor: roleNames.has("doctor"),
     },
   };
 }

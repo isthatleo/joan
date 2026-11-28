@@ -12,10 +12,13 @@ import {
   Trash2,
 } from "lucide-react";
 import { useSessionChatState } from "@/hooks/use-session-chat";
+import { useAuthStore } from "@/stores/auth";
 import {
   PLATFORM_CHAT_HISTORY_LIMIT,
+  PLATFORM_CHAT_SCOPE_VERSION,
   platformSourceRefKey,
   type PlatformChatMessage,
+  type PlatformChatSessionScope,
   type PlatformCopilotAnswer,
   type PlatformCopilotSourceRef,
 } from "@/lib/platform-copilot/types";
@@ -29,7 +32,11 @@ type ChatMessage =
   | { id: string; role: "assistant"; answer: PlatformCopilotAnswer; createdAt: string }
   | { id: string; role: "error"; content: string; createdAt: string };
 
-type RetryState = { message: string; history: PlatformChatMessage[] };
+type RetryState = {
+  message: string;
+  history: PlatformChatMessage[];
+  scope?: PlatformChatSessionScope;
+};
 
 const MAX_STORED_MESSAGES = 20;
 const SUGGESTED_PROMPTS = [
@@ -56,6 +63,17 @@ function createId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function isHistoryScope(value: unknown): value is PlatformChatSessionScope {
+  if (!value || typeof value !== "object") return false;
+  const scope = value as Partial<PlatformChatSessionScope>;
+  return (
+    scope.version === PLATFORM_CHAT_SCOPE_VERSION &&
+    typeof scope.actorId === "string" &&
+    scope.access === "platform" &&
+    scope.dataLayer === "platform_operations+read_only_clinical_metadata"
+  );
+}
+
 function isPlatformAnswer(value: unknown): value is PlatformCopilotAnswer {
   if (!value || typeof value !== "object") return false;
   const answer = value as Partial<PlatformCopilotAnswer>;
@@ -65,7 +83,8 @@ function isPlatformAnswer(value: unknown): value is PlatformCopilotAnswer {
     Array.isArray(answer.keyPoints) &&
     Array.isArray(answer.sourceRefs) &&
     Array.isArray(answer.limitations) &&
-    Boolean(answer.scope)
+    Boolean(answer.scope) &&
+    (answer.historyScope === undefined || isHistoryScope(answer.historyScope))
   );
 }
 
@@ -113,6 +132,16 @@ function toApiHistory(messages: ChatMessage[]): PlatformChatMessage[] {
     );
 }
 
+function latestHistoryScope(messages: ChatMessage[]): PlatformChatSessionScope | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "assistant" && message.answer.historyScope) {
+      return message.answer.historyScope;
+    }
+  }
+  return undefined;
+}
+
 function formatTime(value: string): string {
   try {
     return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -138,8 +167,9 @@ function SourceChips({ refs }: { refs: PlatformCopilotSourceRef[] }) {
 }
 
 export function PlatformCopilotPanel({ sessionKey }: PlatformCopilotPanelProps) {
+  const { user } = useAuthStore();
   const [messages, setMessages] = useSessionChatState<ChatMessage[]>(
-    sessionKey || "platform-copilot-chat",
+    sessionKey || `platform-copilot:${user?.id || user?.email || "anonymous"}`,
     [],
     sanitizeMessages
   );
@@ -153,6 +183,7 @@ export function PlatformCopilotPanel({ sessionKey }: PlatformCopilotPanelProps) 
     if (!message || isSending) return;
 
     const history = replay?.history ?? toApiHistory(messages);
+    const scope = replay?.scope ?? latestHistoryScope(messages);
     if (!replay) {
       setMessages((current) => [
         ...current,
@@ -168,6 +199,7 @@ export function PlatformCopilotPanel({ sessionKey }: PlatformCopilotPanelProps) 
       const answer = await postJson<PlatformCopilotAnswer>("/api/super-admin/copilot/chat", {
         message,
         history,
+        historyScope: scope,
       });
       setMessages((current) => [
         ...current,
@@ -177,7 +209,7 @@ export function PlatformCopilotPanel({ sessionKey }: PlatformCopilotPanelProps) 
     } catch (sendError) {
       const messageText = sendError instanceof Error ? sendError.message : "Platform Copilot could not answer that request.";
       setError(messageText);
-      setRetry({ message, history });
+      setRetry({ message, history, scope });
       setMessages((current) => [
         ...current,
         { id: createId(), role: "error", content: messageText, createdAt: new Date().toISOString() },

@@ -243,12 +243,14 @@ The Copilot assists clinicians; it does not replace clinical judgment. Super adm
 - **Tenant-scoped:** tenant chat context is restricted to the authenticated user's tenant.
 - **Permission-aware:** server-side checks decide which records may be read on every turn.
 - **Assignment-aware:** doctors keep queue/visit assignment scoping; the URL slug never grants access.
+- **Clinical-only answers:** general medical questions and unsupported claims are declined; every answer must cite at least one allowlisted source reference.
 - **Session-only chat:** history lives in browser-tab session storage; no server-side transcript is written.
+- **Scope-bound history:** prior turns replay only when the server-issued tenant/user/patient/permission envelope still matches the current session.
 - **Source-linked:** answers include allowlisted references the clinician can inspect.
 - **Review-first:** responses are framed as drafts for clinician review.
 - **Local-only insertion:** “Add to note” places text in the local editor; it never silently writes to a clinical record.
 - **Separate platform control:** Platform Copilot is read-only, super-admin-gated, and uses platform operations plus aggregate clinical metadata — no note text or patient details.
-- **Rate-limited:** chat, query, and insight routes are limited to 20 requests/minute; handoff to 12/minute; platform chat to 10/minute.
+- **Rate-limited:** chat, query, insight, and overview routes are limited to 20 requests/minute; handoff to 12/minute; platform chat to 10/minute.
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |

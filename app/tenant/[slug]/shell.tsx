@@ -349,7 +349,9 @@ function AuthenticatedShell({
       {user.role === "super_admin" ? (
         <PlatformCopilotButton sessionKey={`platform-copilot:${user.id || user.email}`} />
       ) : (
-        <AICopilotButton sessionKey={`tenant-copilot:${user.id || user.email}:${tenant.slug}`} />
+        <AICopilotButton
+          sessionKey={`tenant-copilot:${user.id || user.email}:${user.tenantId || user.hospitalId || tenant.slug}`}
+        />
       )}
     </>
   );

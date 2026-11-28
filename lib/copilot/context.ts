@@ -672,13 +672,27 @@ export async function buildPatientContext({
       db
         .select({ id: patientConditions.id, condition: patientConditions.condition, createdAt: patientConditions.createdAt })
         .from(patientConditions)
-        .where(and(eq(patientConditions.patientId, patientId), isNull(patientConditions.deletedAt)))
+        .innerJoin(patients, eq(patients.id, patientConditions.patientId))
+        .where(
+          and(
+            eq(patients.tenantId, tenantId),
+            eq(patientConditions.patientId, patientId),
+            isNull(patientConditions.deletedAt)
+          )
+        )
         .orderBy(desc(patientConditions.createdAt))
         .limit(12),
       db
         .select({ id: patientAllergies.id, allergy: patientAllergies.allergy, createdAt: patientAllergies.createdAt })
         .from(patientAllergies)
-        .where(and(eq(patientAllergies.patientId, patientId), isNull(patientAllergies.deletedAt)))
+        .innerJoin(patients, eq(patients.id, patientAllergies.patientId))
+        .where(
+          and(
+            eq(patients.tenantId, tenantId),
+            eq(patientAllergies.patientId, patientId),
+            isNull(patientAllergies.deletedAt)
+          )
+        )
         .orderBy(desc(patientAllergies.createdAt))
         .limit(12),
       db

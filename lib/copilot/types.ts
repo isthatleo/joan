@@ -5,12 +5,28 @@ export const DEFAULT_QUERY_PROMPT = DEFAULT_HANDOFF_QUESTION;
 export const COPILOT_CHAT_HISTORY_LIMIT = 8;
 export const COPILOT_CHAT_MESSAGE_MAX_LENGTH = 1000;
 export const COPILOT_CHAT_REQUEST_MAX_LENGTH = 500;
+export const COPILOT_CHAT_SCOPE_VERSION = 1;
 
 export type CopilotChatRole = "user" | "assistant";
 
 export type CopilotChatMessage = {
   role: CopilotChatRole;
   content: string;
+};
+
+/**
+ * Server-issued, client-held scope envelope for browser-session history.
+ * It contains no transcript or prompt text; the server compares it with the
+ * current session-derived scope before replaying any prior turns.
+ */
+export type CopilotChatSessionScope = {
+  version: typeof COPILOT_CHAT_SCOPE_VERSION;
+  tenantId: string;
+  userId: string;
+  patientId: string | null;
+  queueId: string | null;
+  scopeToAssignee: boolean;
+  allowedCategories: CopilotFactCategory[];
 };
 
 export type CopilotPriority = "critical" | "urgent" | "routine" | "info";
@@ -22,15 +38,18 @@ export type CopilotSourceRef = {
   label?: string;
 };
 
-export type CopilotFactCategory =
-  | "queue"
-  | "appointment"
-  | "lab"
-  | "prescription"
-  | "vitals"
-  | "visit"
-  | "condition"
-  | "allergy";
+export const COPILOT_FACT_CATEGORIES = [
+  "queue",
+  "appointment",
+  "lab",
+  "prescription",
+  "vitals",
+  "visit",
+  "condition",
+  "allergy",
+] as const;
+
+export type CopilotFactCategory = (typeof COPILOT_FACT_CATEGORIES)[number];
 
 export type CopilotFact = {
   id: string;
@@ -116,6 +135,8 @@ export type CopilotAnswer = {
   limitations: string[];
   generatedAt: string;
   scope: CopilotScopeSummary;
+  /** Present on chat responses; required to replay browser-session history. */
+  historyScope?: CopilotChatSessionScope;
 };
 
 export function sourceRefKey(ref: CopilotSourceRef): string {

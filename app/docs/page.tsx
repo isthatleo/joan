@@ -260,7 +260,7 @@ const API_ENDPOINTS: Array<{ method: "GET" | "POST" | "PUT"; path: string; purpo
   { method: "POST", path: "/api/billing/invoices", purpose: "Create an invoice." },
   { method: "POST", path: "/api/queue/add", purpose: "Add a patient to the live queue." },
   { method: "POST", path: "/api/copilot/query", purpose: "Permission-filtered, grounded answer." },
-  { method: "POST", path: "/api/copilot/chat", purpose: "Grounded multi-turn tenant conversation." },
+  { method: "POST", path: "/api/copilot/chat", purpose: "Scope-bound grounded tenant conversation." },
   { method: "POST", path: "/api/copilot/handoff", purpose: "Grounded shift handoff summary." },
   { method: "POST", path: "/api/copilot/insight", purpose: "Patient-specific note draft." },
   { method: "GET", path: "/api/copilot/overview", purpose: "Copilot counts for the panel." },
@@ -460,11 +460,21 @@ const FAQS: Array<{ question: string; answer: ReactNode }> = [
     ),
   },
   {
+    question: "Why did Copilot tell me to start a new chat?",
+    answer: (
+      <>
+        Browser-session history is bound to the tenant, user, patient focus, and permission scope issued with the
+        first reply. If those change, the server returns <InlineCode>400</InlineCode> instead of replaying stale
+        turns. Clear the chat or start a new one.
+      </>
+    ),
+  },
+  {
     question: "What does a 429 Copilot response mean?",
     answer: (
       <>
-        You hit the per-doctor rate limit. Query and insight requests are limited to 20 per minute; handoff is
-        limited to 12 per minute. Wait briefly and retry.
+        You hit the per-doctor rate limit. Query, chat, insight, and overview requests are limited to 20 per minute;
+        handoff is limited to 12 per minute. Wait briefly and retry.
       </>
     ),
   },
@@ -801,11 +811,12 @@ acme.localhost:3000/reception -> /tenant/acme/reception`}
                 description="Grounded tenant chat and a separate read-only platform assistant, both with server-side scope enforcement."
               >
                 <p className="text-[14px] leading-7 text-slate-600 dark:text-slate-400">
-                  Copilot is decision support, not an autonomous clinician. Tenant chat rebuilds its context from
-                  tenant-scoped records on every turn and filters it by the signed-in user’s permissions; doctors keep
-                  assignment scoping while other permitted roles use tenant scope. Conversation history is held in the
-                  browser tab session only and is never stored as a server-side transcript. Answers include source
-                  references the clinician can inspect.
+                  Copilot is decision support, not an autonomous clinician or a general medical chatbot. It answers
+                  only from tenant-scoped records rebuilt on every turn and filtered by the signed-in user’s
+                  permissions; doctors keep assignment scoping while other permitted roles use tenant scope. Generic
+                  medical questions and unsupported claims are declined. Conversation history is held in the browser
+                  tab session only, never stored as a server transcript, and is replayed only when its server-issued
+                  scope envelope still matches the current tenant, user, patient focus, and permissions.
                 </p>
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -834,6 +845,11 @@ acme.localhost:3000/reception -> /tenant/acme/reception`}
                       title: "Session-only chat",
                       detail: "History stays in browser-tab session storage; no server transcript is written.",
                       icon: MessageSquare,
+                    },
+                    {
+                      title: "Scope-bound history",
+                      detail: "Stale turns from another tenant, user, patient, or role set are rejected.",
+                      icon: ShieldCheck,
                     },
                     {
                       title: "Separate platform control",
@@ -870,6 +886,15 @@ acme.localhost:3000/reception -> /tenant/acme/reception`}
                   code={`{
   "message": "Which abnormal lab results need review?",
   "history": [{ "role": "user", "content": "What needs attention today?" }],
+  "historyScope": {
+    "version": 1,
+    "tenantId": "server-issued",
+    "userId": "server-issued",
+    "patientId": null,
+    "queueId": null,
+    "scopeToAssignee": false,
+    "allowedCategories": ["queue", "lab"]
+  },
   "patientId": "optional-patient-id",
   "queueId": "optional-queue-id"
 }`}
@@ -879,7 +904,9 @@ acme.localhost:3000/reception -> /tenant/acme/reception`}
                   <InlineCode>message</InlineCode> is 1–500 characters and{" "}
                   <InlineCode>history</InlineCode> holds at most 8 prior user/assistant turns, capped at 1,000
                   characters each. The server rebuilds and re-authorizes context on every turn; client history is
-                  continuity text only, never evidence or permission. Chat, query, and insight are limited to 20
+                  continuity text only, never evidence or permission. <InlineCode>historyScope</InlineCode> is the
+                  server-issued envelope from the previous reply; a mismatch returns <InlineCode>400</InlineCode>{" "}
+                  before any prior turn reaches the model. Chat, query, insight, and overview are limited to 20
                   requests per minute; handoff to 12 per minute. The older{" "}
                   <InlineCode>POST /api/copilot/query</InlineCode> one-shot endpoint remains available.
                 </p>
@@ -888,7 +915,13 @@ acme.localhost:3000/reception -> /tenant/acme/reception`}
                   label="POST /api/super-admin/copilot/chat"
                   code={`{
   "message": "How many tenants are active?",
-  "history": []
+  "history": [],
+  "historyScope": {
+    "version": 1,
+    "actorId": "server-issued",
+    "access": "platform",
+    "dataLayer": "platform_operations+read_only_clinical_metadata"
+  }
 }`}
                 />
 

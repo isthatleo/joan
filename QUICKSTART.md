@@ -118,10 +118,17 @@ curl -X POST https://joanhealth.tech//api/queue/add \
   -H "Content-Type: application/json" \
   -d '{"tenantId":"...","patientId":"...","departmentId":"...","priority":"normal"}'
 
-# Ask Copilot a free-form question (doctor session required; answers are tenant and permission scoped)
+# Ask Copilot a free-form question (doctor session required; answers are tenant and permission scoped,
+# and generic medical questions outside the in-scope records are declined)
 curl -X POST https://joanhealth.tech/api/copilot/query \
   -H "Content-Type: application/json" \
   -d "{\"question\":\"Summarize today's high-priority cases for handoff.\"}"
+
+# Multi-turn chat: send the historyScope returned by the previous reply when history is non-empty.
+# The server rejects stale scopes before replaying prior turns.
+curl -X POST https://joanhealth.tech/api/copilot/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Which abnormal lab results need review?","history":[]}'
 
 # Generate a grounded handoff summary (doctor session required)
 curl -X POST https://joanhealth.tech/api/copilot/handoff \

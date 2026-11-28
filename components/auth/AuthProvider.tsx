@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
+import { clearCopilotSessionChats } from "@/lib/client/copilot-session";
 import {
   getResolvedTenantLoginPath,
   getTenantDashboardPath,
@@ -202,6 +203,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let pendingSessionTimeout: number | null = null;
 
     async function hydrateAuthenticatedUser(activeUser: any, tenantSlug: string | null) {
+      const identityKey = `${activeUser.email}:${tenantSlug || ""}`;
+      if (hydratedSessionKeyRef.current && hydratedSessionKeyRef.current !== identityKey) {
+        clearCopilotSessionChats();
+      }
+
       const requestedRole: AppRole | null = /^\/(?:tenant\/[^/]+\/)?admin(?:\/|$)/.test(pathname) ? "hospital_admin" : null;
       const cached = readBootstrapCache(activeUser.email, tenantSlug);
 

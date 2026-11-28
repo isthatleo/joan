@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { clearCopilotSessionChats } from "@/lib/client/copilot-session";
 
 export type AppRole = 
   | "super_admin"
@@ -40,5 +41,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   setUser: (user) => set({ user }),
   setPermissions: (permissions) => set({ permissions }),
   setLoading: (isLoading) => set({ isLoading }),
-  logout: () => set({ user: null, permissions: new Map(), isLoading: false }),
+  logout: () => {
+    clearCopilotSessionChats();
+    set({ user: null, permissions: new Map(), isLoading: false });
+  },
 }));

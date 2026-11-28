@@ -35,7 +35,9 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
       {user.role === "super_admin" ? (
         <PlatformCopilotButton sessionKey={`platform-copilot:${user.id || user.email}`} />
       ) : (
-        <AICopilotButton sessionKey={`tenant-copilot:${user.id || user.email}`} />
+        <AICopilotButton
+          sessionKey={`tenant-copilot:${user.id || user.email}:${user.tenantId || user.hospitalId || "global"}`}
+        />
       )}
     </>
   );

@@ -192,17 +192,22 @@ export async function ensurePlatformBillingSchema() {
 
 export async function requireSuperAdmin(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers }).catch(() => null as any);
-  if (!session?.user?.email && !session?.user?.id) {
+  if (!session?.user?.email) {
     return { ok: false as const, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
 
-  const appUser = await db.query.users.findFirst({
-    where: session.user.email ? ilike(users.email, session.user.email) : eq(users.id, session.user.id),
-  });
+  // Session email is the only identity link. Compare it as an exact normalized
+  // value and fail closed if duplicate app users would make the choice ambiguous.
+  const candidates = await db
+    .select()
+    .from(users)
+    .where(and(sql`lower(${users.email}) = lower(${session.user.email})`, isNull(users.deletedAt)))
+    .limit(2);
 
-  if (!appUser?.isActive) {
+  if (candidates.length !== 1 || !candidates[0].isActive) {
     return { ok: false as const, response: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   }
+  const appUser = candidates[0];
 
   const assignedRoles = await db
     .select({ name: roles.name })

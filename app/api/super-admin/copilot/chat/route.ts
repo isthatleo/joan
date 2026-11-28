@@ -3,6 +3,11 @@ import { z } from "zod";
 import { checkRateLimit } from "@/lib/api/utils";
 import { resolvePlatformCopilotActor } from "@/lib/platform-copilot/actor";
 import { buildPlatformCopilotContext } from "@/lib/platform-copilot/context";
+import {
+  createPlatformChatSessionScope,
+  matchesPlatformChatSessionScope,
+  platformChatSessionScopeSchema,
+} from "@/lib/platform-copilot/history-scope";
 import { platformCopilotErrorResponse } from "@/lib/platform-copilot/route-errors";
 import { generatePlatformChatAnswer } from "@/lib/platform-copilot/service";
 import {
@@ -26,6 +31,7 @@ const requestSchema = z
       )
       .max(PLATFORM_CHAT_HISTORY_LIMIT)
       .default([]),
+    historyScope: platformChatSessionScopeSchema.optional(),
   })
   .strict();
 
@@ -49,6 +55,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid platform copilot request" }, { status: 400, headers: NO_STORE });
   }
 
+  const expectedHistoryScope = createPlatformChatSessionScope(gate.actor.userId);
+  if (
+    body.history.length > 0 &&
+    !matchesPlatformChatSessionScope(body.historyScope, expectedHistoryScope)
+  ) {
+    return NextResponse.json(
+      { error: "Chat history belongs to a different Copilot session. Start a new chat." },
+      { status: 400, headers: NO_STORE }
+    );
+  }
+
   try {
     const context = await buildPlatformCopilotContext();
     const answer = await generatePlatformChatAnswer({
@@ -57,7 +74,10 @@ export async function POST(request: NextRequest) {
       history: body.history,
       actor: gate.actor,
     });
-    return NextResponse.json(answer, { headers: NO_STORE });
+    return NextResponse.json(
+      { ...answer, historyScope: expectedHistoryScope },
+      { headers: NO_STORE }
+    );
   } catch (error) {
     return platformCopilotErrorResponse(error, "super-admin/copilot/chat");
   }

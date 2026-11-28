@@ -4,6 +4,11 @@ import { checkRateLimit } from "@/lib/api/utils";
 import { filterContextByAccess } from "@/lib/copilot/access";
 import { resolveCopilotRequestContext } from "@/lib/copilot/actor";
 import { buildQueryContext } from "@/lib/copilot/context";
+import {
+  copilotChatSessionScopeSchema,
+  createCopilotChatSessionScope,
+  matchesCopilotChatSessionScope,
+} from "@/lib/copilot/history-scope";
 import { copilotErrorResponse } from "@/lib/copilot/route-errors";
 import { generateQueryAnswer } from "@/lib/copilot/service";
 import {
@@ -28,6 +33,7 @@ const requestSchema = z
       )
       .max(COPILOT_CHAT_HISTORY_LIMIT)
       .default([]),
+    historyScope: copilotChatSessionScopeSchema.optional(),
   })
   .strict();
 
@@ -52,6 +58,26 @@ export async function POST(request: NextRequest) {
     body = requestSchema.parse(await request.json());
   } catch {
     return NextResponse.json({ error: "Invalid copilot chat request" }, { status: 400, headers: NO_STORE });
+  }
+
+  const allowedCategories = Array.from(access.allowedCategories).sort();
+  const expectedHistoryScope = createCopilotChatSessionScope({
+    tenantId: actor.tenantId,
+    userId: actor.userId,
+    patientId: body.patientId,
+    queueId: body.queueId,
+    scopeToAssignee,
+    allowedCategories,
+  });
+
+  if (
+    body.history.length > 0 &&
+    !matchesCopilotChatSessionScope(body.historyScope, expectedHistoryScope)
+  ) {
+    return NextResponse.json(
+      { error: "Chat history belongs to a different Copilot scope. Start a new chat." },
+      { status: 400, headers: NO_STORE }
+    );
   }
 
   try {
@@ -83,13 +109,16 @@ export async function POST(request: NextRequest) {
       scope: {
         tenantId: actor.tenantId,
         userId: actor.userId,
-        allowedCategories: Array.from(access.allowedCategories).sort(),
+        allowedCategories,
         factsReviewed: filteredContext.facts.length,
         scopeToAssignee,
       },
     });
 
-    return NextResponse.json(answer, { headers: NO_STORE });
+    return NextResponse.json(
+      { ...answer, historyScope: expectedHistoryScope },
+      { headers: NO_STORE }
+    );
   } catch (error) {
     return copilotErrorResponse(error, "copilot/chat");
   }

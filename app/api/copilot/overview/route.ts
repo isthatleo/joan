@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit } from "@/lib/api/utils";
 import { filterContextByAccess } from "@/lib/copilot/access";
 import { resolveCopilotRequestContext } from "@/lib/copilot/actor";
 import { buildHandoffContext } from "@/lib/copilot/context";
@@ -11,6 +12,13 @@ export async function GET(request: NextRequest) {
   }
 
   const { actor, access } = gate;
+
+  if (!checkRateLimit(`copilot-overview:${actor.userId}`, 20, 60_000)) {
+    return NextResponse.json(
+      { error: "Too many copilot requests. Try again shortly." },
+      { status: 429, headers: { "Cache-Control": "no-store" } }
+    );
+  }
 
   try {
     const copilotContext = await buildHandoffContext({
