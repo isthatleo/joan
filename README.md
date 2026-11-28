@@ -238,24 +238,29 @@ The landing interface itself is built from accessible, icon-driven React compone
 
 ## ✨ Grounded AI Copilot
 
-The Copilot assists clinicians; it does not replace clinical judgment.
+The Copilot assists clinicians; it does not replace clinical judgment. Super admins use a separate Platform Copilot.
 
-- **Tenant-scoped:** context is restricted to the authenticated user's tenant.
-- **Permission-aware:** server-side checks decide which records may be read.
+- **Tenant-scoped:** tenant chat context is restricted to the authenticated user's tenant.
+- **Permission-aware:** server-side checks decide which records may be read on every turn.
+- **Assignment-aware:** doctors keep queue/visit assignment scoping; the URL slug never grants access.
+- **Session-only chat:** history lives in browser-tab session storage; no server-side transcript is written.
 - **Source-linked:** answers include allowlisted references the clinician can inspect.
 - **Review-first:** responses are framed as drafts for clinician review.
 - **Local-only insertion:** “Add to note” places text in the local editor; it never silently writes to a clinical record.
-- **Rate-limited:** query and insight routes are limited to 20 requests/minute; handoff to 12/minute.
+- **Separate platform control:** Platform Copilot is read-only, super-admin-gated, and uses platform operations plus aggregate clinical metadata — no note text or patient details.
+- **Rate-limited:** chat, query, and insight routes are limited to 20 requests/minute; handoff to 12/minute; platform chat to 10/minute.
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
-| `/api/copilot/query` | `POST` | Free-form, grounded clinical question. |
+| `/api/copilot/query` | `POST` | One-shot, permission-filtered clinical question. |
+| `/api/copilot/chat` | `POST` | Grounded multi-turn tenant conversation. |
 | `/api/copilot/handoff` | `POST` | Grounded shift/handoff summary. |
 | `/api/copilot/insight` | `POST` | Focused insight for a selected patient or context. |
 | `/api/copilot/overview` | `GET` | Safe overview context for the Copilot panel. |
+| `/api/super-admin/copilot/chat` | `POST` | Read-only platform operations conversation. |
 | `/api/ai/summary/[id]` | `GET` | Legacy patient-summary wrapper around the grounded service. |
 
-`OPENAI_API_KEY` is server-only. Never prefix it with `NEXT_PUBLIC_` or expose it to the browser. The default model is `gpt-4o-mini`; override it with server-only `OPENAI_MODEL`.
+Copilot credentials are server-only. Never prefix them with `NEXT_PUBLIC_` or expose them to the browser. Configure `OPENAI_API_KEY`, `NVIDIA_API_KEY`, `OPENROUTER_API_KEY`, or `GROQ_API_KEY`; Copilot uses the first configured provider that returns a valid response in that order. `OPENAI_MODEL`, `NVIDIA_MODEL`, `OPENROUTER_MODEL`, and `GROQ_MODEL` are optional server-only overrides.
 
 ---
 
@@ -284,7 +289,7 @@ Current landing-page integration labels:
 
 Additional runtime/observability packages:
 
-- **OpenAI SDK** — grounded Copilot with `gpt-4o-mini` default.
+- **OpenAI-compatible SDK** — grounded Copilot with OpenAI → NVIDIA → OpenRouter → Groq fallback.
 - **Socket.IO + Redis** — real-time queue and notification updates.
 - **Twilio** — SMS notifications, with optional WhatsApp number support.
 - **Resend** — transactional email and contact routing.
@@ -390,8 +395,14 @@ Values below are references found in code. Set only what your deployment uses.
 
 | Variable | Purpose |
 | --- | --- |
-| `OPENAI_API_KEY` | **Server-only** Copilot credential. |
-| `OPENAI_MODEL` | Optional model override; defaults to `gpt-4o-mini`. |
+| `OPENAI_API_KEY` | **Server-only** Copilot credential; first provider in the fallback chain. |
+| `OPENAI_MODEL` | Optional OpenAI model override; defaults to `gpt-4o-mini`. |
+| `NVIDIA_API_KEY` | **Server-only** fallback Copilot credential. |
+| `NVIDIA_MODEL` | Optional NVIDIA model override. |
+| `OPENROUTER_API_KEY` | **Server-only** fallback Copilot credential. |
+| `OPENROUTER_MODEL` | Optional OpenRouter model override. |
+| `GROQ_API_KEY` | **Server-only** fallback Copilot credential. |
+| `GROQ_MODEL` | Optional Groq model override. |
 | `INTEGRATIONS_ENCRYPTION_KEY` | Base64 key used by integration crypto helpers. |
 | `REDIS_URL` | Redis connection; defaults to `redis://localhost:6379` where used. |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER` | SMS credentials and sender. |
@@ -562,7 +573,7 @@ Representative API areas:
 
 - **Auth/bootstrap:** `auth/first-user`, `auth/bootstrap`, `auth/login-guard`, `auth/otp`, `auth/password-reset`, `auth/role`, `auth/assign-role`
 - **Contact:** `contact` validates and rate-limits submissions, stores `feedbacks`, and notifies active Super Admins.
-- **Copilot:** `copilot/query`, `copilot/handoff`, `copilot/insight`, `copilot/overview`, and legacy `ai/summary/[id]`.
+- **Copilot:** `copilot/query`, `copilot/chat`, `copilot/handoff`, `copilot/insight`, `copilot/overview`, `super-admin/copilot/chat`, and legacy `ai/summary/[id]`.
 - **Clinical:** `doctor`, `nurse`, `lab`, `lab-orders`, `lab-results`, `pharmacy`, `prescriptions`, `patients`, `appointments`, `queue`, `vitals`, `visits`
 - **Finance:** `billing`, `payments`, `retainer-plans`, `subscription-plans`, `platform/billing/pesapal`, `super-admin/billing`
 - **Tenant/platform:** `tenant/[slug]/...` and `tenants/[slug]/...`, `super-admin`, `platform`, `hospital`, `system`, `roles`, `permissions`, `users`, `sessions`

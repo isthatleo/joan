@@ -1,6 +1,18 @@
 export const DEFAULT_HANDOFF_QUESTION = "Summarize today's high-priority cases for handoff.";
 export const DEFAULT_QUERY_PROMPT = DEFAULT_HANDOFF_QUESTION;
 
+/** Chat history is bounded and lives only in the browser session. */
+export const COPILOT_CHAT_HISTORY_LIMIT = 8;
+export const COPILOT_CHAT_MESSAGE_MAX_LENGTH = 1000;
+export const COPILOT_CHAT_REQUEST_MAX_LENGTH = 500;
+
+export type CopilotChatRole = "user" | "assistant";
+
+export type CopilotChatMessage = {
+  role: CopilotChatRole;
+  content: string;
+};
+
 export type CopilotPriority = "critical" | "urgent" | "routine" | "info";
 
 export type CopilotSourceRef = {

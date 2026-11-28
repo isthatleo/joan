@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
 import { handleApiError } from "@/lib/api/utils";
-import { CopilotConfigurationError, CopilotModelError } from "./service";
+import {
+  CopilotConfigurationError,
+  CopilotModelError,
+} from "@/lib/ai/provider";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
 export function copilotErrorResponse(error: unknown, context: string) {
   if (error instanceof CopilotConfigurationError) {
     return NextResponse.json(
-      { error: "AI Copilot is not configured. Set OPENAI_API_KEY on the server." },
+      {
+        error:
+          "AI Copilot is not configured. Set OPENAI_API_KEY, NVIDIA_API_KEY, OPENROUTER_API_KEY, or GROQ_API_KEY on the server.",
+      },
       { status: 503, headers: NO_STORE }
     );
   }

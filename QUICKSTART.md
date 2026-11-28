@@ -9,8 +9,11 @@ npm install
 # Set up environment variables
 # Create .env.local with:
 DATABASE_URL=your_neon_database_url
-OPENAI_API_KEY=your_openai_key
-OPENAI_MODEL=gpt-4o-mini  # optional; defaults to gpt-4o-mini
+OPENAI_API_KEY=your_openai_key            # first Copilot provider
+OPENAI_MODEL=gpt-4o-mini                  # optional; defaults to gpt-4o-mini
+NVIDIA_API_KEY=your_nvidia_key            # optional fallback
+OPENROUTER_API_KEY=your_openrouter_key    # optional fallback
+GROQ_API_KEY=your_groq_key                # optional fallback
 TWILIO_ACCOUNT_SID=your_twilio_sid
 TWILIO_AUTH_TOKEN=your_twilio_token
 TWILIO_PHONE_NUMBER=your_twilio_number

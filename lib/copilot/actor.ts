@@ -29,6 +29,13 @@ function isDoctorRow(row: ActorRow): boolean {
   );
 }
 
+function isSuperAdminRow(row: ActorRow): boolean {
+  return (
+    String(row.baseRole ?? "").trim().toLowerCase() === "super_admin" ||
+    String(row.linkedRole ?? "").trim().toLowerCase() === "super_admin"
+  );
+}
+
 /**
  * Resolves the signed-in app user from the Better Auth session. Copilot is
  * available to every active user with a tenant; `isDoctor` is returned so
@@ -68,6 +75,13 @@ export async function resolveCopilotActor(headers: Headers): Promise<ActorResult
 
   if (!activeUser) {
     return { ok: false, status: 403, error: "No active user account found for this session" };
+  }
+  if (rows.some((row) => row.id === activeUser.id && isSuperAdminRow(row))) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Platform super admins use Platform Copilot; clinical Copilot is tenant-scoped.",
+    };
   }
   if (!activeUser.tenantId) {
     return { ok: false, status: 403, error: "Tenant context required" };

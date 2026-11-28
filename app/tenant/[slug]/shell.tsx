@@ -4,6 +4,7 @@ import { AICopilotButton } from "@/components/AICopilotButton";
 import { Sidebar } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { PlatformCopilotButton } from "@/components/platform-copilot/PlatformCopilotButton";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { normalizeTenantModules, getModuleKeyForPath, isTenantModuleEnabled } from "@/lib/tenant-modules";
 import { getTenantSettingsSyncEventName } from "@/lib/hospital-settings-sync";
@@ -345,7 +346,11 @@ function AuthenticatedShell({
           <main className={`flex-1 overflow-y-auto scrollbar-thin ${mobileNavEnabled ? "px-3 py-4 sm:px-4 lg:px-6 lg:py-6" : "px-6 py-6"}`}>{children}</main>
         </div>
       </div>
-      <AICopilotButton />
+      {user.role === "super_admin" ? (
+        <PlatformCopilotButton sessionKey={`platform-copilot:${user.id || user.email}`} />
+      ) : (
+        <AICopilotButton sessionKey={`tenant-copilot:${user.id || user.email}:${tenant.slug}`} />
+      )}
     </>
   );
 }

@@ -4,6 +4,7 @@ import { AICopilotButton } from "@/components/AICopilotButton";
 import { Sidebar } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { PlatformCopilotButton } from "@/components/platform-copilot/PlatformCopilotButton";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { useAuthStore } from "@/stores/auth";
 
@@ -31,7 +32,11 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
           <main className="flex-1 overflow-y-auto px-6 py-6 scrollbar-thin">{children}</main>
         </div>
       </div>
-      <AICopilotButton />
+      {user.role === "super_admin" ? (
+        <PlatformCopilotButton sessionKey={`platform-copilot:${user.id || user.email}`} />
+      ) : (
+        <AICopilotButton sessionKey={`tenant-copilot:${user.id || user.email}`} />
+      )}
     </>
   );
 }

@@ -260,9 +260,15 @@ const API_ENDPOINTS: Array<{ method: "GET" | "POST" | "PUT"; path: string; purpo
   { method: "POST", path: "/api/billing/invoices", purpose: "Create an invoice." },
   { method: "POST", path: "/api/queue/add", purpose: "Add a patient to the live queue." },
   { method: "POST", path: "/api/copilot/query", purpose: "Permission-filtered, grounded answer." },
+  { method: "POST", path: "/api/copilot/chat", purpose: "Grounded multi-turn tenant conversation." },
   { method: "POST", path: "/api/copilot/handoff", purpose: "Grounded shift handoff summary." },
   { method: "POST", path: "/api/copilot/insight", purpose: "Patient-specific note draft." },
   { method: "GET", path: "/api/copilot/overview", purpose: "Copilot counts for the panel." },
+  {
+    method: "POST",
+    path: "/api/super-admin/copilot/chat",
+    purpose: "Read-only platform operations conversation.",
+  },
   { method: "GET", path: "/api/ai/summary/[id]", purpose: "Legacy patient-summary wrapper." },
   { method: "POST", path: "/api/contact", purpose: "Platform feedback routed to super admins." },
 ];
@@ -273,7 +279,11 @@ const STACK = [
   { label: "Data", detail: "PostgreSQL with Drizzle ORM and the Neon serverless driver" },
   { label: "Auth & RBAC", detail: "Better Auth 1.6 with server-side role and permission checks" },
   { label: "Realtime", detail: "Socket.IO 4.8 · Redis 5 · ws" },
-  { label: "AI", detail: "OpenAI SDK 6.x with a grounded service layer (gpt-4o-mini default)" },
+  {
+    label: "AI",
+    detail:
+      "Server-only OpenAI-compatible SDK with OpenAI → NVIDIA → OpenRouter → Groq fallback and grounded service layers",
+  },
   { label: "Messaging & payments", detail: "Twilio · Resend · Stripe" },
   {
     label: "Validation & observability",
@@ -606,7 +616,7 @@ export default function DocumentationPage() {
                   items={[
                     "Node.js >= 18 and npm >= 9",
                     "Git and a PostgreSQL connection string; Neon works well",
-                    "Optional: Redis, OpenAI, Twilio, Resend, Stripe, and worker credentials",
+                    "Optional: Redis, Copilot model-provider, Twilio, Resend, Stripe, and worker credentials",
                   ]}
                 />
                 <CodeBlock
@@ -639,9 +649,13 @@ npm run dev:socket`}
                   No <InlineCode>.env</InlineCode> file is committed. Core variable names include{" "}
                   <InlineCode>DATABASE_URL</InlineCode>, <InlineCode>BETTER_AUTH_SECRET</InlineCode>,{" "}
                   <InlineCode>BETTER_AUTH_URL</InlineCode>, and <InlineCode>NEXT_PUBLIC_APP_URL</InlineCode>. Never
-                  expose <InlineCode>OPENAI_API_KEY</InlineCode> to the browser;{" "}
-                  <InlineCode>OPENAI_MODEL</InlineCode> is an optional server-only override for the{" "}
-                  <InlineCode>gpt-4o-mini</InlineCode> default.
+                  expose Copilot credentials to the browser. Configure{" "}
+                  <InlineCode>OPENAI_API_KEY</InlineCode>, <InlineCode>NVIDIA_API_KEY</InlineCode>,{" "}
+                  <InlineCode>OPENROUTER_API_KEY</InlineCode>, or <InlineCode>GROQ_API_KEY</InlineCode> on the
+                  server; Copilot uses the first configured provider that returns a valid response.{" "}
+                  <InlineCode>OPENAI_MODEL</InlineCode>, <InlineCode>NVIDIA_MODEL</InlineCode>,{" "}
+                  <InlineCode>OPENROUTER_MODEL</InlineCode>, and <InlineCode>GROQ_MODEL</InlineCode> are optional
+                  server-only model overrides.
                 </Callout>
               </Section>
 
@@ -784,13 +798,14 @@ acme.localhost:3000/reception -> /tenant/acme/reception`}
                 id="ai-copilot"
                 number="06"
                 title="AI Copilot"
-                description="Grounded answers from authorized in-app records, framed for clinician review."
+                description="Grounded tenant chat and a separate read-only platform assistant, both with server-side scope enforcement."
               >
                 <p className="text-[14px] leading-7 text-slate-600 dark:text-slate-400">
-                  Copilot is decision support, not an autonomous clinician. Context is assembled from tenant-scoped
-                  records and filtered by the signed-in user’s permissions; doctors keep assignment scoping while
-                  other permitted roles use tenant scope. Answers include source references the clinician can
-                  inspect.
+                  Copilot is decision support, not an autonomous clinician. Tenant chat rebuilds its context from
+                  tenant-scoped records on every turn and filters it by the signed-in user’s permissions; doctors keep
+                  assignment scoping while other permitted roles use tenant scope. Conversation history is held in the
+                  browser tab session only and is never stored as a server-side transcript. Answers include source
+                  references the clinician can inspect.
                 </p>
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -814,6 +829,17 @@ acme.localhost:3000/reception -> /tenant/acme/reception`}
                       title: "Review-first",
                       detail: "Responses are drafts for clinician review, not final decisions.",
                       icon: ClipboardList,
+                    },
+                    {
+                      title: "Session-only chat",
+                      detail: "History stays in browser-tab session storage; no server transcript is written.",
+                      icon: MessageSquare,
+                    },
+                    {
+                      title: "Separate platform control",
+                      detail:
+                        "Super admins use a read-only assistant with its own gate, data layer, and controls.",
+                      icon: Building2,
                     },
                   ].map((item) => (
                     <div
@@ -840,21 +866,39 @@ acme.localhost:3000/reception -> /tenant/acme/reception`}
                 </Callout>
 
                 <CodeBlock
-                  label="POST /api/copilot/query"
+                  label="POST /api/copilot/chat"
                   code={`{
-  "question": "Summarize the urgent queue for this shift.",
+  "message": "Which abnormal lab results need review?",
+  "history": [{ "role": "user", "content": "What needs attention today?" }],
   "patientId": "optional-patient-id",
   "queueId": "optional-queue-id"
 }`}
                 />
 
                 <p className="text-[14px] leading-7 text-slate-600 dark:text-slate-400">
-                  <InlineCode>question</InlineCode> is 1–500 characters; the patient and queue identifiers are
-                  optional. Handoff accepts a question only. Insight requires{" "}
-                  <InlineCode>queueId</InlineCode>, <InlineCode>patientId</InlineCode>, and a{" "}
-                  <InlineCode>focus</InlineCode> of <InlineCode>assessment</InlineCode>,{" "}
-                  <InlineCode>plan</InlineCode>, or <InlineCode>notes</InlineCode>. Query and insight are limited to
-                  20 requests per minute; handoff to 12 per minute.
+                  <InlineCode>message</InlineCode> is 1–500 characters and{" "}
+                  <InlineCode>history</InlineCode> holds at most 8 prior user/assistant turns, capped at 1,000
+                  characters each. The server rebuilds and re-authorizes context on every turn; client history is
+                  continuity text only, never evidence or permission. Chat, query, and insight are limited to 20
+                  requests per minute; handoff to 12 per minute. The older{" "}
+                  <InlineCode>POST /api/copilot/query</InlineCode> one-shot endpoint remains available.
+                </p>
+
+                <CodeBlock
+                  label="POST /api/super-admin/copilot/chat"
+                  code={`{
+  "message": "How many tenants are active?",
+  "history": []
+}`}
+                />
+
+                <p className="text-[14px] leading-7 text-slate-600 dark:text-slate-400">
+                  Platform Copilot has a separate session-derived super-admin gate, a read-only data layer, and a
+                  stricter 10-requests-per-minute limit. Its request shape intentionally rejects{" "}
+                  <InlineCode>patientId</InlineCode>, <InlineCode>queueId</InlineCode>,{" "}
+                  <InlineCode>tenantId</InlineCode>, and <InlineCode>role</InlineCode>. It answers from platform
+                  operations plus aggregate clinical counts, trends, and opaque record identifiers. It does not
+                  include note text, patient details, or write actions.
                 </p>
               </Section>
 
